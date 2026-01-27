@@ -46,6 +46,26 @@ curl -X POST \
   -d '{"url": "https://your-service-xyz.a.run.app/tg/webhook"}'
 ```
 
+## Deploy via GitHub Actions (WIF)
+Для деплоя через GitHub Actions с Workload Identity Federation настройте secrets:
+- `GCP_WIF_PROVIDER`
+- `GCP_SA_EMAIL`
+- `GCP_PROJECT`
+- `GCP_REGION`
+- `CLOUD_RUN_SERVICE`
+- `TELEGRAM_BOT_TOKEN`
+- `NOTION_TOKEN`
+- `NOTION_ORDERS_DB_ID`
+- `NOTION_MODELS_DB_ID`
+- `ALLOWED_EDITORS`
+- `TIMEZONE` (optional)
+
+Публичный URL сервиса можно узнать в Cloud Run после деплоя, затем установить webhook:
+```bash
+curl -X POST https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook \
+  -d "url=https://<cloud-run-url>/tg/webhook"
+```
+
 ## Notes
 - Orders DB property names должны совпадать с требованиями (open, model, type, in, out, status, count, comments).
 - Models DB использует стандартное название title property `Name`.
