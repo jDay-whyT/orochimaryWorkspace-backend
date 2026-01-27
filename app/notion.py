@@ -33,18 +33,7 @@ class NotionClient:
         await self._session.close()
 
     async def _request(self, method: str, url: str, json: dict[str, Any] | None = None) -> dict[str, Any]:
-        retries = 2
-        for attempt in range(retries + 1):
-            async with self._session.request(method, url, json=json) as response:
-                if response.status in {429, 500, 502, 503, 504} and attempt < retries:
-                    await asyncio.sleep(0.5 * (attempt + 1))
-                    continue
-                if response.status >= 400:
-                    payload = await response.text()
-                    LOGGER.error("Notion API error %s %s: %s", response.status, url, payload)
-                    raise RuntimeError(f"Notion API error {response.status}")
-                return await response.json()
-        raise RuntimeError("Notion API retry limit exceeded")
+        return await safe_request(self._session, method, url, json=json)
 
     async def query_models(self, database_id: str, name_query: str) -> list[tuple[str, str]]:
         payload = {
@@ -151,3 +140,25 @@ def _extract_select(page: dict[str, Any], property_name: str) -> str | None:
     if not value:
         return None
     return value.get("name")
+
+
+async def safe_request(
+    session: aiohttp.ClientSession,
+    method: str,
+    url: str,
+    json: dict[str, Any] | None = None,
+    retries: int = 2,
+) -> dict[str, Any]:
+    for attempt in range(retries + 1):
+        async with session.request(method, url, json=json) as response:
+            if response.status < 400:
+                return await response.json()
+            payload = (await response.text()).strip()
+            short_payload = payload[:200] if payload else "<empty>"
+            if response.status in {429, 500, 502, 503, 504} and attempt < retries:
+                LOGGER.warning("Notion API retry %s %s: %s", response.status, url, short_payload)
+                await asyncio.sleep(0.5 * (attempt + 1))
+                continue
+            LOGGER.error("Notion API error %s %s: %s", response.status, url, short_payload)
+            raise RuntimeError(f"Notion API error {response.status}")
+    raise RuntimeError("Notion API retry limit exceeded")

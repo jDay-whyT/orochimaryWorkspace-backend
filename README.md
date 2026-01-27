@@ -2,18 +2,11 @@
 
 Backend Telegram bot for managing Notion Orders database with aiogram v3 and webhook deployment on Google Cloud Run.
 
-## Features
-- Webhook-based Telegram bot (no long polling).
-- Order creation flow: `/orders_create`.
-- Order closing flow: `/orders_close`.
-- Read-only access for users not in `ALLOWED_EDITORS`.
+## What it does
+- **Create flow** (`/orders_create`): select model → choose type → qty → in date → comments → create orders in Notion.
+- **Close flow** (`/orders_close`): select model → list open orders → close today (editors only).
 
-## Requirements
-- Python 3.11+
-- Notion integration token with access to Orders and Models databases.
-- Telegram bot token.
-
-## Environment variables
+## Env vars
 - `TELEGRAM_BOT_TOKEN`
 - `NOTION_TOKEN`
 - `NOTION_ORDERS_DB_ID`
@@ -21,31 +14,60 @@ Backend Telegram bot for managing Notion Orders database with aiogram v3 and web
 - `ALLOWED_EDITORS` (comma-separated Telegram user IDs)
 - `TIMEZONE` (optional, default `UTC`)
 
-## Local запуск
+Example `.env`:
+```
+TELEGRAM_BOT_TOKEN=123456:abc
+NOTION_TOKEN=secret_notion_token
+NOTION_ORDERS_DB_ID=aaaaaaaaaaaaaaaaaaaa
+NOTION_MODELS_DB_ID=bbbbbbbbbbbbbbbbbbbb
+ALLOWED_EDITORS=123,456
+TIMEZONE=Europe/Moscow
+```
+
+## Run locally
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-export TELEGRAM_BOT_TOKEN=...
-export NOTION_TOKEN=...
-export NOTION_ORDERS_DB_ID=...
-export NOTION_MODELS_DB_ID=...
-export ALLOWED_EDITORS=123,456
+cp .env.example .env
+export $(cat .env | xargs)
 python -m app.server
 ```
 
-Сервер стартует на `http://localhost:8080`.
+Server starts at `http://localhost:8080`.
 
-## Установка webhook
-После деплоя на Cloud Run получите публичный URL (например `https://your-service-xyz.a.run.app`).
+### Receive webhook locally
+Expose your local server and point Telegram to it:
 
+**ngrok**
+```bash
+ngrok http 8080
+```
+
+**Cloudflared**
+```bash
+cloudflared tunnel --url http://localhost:8080
+```
+
+## Set Telegram webhook
+After deploy (or after starting ngrok/cloudflared), set webhook to `/tg/webhook`:
 ```bash
 curl -X POST \
   "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://your-service-xyz.a.run.app/tg/webhook"}'
+  -d '{"url": "https://your-service-xyz.a.run.app/tg/webhook", "secret_token": "your-secret"}'
+```
+
+## Deploy to Cloud Run
+```bash
+gcloud builds submit --tag gcr.io/$PROJECT_ID/orochimary-bot
+gcloud run deploy orochimary-bot \
+  --image gcr.io/$PROJECT_ID/orochimary-bot \
+  --platform managed \
+  --region $REGION \
+  --set-env-vars TELEGRAM_BOT_TOKEN=...,NOTION_TOKEN=...,NOTION_ORDERS_DB_ID=...,NOTION_MODELS_DB_ID=...,ALLOWED_EDITORS=...
 ```
 
 ## Notes
-- Orders DB property names должны совпадать с требованиями (open, model, type, in, out, status, count, comments).
-- Models DB использует стандартное название title property `Name`.
+- Orders DB property names must match (open, model, type, in, out, status, count, comments).
+- Models DB uses standard title property name `Name`.
