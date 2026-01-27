@@ -1,0 +1,77 @@
+name: Deploy to Cloud Run (Docker)
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "Override Cloud Run region (optional)"
+        required: false
+        type: string
+      service:
+        description: "Override Cloud Run service name (optional)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT }}
+  REGION: ${{ secrets.GCP_REGION }}
+  SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+  AR_REPO: orochimary
+  IMAGE: orochimary-bot
+  WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+  SERVICE_ACCOUNT: ${{ secrets.GCP_SA_EMAIL }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      REGION: ${{ inputs.region || env.REGION }}
+      SERVICE: ${{ inputs.service || env.SERVICE }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push image
+        env:
+          IMAGE_URI: "${REGION}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE }}:${{ github.sha }}"
+        run: |
+          docker build -t "${IMAGE_URI}" .
+          docker push "${IMAGE_URI}"
+
+      - name: Deploy to Cloud Run
+        env:
+          IMAGE_URI: "${REGION}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE }}:${{ github.sha }}"
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_ORDERS_DB_ID: ${{ secrets.NOTION_ORDERS_DB_ID }}
+          NOTION_MODELS_DB_ID: ${{ secrets.NOTION_MODELS_DB_ID }}
+          ALLOWED_EDITORS: ${{ secrets.ALLOWED_EDITORS }}
+          TIMEZONE: ${{ secrets.TIMEZONE }}
+        run: |
+          ENV_VARS="TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN},NOTION_TOKEN=${NOTION_TOKEN},NOTION_ORDERS_DB_ID=${NOTION_ORDERS_DB_ID},NOTION_MODELS_DB_ID=${NOTION_MODELS_DB_ID},ALLOWED_EDITORS=${ALLOWED_EDITORS}"
+          if [ -n "${TIMEZONE}" ]; then
+            ENV_VARS="${ENV_VARS},TIMEZONE=${TIMEZONE}"
+          fi
+
+          gcloud run deploy "${SERVICE}" \
+            --image "${IMAGE_URI}" \
+            --region "${REGION}" \
+            --project "${PROJECT_ID}" \
+            --allow-unauthenticated \
+            --set-env-vars "${ENV_VARS}"
