@@ -1,17 +1,8 @@
-name: Deploy TG Bot
+name: Deploy TG Bot (Cloud Run)
+run-name: Deploy ${{ github.ref_name }} — ${{ github.sha }}
 
 on:
   workflow_dispatch:
-  
-    inputs:
-      region:
-        description: "Override Cloud Run region (optional)"
-        required: false
-        type: string
-      service:
-        description: "Override Cloud Run service name (optional)"
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -29,9 +20,6 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      REGION: ${{ inputs.region || env.REGION }}
-      SERVICE: ${{ inputs.service || env.SERVICE }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,12 +50,13 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_ORDERS_DB_ID: ${{ secrets.NOTION_ORDERS_DB_ID }}
           NOTION_MODELS_DB_ID: ${{ secrets.NOTION_MODELS_DB_ID }}
-        run: |
-          ENV_VARS="TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN},NOTION_TOKEN=${NOTION_TOKEN},NOTION_ORDERS_DB_ID=${NOTION_ORDERS_DB_ID},NOTION_MODELS_DB_ID=${NOTION_MODELS_DB_ID}"
-
-          gcloud run deploy "${SERVICE}" \
-            --image "${IMAGE_URI}" \
-            --region "${REGION}" \
-            --project "${PROJECT_ID}" \
-            --allow-unauthenticated \
-            --set-env-vars "${ENV_VARS}"
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE_URI }}
+          env_vars: |-
+            TELEGRAM_BOT_TOKEN=${{ env.TELEGRAM_BOT_TOKEN }}
+            NOTION_TOKEN=${{ env.NOTION_TOKEN }}
+            NOTION_ORDERS_DB_ID=${{ env.NOTION_ORDERS_DB_ID }}
+            NOTION_MODELS_DB_ID=${{ env.NOTION_MODELS_DB_ID }}
