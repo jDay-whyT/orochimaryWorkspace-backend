@@ -69,7 +69,9 @@ gcloud run deploy orochimary-bot \
 ```
 
 ## Deploy via GitHub Actions (WIF)
-Для деплоя через GitHub Actions с Workload Identity Federation настройте secrets:
+Workflow deploys only from the GitHub Actions UI (manual trigger).
+
+Required secrets for Workload Identity Federation:
 - `GCP_WIF_PROVIDER`
 - `GCP_SA_EMAIL`
 - `GCP_PROJECT`
@@ -80,7 +82,14 @@ gcloud run deploy orochimary-bot \
 - `NOTION_ORDERS_DB_ID`
 - `NOTION_MODELS_DB_ID`
 - `ALLOWED_EDITORS`
-- `TIMEZONE` (optional)
+
+Optional secrets:
+- `TIMEZONE` (default `UTC` if omitted)
+
+Manual deploy steps:
+1. Open **Actions** → **Deploy to Cloud Run**.
+2. Click **Run workflow**.
+3. (Optional) Provide `region` and/or `service` inputs to override the defaults.
 
 Публичный URL сервиса можно узнать в Cloud Run после деплоя, затем установить webhook:
 ```bash
