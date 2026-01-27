@@ -68,7 +68,7 @@ gcloud run deploy orochimary-bot \
   --set-env-vars TELEGRAM_BOT_TOKEN=...,NOTION_TOKEN=...,NOTION_ORDERS_DB_ID=...,NOTION_MODELS_DB_ID=...,ALLOWED_EDITORS=...
 ```
 
-## Deploy via GitHub Actions (WIF)
+## Manual deploy via GitHub Actions (WIF + Docker)
 Workflow deploys only from the GitHub Actions UI (manual trigger).
 
 Required secrets for Workload Identity Federation:
@@ -87,14 +87,16 @@ Optional secrets:
 - `TIMEZONE` (default `UTC` if omitted)
 
 Manual deploy steps:
-1. Open **Actions** → **Deploy to Cloud Run**.
+1. Open **Actions** → **Deploy to Cloud Run (Docker)**.
 2. Click **Run workflow**.
 3. (Optional) Provide `region` and/or `service` inputs to override the defaults.
 
-Публичный URL сервиса можно узнать в Cloud Run после деплоя, затем установить webhook:
+Webhook endpoint path: `/tg/webhook`. After deploy, set the webhook (replace the URL with your Cloud Run service URL):
 ```bash
-curl -X POST https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook \
-  -d "url=https://<cloud-run-url>/tg/webhook"
+curl -X POST \
+  "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://your-service-xyz.a.run.app/tg/webhook", "secret_token": "your-secret"}'
 ```
 
 ## Notes
