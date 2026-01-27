@@ -3,6 +3,7 @@ import logging
 from datetime import date, datetime, timedelta
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
@@ -38,7 +39,9 @@ async def orders_create(message: Message, state: MemoryState, config: Config) ->
 
 
 @router.message(F.text == "/orders_close")
-async def orders_close(message: Message, state: MemoryState) -> None:
+async def orders_close(message: Message, state: MemoryState, config: Config) -> None:
+    if not _is_editor(message.from_user.id, config):
+        await message.answer("Read-only mode: you can view open orders, but closing is disabled.")
     state.set(
         message.from_user.id,
         {
@@ -60,7 +63,12 @@ async def handle_text(message: Message, state: MemoryState, config: Config, noti
         if not text:
             await message.answer("Please enter a model name.")
             return
-        models = await notion.query_models(config.notion_models_db_id, text)
+        try:
+            models = await notion.query_models(config.notion_models_db_id, text)
+        except Exception:
+            LOGGER.exception("Failed to query models from Notion")
+            await message.answer("Notion error, try again.")
+            return
         if not models:
             await message.answer("No models found. Try another name.")
             return
@@ -127,8 +135,8 @@ async def handle_callback(query: CallbackQuery, state: MemoryState, config: Conf
         await query.answer()
         return
     if action == "type":
-        state.update(query.from_user.id, order_type=value, step="ask_qty")
-        await query.message.answer("Qty?", reply_markup=qty_keyboard())
+        state.update(query.from_user.id, order_type=value, qty=1, step="ask_qty")
+        await query.message.answer("Qty? (default 1)", reply_markup=qty_keyboard())
         await query.answer()
         return
     if action == "qty":
@@ -182,10 +190,20 @@ async def handle_callback(query: CallbackQuery, state: MemoryState, config: Conf
             return
         try:
             await notion.close_order(value, _today(config))
-        except Exception as exc:
-            LOGGER.exception("Failed to close order")
-            await query.answer("Failed to close order", show_alert=True)
+        except Exception:
+            LOGGER.exception("Failed to close order in Notion")
+            await query.answer("Notion error, try again.", show_alert=True)
             return
+        try:
+            await query.message.edit_reply_markup(reply_markup=None)
+        except TelegramAPIError as exc:
+            LOGGER.error(
+                "Telegram API error %s when clearing close keyboard: %s",
+                getattr(exc, "status_code", "unknown"),
+                str(exc),
+            )
+        except Exception:
+            LOGGER.exception("Failed to clear close keyboard")
         await query.message.answer("Order closed.")
         await query.answer()
         return
@@ -214,17 +232,23 @@ async def _create_orders(message: Message, state: MemoryState, config: Config, n
         await message.answer("Missing data. Start again with /orders_create.")
         state.clear(message.from_user.id)
         return
-    for idx in range(1, qty + 1):
-        title = f"{order_type} {idx}/{qty} — {in_date.isoformat()}"
-        await notion.create_order(
-            config.notion_orders_db_id,
-            model_id,
-            order_type,
-            in_date,
-            count,
-            title,
-            comments,
-        )
+    try:
+        for idx in range(1, qty + 1):
+            title = f"{order_type} {idx}/{qty} — {in_date.isoformat()}"
+            await notion.create_order(
+                config.notion_orders_db_id,
+                model_id,
+                order_type,
+                in_date,
+                count,
+                title,
+                comments,
+            )
+    except Exception:
+        LOGGER.exception("Failed to create orders in Notion")
+        await message.answer("Notion error, try again.")
+        state.clear(message.from_user.id)
+        return
     state.clear(message.from_user.id)
     await message.answer(f"Created {qty} orders for <b>{html.escape(model_title)}</b>.")
 
@@ -236,7 +260,13 @@ async def _list_open_orders(query: CallbackQuery, state: MemoryState, config: Co
     if not model_id:
         await query.message.answer("Select a model first.")
         return
-    orders = await notion.query_open_orders(config.notion_orders_db_id, model_id)
+    try:
+        orders = await notion.query_open_orders(config.notion_orders_db_id, model_id)
+    except Exception:
+        LOGGER.exception("Failed to query open orders from Notion")
+        await query.message.answer("Notion error, try again.")
+        state.clear(query.from_user.id)
+        return
     if not orders:
         state.clear(query.from_user.id)
         await query.message.answer("No open orders found.")
