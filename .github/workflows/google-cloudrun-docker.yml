@@ -39,24 +39,19 @@ jobs:
       - name: Build and push image
         run: |
           IMAGE_URI="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE }}:${{ github.sha }}"
-          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
           docker build -t "$IMAGE_URI" .
           docker push "$IMAGE_URI"
 
       - name: Deploy to Cloud Run
-        env:
-          IMAGE_URI: "${REGION}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE }}:${{ github.sha }}"
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-          NOTION_ORDERS_DB_ID: ${{ secrets.NOTION_ORDERS_DB_ID }}
-          NOTION_MODELS_DB_ID: ${{ secrets.NOTION_MODELS_DB_ID }}
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ env.SERVICE }}
           region: ${{ env.REGION }}
-          image: ${{ env.IMAGE_URI }}
+          image: ${{ steps.build.outputs.image_uri }}
           env_vars: |-
-            TELEGRAM_BOT_TOKEN=${{ env.TELEGRAM_BOT_TOKEN }}
-            NOTION_TOKEN=${{ env.NOTION_TOKEN }}
-            NOTION_ORDERS_DB_ID=${{ env.NOTION_ORDERS_DB_ID }}
-            NOTION_MODELS_DB_ID=${{ env.NOTION_MODELS_DB_ID }}
+            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+            NOTION_TOKEN=${{ secrets.NOTION_TOKEN }}
+            NOTION_ORDERS_DB_ID=${{ secrets.NOTION_ORDERS_DB_ID }}
+            NOTION_MODELS_DB_ID=${{ secrets.NOTION_MODELS_DB_ID }}
+
