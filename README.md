@@ -37,7 +37,7 @@ python -m app.server
 Server starts at `http://localhost:8080`.
 
 ### Receive webhook locally
-Expose your local server and point Telegram to it:
+Expose your local server and point Telegram to it. cloudflared/ngrok are only needed so Telegram can reach your local `/tg/webhook` endpoint.
 
 **ngrok**
 ```bash
@@ -52,24 +52,19 @@ cloudflared tunnel --url http://localhost:8080
 ## Set Telegram webhook
 After deploy (or after starting ngrok/cloudflared), set webhook to `/tg/webhook`:
 ```bash
-curl -X POST \
-  "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://your-service-xyz.a.run.app/tg/webhook", "secret_token": "your-secret"}'
-```
-
-## Deploy to Cloud Run
-```bash
-gcloud builds submit --tag gcr.io/$PROJECT_ID/orochimary-bot
-gcloud run deploy orochimary-bot \
-  --image gcr.io/$PROJECT_ID/orochimary-bot \
-  --platform managed \
-  --region $REGION \
-  --set-env-vars TELEGRAM_BOT_TOKEN=...,NOTION_TOKEN=...,NOTION_ORDERS_DB_ID=...,NOTION_MODELS_DB_ID=...,ALLOWED_EDITORS=...
+curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
+  -d "url=https://<PUBLIC_URL>/tg/webhook"
 ```
 
 ## Manual deploy via GitHub Actions (WIF + Docker)
-Workflow deploys only from the GitHub Actions UI (manual trigger).
+Manual deploy only: no auto-deploys on push.
+
+Run via **Actions** → workflow **google-cloudrun-docker** → **Run workflow**.
+
+Workflow does:
+- builds a Docker image
+- pushes it to Artifact Registry
+- deploys to Cloud Run
 
 Required secrets for Workload Identity Federation:
 - `GCP_WIF_PROVIDER`
@@ -77,6 +72,7 @@ Required secrets for Workload Identity Federation:
 - `GCP_PROJECT`
 - `GCP_REGION`
 - `CLOUD_RUN_SERVICE`
+- `AR_REPO` (if used)
 - `TELEGRAM_BOT_TOKEN`
 - `NOTION_TOKEN`
 - `NOTION_ORDERS_DB_ID`
@@ -86,17 +82,10 @@ Required secrets for Workload Identity Federation:
 Optional secrets:
 - `TIMEZONE` (default `UTC` if omitted)
 
-Manual deploy steps:
-1. Open **Actions** → **Deploy to Cloud Run (Docker)**.
-2. Click **Run workflow**.
-3. (Optional) Provide `region` and/or `service` inputs to override the defaults.
-
 Webhook endpoint path: `/tg/webhook`. After deploy, set the webhook (replace the URL with your Cloud Run service URL):
 ```bash
-curl -X POST \
-  "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://your-service-xyz.a.run.app/tg/webhook", "secret_token": "your-secret"}'
+curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
+  -d "url=https://<PUBLIC_URL>/tg/webhook"
 ```
 
 ## Notes
