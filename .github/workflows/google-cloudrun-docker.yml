@@ -1,8 +1,8 @@
-name: Deploy TG Bot (Cloud Run)
-run-name: Deploy svc=${{ inputs.service }} region=${{ inputs.region }} — ${{ github.sha }}
+name: Deploy TG Bot
 
 on:
   workflow_dispatch:
+  
     inputs:
       region:
         description: "Override Cloud Run region (optional)"
