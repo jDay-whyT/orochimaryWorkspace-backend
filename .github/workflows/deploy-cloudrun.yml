@@ -1,9 +1,16 @@
 name: Deploy to Cloud Run
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "Override Cloud Run region (optional)"
+        required: false
+        type: string
+      service:
+        description: "Override Cloud Run service name (optional)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -28,8 +35,8 @@ jobs:
       - name: Deploy to Cloud Run
         env:
           GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
-          GCP_REGION: ${{ secrets.GCP_REGION }}
-          CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+          GCP_REGION: ${{ inputs.region || secrets.GCP_REGION }}
+          CLOUD_RUN_SERVICE: ${{ inputs.service || secrets.CLOUD_RUN_SERVICE }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_ORDERS_DB_ID: ${{ secrets.NOTION_ORDERS_DB_ID }}
