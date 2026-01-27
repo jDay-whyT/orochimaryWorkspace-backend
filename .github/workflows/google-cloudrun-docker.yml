@@ -1,5 +1,5 @@
-name: "Manual Deploy — Cloud Run (Docker, WIF)"
-run-name: "Deploy ${{ github.ref_name }} @ ${{ github.sha }}"
+name: Deploy TG Bot (Cloud Run)
+run-name: Deploy svc=${{ inputs.service }} region=${{ inputs.region }} — ${{ github.sha }}
 
 on:
   workflow_dispatch:
