@@ -59,7 +59,7 @@ curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
 ## Manual deploy via GitHub Actions (WIF + Docker)
 Manual deploy only: no auto-deploys on push.
 
-Run via **Actions** → workflow **google-cloudrun-docker** → **Run workflow**.
+Run via **Actions** → workflow **Manual Deploy — Cloud Run (Docker, WIF)** → **Run workflow**.
 
 Workflow does:
 - builds a Docker image
@@ -69,18 +69,13 @@ Workflow does:
 Required secrets for Workload Identity Federation:
 - `GCP_WIF_PROVIDER`
 - `GCP_SA_EMAIL`
-- `GCP_PROJECT`
-- `GCP_REGION`
-- `CLOUD_RUN_SERVICE`
-- `AR_REPO` (if used)
 - `TELEGRAM_BOT_TOKEN`
 - `NOTION_TOKEN`
 - `NOTION_ORDERS_DB_ID`
 - `NOTION_MODELS_DB_ID`
-- `ALLOWED_EDITORS`
 
-Optional secrets:
-- `TIMEZONE` (default `UTC` if omitted)
+ALLOWED_EDITORS and TIMEZONE are managed in Cloud Run → Edit & deploy new revision → Variables & secrets,
+and the workflow does not overwrite them.
 
 Webhook endpoint path: `/tg/webhook`. After deploy, set the webhook (replace the URL with your Cloud Run service URL):
 ```bash
