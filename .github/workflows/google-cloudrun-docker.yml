@@ -1,4 +1,5 @@
-name: Deploy to Cloud Run (Docker)
+name: "Manual Deploy — Cloud Run (Docker, WIF)"
+run-name: "Deploy ${{ github.ref_name }} @ ${{ github.sha }}"
 
 on:
   workflow_dispatch:
@@ -17,9 +18,9 @@ permissions:
   id-token: write
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT }}
-  REGION: ${{ secrets.GCP_REGION }}
-  SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+  PROJECT_ID: optimum-tea-481710-u3
+  REGION: europe-west1
+  SERVICE: orochimary-bot
   AR_REPO: orochimary
   IMAGE: orochimary-bot
   WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
@@ -61,13 +62,8 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_ORDERS_DB_ID: ${{ secrets.NOTION_ORDERS_DB_ID }}
           NOTION_MODELS_DB_ID: ${{ secrets.NOTION_MODELS_DB_ID }}
-          ALLOWED_EDITORS: ${{ secrets.ALLOWED_EDITORS }}
-          TIMEZONE: ${{ secrets.TIMEZONE }}
         run: |
-          ENV_VARS="TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN},NOTION_TOKEN=${NOTION_TOKEN},NOTION_ORDERS_DB_ID=${NOTION_ORDERS_DB_ID},NOTION_MODELS_DB_ID=${NOTION_MODELS_DB_ID},ALLOWED_EDITORS=${ALLOWED_EDITORS}"
-          if [ -n "${TIMEZONE}" ]; then
-            ENV_VARS="${ENV_VARS},TIMEZONE=${TIMEZONE}"
-          fi
+          ENV_VARS="TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN},NOTION_TOKEN=${NOTION_TOKEN},NOTION_ORDERS_DB_ID=${NOTION_ORDERS_DB_ID},NOTION_MODELS_DB_ID=${NOTION_MODELS_DB_ID}"
 
           gcloud run deploy "${SERVICE}" \
             --image "${IMAGE_URI}" \
