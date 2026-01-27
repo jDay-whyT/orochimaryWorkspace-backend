@@ -18,9 +18,9 @@ permissions:
   id-token: write
 
 env:
-  PROJECT_ID: optimum-tea-481710-u3
-  REGION: europe-west1
-  SERVICE: orochimary-bot
+  PROJECT_ID: ${{ secrets.GCP_PROJECT }}
+  REGION: ${{ secrets.GCP_REGION }}
+  SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
   AR_REPO: orochimary
   IMAGE: orochimary-bot
   WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
