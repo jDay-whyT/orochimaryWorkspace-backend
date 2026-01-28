@@ -21,19 +21,33 @@ class NotionOrder:
 class NotionClient:
     def __init__(self, token: str) -> None:
         self._token = token
+        self._session: aiohttp.ClientSession | None = None
+        self._session_loop: asyncio.AbstractEventLoop | None = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        loop = asyncio.get_running_loop()
+        if self._session and not self._session.closed:
+            if self._session_loop and self._session_loop is loop and not loop.is_closed():
+                return self._session
         self._session = aiohttp.ClientSession(
             headers={
-                "Authorization": f"Bearer {token}",
+                "Authorization": f"Bearer {self._token}",
                 "Notion-Version": NOTION_VERSION,
                 "Content-Type": "application/json",
             }
         )
+        self._session_loop = loop
+        return self._session
 
     async def close(self) -> None:
-        await self._session.close()
+        if self._session and not self._session.closed:
+            await self._session.close()
+        self._session = None
+        self._session_loop = None
 
     async def _request(self, method: str, url: str, json: dict[str, Any] | None = None) -> dict[str, Any]:
-        return await safe_request(self._session, method, url, json=json)
+        session = await self._get_session()
+        return await safe_request(session, method, url, json=json)
 
     async def query_models(self, database_id: str, name_query: str) -> list[tuple[str, str]]:
         payload = {
@@ -150,15 +164,22 @@ async def safe_request(
     retries: int = 2,
 ) -> dict[str, Any]:
     for attempt in range(retries + 1):
-        async with session.request(method, url, json=json) as response:
-            if response.status < 400:
-                return await response.json()
-            payload = (await response.text()).strip()
-            short_payload = payload[:200] if payload else "<empty>"
-            if response.status in {429, 500, 502, 503, 504} and attempt < retries:
-                LOGGER.warning("Notion API retry %s %s: %s", response.status, url, short_payload)
-                await asyncio.sleep(0.5 * (attempt + 1))
-                continue
-            LOGGER.error("Notion API error %s %s: %s", response.status, url, short_payload)
-            raise RuntimeError(f"Notion API error {response.status}")
+        try:
+            async with session.request(method, url, json=json) as response:
+                if response.status < 400:
+                    return await response.json()
+                payload = (await response.text()).strip()
+                short_payload = payload[:200] if payload else "<empty>"
+                if response.status in {429, 500, 502, 503, 504} and attempt < retries:
+                    LOGGER.warning("Notion API retry %s %s: %s", response.status, url, short_payload)
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                LOGGER.error("Notion API error %s %s: %s", response.status, url, short_payload)
+                raise RuntimeError(f"Notion API error {response.status}")
+        except aiohttp.ClientError:
+            LOGGER.exception("Notion API request failed %s %s", method, url)
+            raise
+        except asyncio.TimeoutError:
+            LOGGER.exception("Notion API timeout %s %s", method, url)
+            raise
     raise RuntimeError("Notion API retry limit exceeded")

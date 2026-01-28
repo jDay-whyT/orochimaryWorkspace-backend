@@ -1,4 +1,5 @@
 import logging
+import os
 
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -18,8 +19,9 @@ async def create_app() -> web.Application:
     app["bot"] = bot
     app["dp"] = dp
     app["notion"] = notion
+    app["config"] = config
 
-    SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/tg/webhook")
+    webhook_handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
     setup_application(app, dp, bot=bot)
 
     async def on_shutdown(_: web.Application) -> None:
@@ -28,10 +30,30 @@ async def create_app() -> web.Application:
 
     app.on_shutdown.append(on_shutdown)
 
+    async def root(_: web.Request) -> web.Response:
+        return web.Response(text="ok")
+
     async def healthcheck(_: web.Request) -> web.Response:
         return web.Response(text="ok")
 
+    async def telegram_webhook(request: web.Request) -> web.StreamResponse:
+        LOGGER.info("Webhook request received")
+        secret = config.telegram_webhook_secret
+        if secret:
+            header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+            if header_secret != secret:
+                LOGGER.warning("Webhook secret failed")
+                return web.Response(status=403, text="forbidden")
+            LOGGER.info("Webhook secret ok")
+        else:
+            LOGGER.info("Webhook secret not configured; skipping check")
+        return await webhook_handler.handle(request)
+
+    app.router.add_get("/", root)
     app.router.add_get("/healthz", healthcheck)
+    app.router.add_post("/tg/webhook", telegram_webhook)
+    LOGGER.info("HTTP endpoints: GET /, GET /healthz, POST /tg/webhook")
+    LOGGER.info("Webhook path: /tg/webhook")
     return app
 
 
