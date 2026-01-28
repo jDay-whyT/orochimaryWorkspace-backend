@@ -18,5 +18,5 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, Me
     state = MemoryState()
     dp["config"] = config
     dp["notion"] = notion
-    dp["state"] = state
+    dp["memory_state"] = state
     return bot, dp, notion, state
