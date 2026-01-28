@@ -53,7 +53,7 @@ class NotionClient:
         payload = {
             "page_size": 5,
             "filter": {
-                "property": "Name",
+                "property": "model",
                 "title": {"contains": name_query},
             },
         }
