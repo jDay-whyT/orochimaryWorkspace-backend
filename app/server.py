@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from aiohttp import web
@@ -37,8 +36,8 @@ async def create_app() -> web.Application:
 
 
 def main() -> None:
-    app = asyncio.run(create_app())
-    web.run_app(app, host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", "8080"))
+    web.run_app(create_app(), host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":
