@@ -434,11 +434,11 @@ async def handle_create_callback(
         await query.answer()
         return
     if action == "type":
-        order_type = value
-        memory_state.update(query.from_user.id, step="qty_manual", order_type=order_type, qty=1)
-        await query.message.answer("Qty? (default 1). Send a number or 'skip'.")
-        await query.answer()
-        return
+    	order_type = value
+    	memory_state.update(query.from_user.id, step="qty_manual", order_type=order_type, qty=1)
+    	await query.message.answer("Qty? (default 1). Send a number or 'skip'.")
+    	await query.answer()
+    	return
     if action == "date":
         if value == "enter":
             memory_state.update(query.from_user.id, step="in_date_manual")
