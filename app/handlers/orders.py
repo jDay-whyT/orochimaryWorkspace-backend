@@ -233,16 +233,18 @@ async def handle_callback(
         if not _is_editor(query.from_user.id, config):
             await query.answer("Read-only access", show_alert=True)
             return
+        prompt = await query.message.answer(
+            "Введи дату закрытия (YYYY-MM-DD) или нажми Today/Yesterday",
+            reply_markup=close_date_keyboard(),
+        )
         memory_state.update(
             query.from_user.id,
             step="close_date_manual",
             pending_close_page_id=value,
             pending_close_message_id=getattr(query.message, "message_id", None),
             pending_close_chat_id=getattr(getattr(query.message, "chat", None), "id", None),
-        )
-        await query.message.answer(
-            "Введи дату закрытия (YYYY-MM-DD) или нажми Today/Yesterday",
-            reply_markup=close_date_keyboard(),
+            pending_prompt_message_id=getattr(prompt, "message_id", None),
+            pending_prompt_chat_id=getattr(getattr(prompt, "chat", None), "id", None),
         )
         await query.answer()
         return
@@ -501,6 +503,19 @@ async def _finalize_close_date(
     close_date: date,
 ) -> None:
     data = memory_state.get(message.from_user.id) or {}
+    if not _is_editor(message.from_user.id, config):
+        await message.answer("Read-only access")
+        await _clear_pending_prompt_keyboard(message, data)
+        memory_state.update(
+            message.from_user.id,
+            pending_close_page_id=None,
+            pending_close_message_id=None,
+            pending_close_chat_id=None,
+            pending_prompt_message_id=None,
+            pending_prompt_chat_id=None,
+            step="list_orders",
+        )
+        return
     page_id = data.get("pending_close_page_id")
     if not page_id:
         await message.answer("No pending order to close.")
@@ -511,11 +526,7 @@ async def _finalize_close_date(
         LOGGER.exception("Failed to close order in Notion")
         await message.answer("Notion error, try again.")
         return
-    if message.reply_markup:
-        try:
-            await message.edit_reply_markup(reply_markup=None)
-        except TelegramAPIError:
-            LOGGER.warning("Failed to clear close date prompt keyboard")
+    await _clear_pending_prompt_keyboard(message, data)
     await _clear_pending_close_keyboard(message, data)
     open_orders = data.get("open_orders", {})
     in_date = open_orders.get(page_id) if isinstance(open_orders, dict) else None
@@ -527,6 +538,8 @@ async def _finalize_close_date(
         pending_close_page_id=None,
         pending_close_message_id=None,
         pending_close_chat_id=None,
+        pending_prompt_message_id=None,
+        pending_prompt_chat_id=None,
         step="list_orders",
     )
     await message.answer(_build_completion_message(in_date, close_date))
@@ -549,17 +562,29 @@ async def _clear_pending_close_keyboard(message: Message, data: dict[str, Any]) 
         LOGGER.exception("Failed to clear close keyboard")
 
 
-async def _clear_close_prompt(query: CallbackQuery, memory_state: MemoryState) -> None:
-    data = memory_state.get(query.from_user.id) or {}
+async def _clear_pending_prompt_keyboard(message: Message, data: dict[str, Any]) -> None:
+    chat_id = data.get("pending_prompt_chat_id")
+    message_id = data.get("pending_prompt_message_id")
+    if not chat_id or not message_id:
+        return
     try:
-        await query.message.edit_reply_markup(reply_markup=None)
+        await message.bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
     except TelegramAPIError:
         LOGGER.warning("Failed to clear close date prompt keyboard")
+    except Exception:
+        LOGGER.exception("Failed to clear close date prompt keyboard")
+
+
+async def _clear_close_prompt(query: CallbackQuery, memory_state: MemoryState) -> None:
+    data = memory_state.get(query.from_user.id) or {}
+    await _clear_pending_prompt_keyboard(query.message, data)
     memory_state.update(
         query.from_user.id,
         pending_close_page_id=None,
         pending_close_message_id=None,
         pending_close_chat_id=None,
+        pending_prompt_message_id=None,
+        pending_prompt_chat_id=None,
         step="list_orders",
     )
 
