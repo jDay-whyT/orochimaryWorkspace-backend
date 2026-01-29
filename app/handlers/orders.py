@@ -157,14 +157,14 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
         memory_state.update(message.from_user.id, step="pick_model", model_options=model_options)
         await message.answer("Pick a model:", reply_markup=models_keyboard(models, prefix="ocreate"))
         return
-    if step == "ask_qty":
+    if step == "qty_manual":
         lowered = text.lower()
         if not lowered or lowered == "skip":
             qty = 1
         else:
             qty = _parse_int(text)
             if not qty or not 1 <= qty <= 50:
-                await message.answer("Send qty number (1..50) or 'skip'.")
+                await message.answer("Qty? (default 1). Send a number or 'skip'.")
                 return
         memory_state.update(message.from_user.id, qty=qty, step="ask_in_date")
         await message.answer("Select in date:", reply_markup=date_keyboard())
@@ -434,7 +434,7 @@ async def handle_create_callback(
         await query.answer()
         return
     if action == "type":
-        memory_state.update(query.from_user.id, order_type=value, qty=1, step="ask_qty")
+        memory_state.update(query.from_user.id, order_type=value, qty=1, step="qty_manual")
         await query.message.answer("Qty? (default 1). Send a number or 'skip'.")
         await query.answer()
         return
