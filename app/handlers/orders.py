@@ -13,10 +13,8 @@ from app.keyboards import (
     close_action_keyboard,
     close_date_keyboard_min,
     comment_keyboard,
-    count_keyboard,
     date_keyboard,
     models_keyboard,
-    qty_keyboard,
     skip_keyboard,
     types_keyboard,
 )
@@ -102,7 +100,7 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
                 message,
                 memory_state,
                 "Выбери модель:",
-                reply_markup=models_keyboard(models),
+                reply_markup=models_keyboard(models, prefix="oclose"),
                 mode="close_pick_model",
                 model_options=model_options,
             )
@@ -157,13 +155,17 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
             return
         model_options = {model_id: title for model_id, title in models}
         memory_state.update(message.from_user.id, step="pick_model", model_options=model_options)
-        await message.answer("Pick a model:", reply_markup=models_keyboard(models))
+        await message.answer("Pick a model:", reply_markup=models_keyboard(models, prefix="ocreate"))
         return
-    if step == "qty_manual":
-        qty = _parse_int(text)
-        if not qty or qty <= 0:
-            await message.answer("Please enter a positive number for qty.")
-            return
+    if step == "ask_qty":
+        lowered = text.lower()
+        if not lowered or lowered == "skip":
+            qty = 1
+        else:
+            qty = _parse_int(text)
+            if not qty or not 1 <= qty <= 50:
+                await message.answer("Send qty number (1..50) or 'skip'.")
+                return
         memory_state.update(message.from_user.id, qty=qty, step="ask_in_date")
         await message.answer("Select in date:", reply_markup=date_keyboard())
         return
@@ -176,22 +178,24 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
         await message.answer("Any comments?", reply_markup=skip_keyboard())
         return
     if step == "ask_comments":
-        comments = text
+        comments = None if text.lower() == "skip" else text
         memory_state.update(message.from_user.id, comments=comments)
         await _continue_after_comments(message, memory_state, config, notion)
         return
-    if step == "count_manual":
+    if step == "ask_count":
         count = _parse_int(text)
-        if not count or count <= 0:
-            await message.answer("Please enter a positive number for count.")
+        if not count or not 1 <= count <= 999:
+            await message.answer("Send count number (1..999).")
             return
         memory_state.update(message.from_user.id, count=count)
         await _create_orders(message, memory_state, config, notion)
         return
+    await message.answer("Session expired. Run /orders_create again.")
+    memory_state.clear(message.from_user.id)
 
 
-@router.callback_query(F.data.startswith("oc|"))
-async def handle_callback(
+@router.callback_query(F.data.startswith("oclose|"))
+async def handle_close_callback(
     query: CallbackQuery,
     memory_state: MemoryState,
     config: Config,
@@ -217,41 +221,35 @@ async def handle_callback(
         "comment_back",
         "cancel",
     }
-    if flow != "close" and action in close_actions and not (flow == "create" and action == "comment"):
+    if flow != "close" and action in close_actions:
         await _expire_close_session(query, memory_state)
         await query.answer()
         return
     if action == "model":
+        if flow != "close":
+            await _expire_close_session(query, memory_state)
+            await query.answer()
+            return
         model_options = data.get("model_options", {})
         title = model_options.get(value)
         if not title:
             await query.answer("Model expired. Search again.", show_alert=True)
-            if flow == "close":
-                await _expire_close_session(query, memory_state)
-            else:
-                memory_state.update(query.from_user.id, step="ask_model")
+            await _expire_close_session(query, memory_state)
             return
         memory_state.update(query.from_user.id, model_id=value, model_title=title, selected_model_id=value)
-        if flow == "create":
-            memory_state.update(query.from_user.id, step="pick_type")
-            await query.message.answer(
-                f"Model selected: <b>{html.escape(title)}</b>\nPick order type:",
-                reply_markup=types_keyboard(),
-            )
-        else:
-            memory_state.update(
-                query.from_user.id,
-                selected_model_title=title,
-                current_page=1,
-                mode="close_list",
-            )
-            await _show_open_orders_screen(
-                query.message,
-                memory_state,
-                config,
-                notion,
-                user_id=query.from_user.id,
-            )
+        memory_state.update(
+            query.from_user.id,
+            selected_model_title=title,
+            current_page=1,
+            mode="close_list",
+        )
+        await _show_open_orders_screen(
+            query.message,
+            memory_state,
+            config,
+            notion,
+            user_id=query.from_user.id,
+        )
         await query.answer()
         return
     if flow == "close" and action in close_actions:
@@ -271,7 +269,7 @@ async def handle_callback(
                 query,
                 memory_state,
                 "Выбери модель:",
-                reply_markup=models_keyboard(list(model_options.items())),
+                reply_markup=models_keyboard(list(model_options.items()), prefix="oclose"),
                 mode="close_pick_model",
             )
             await query.answer()
@@ -399,22 +397,45 @@ async def handle_callback(
             return
         await query.answer()
         return
-    if action == "type":
-        memory_state.update(query.from_user.id, order_type=value, qty=1, step="ask_qty")
-        await query.message.answer("Qty? (default 1)", reply_markup=qty_keyboard())
+    await query.answer()
+
+
+@router.callback_query(F.data.startswith("ocreate|"))
+async def handle_create_callback(
+    query: CallbackQuery,
+    memory_state: MemoryState,
+    config: Config,
+    notion: NotionClient,
+) -> None:
+    parts = query.data.split("|", 2)
+    if len(parts) < 3:
         await query.answer()
         return
-    if action == "qty":
-        if value == "enter":
-            memory_state.update(query.from_user.id, step="qty_manual")
-            await query.message.answer("Send qty number.")
-        else:
-            qty = _parse_int(value)
-            if not qty:
-                await query.answer("Invalid qty", show_alert=True)
-                return
-            memory_state.update(query.from_user.id, qty=qty, step="ask_in_date")
-            await query.message.answer("Select in date:", reply_markup=date_keyboard())
+    _, action, value = parts
+    data = memory_state.get(query.from_user.id) or {}
+    flow = data.get("flow")
+    if flow != "create":
+        await _expire_create_session(query, memory_state)
+        await query.answer()
+        return
+    if action == "model":
+        model_options = data.get("model_options", {})
+        title = model_options.get(value)
+        if not title:
+            await _expire_create_session(query, memory_state)
+            await query.answer()
+            return
+        memory_state.update(query.from_user.id, model_id=value, model_title=title, selected_model_id=value)
+        memory_state.update(query.from_user.id, step="pick_type")
+        await query.message.answer(
+            f"Model selected: <b>{html.escape(title)}</b>\nPick order type:",
+            reply_markup=types_keyboard(),
+        )
+        await query.answer()
+        return
+    if action == "type":
+        memory_state.update(query.from_user.id, order_type=value, qty=1, step="ask_qty")
+        await query.message.answer("Qty? (default 1). Send a number or 'skip'.")
         await query.answer()
         return
     if action == "date":
@@ -436,19 +457,6 @@ async def handle_callback(
         await _continue_after_comments(query.message, memory_state, config, notion)
         await query.answer()
         return
-    if action == "count":
-        if value == "enter":
-            memory_state.update(query.from_user.id, step="count_manual")
-            await query.message.answer("Send count number.")
-        else:
-            count = _parse_int(value)
-            if not count:
-                await query.answer("Invalid count", show_alert=True)
-                return
-            memory_state.update(query.from_user.id, count=count)
-            await _create_orders(query.message, memory_state, config, notion)
-        await query.answer()
-        return
     await query.answer()
 
 
@@ -461,7 +469,7 @@ async def _continue_after_comments(
     data = memory_state.get(message.from_user.id) or {}
     if data.get("order_type") == "short":
         memory_state.update(message.from_user.id, step="ask_count")
-        await message.answer("Count?", reply_markup=count_keyboard())
+        await message.answer("Count? Send a number.")
         return
     memory_state.update(message.from_user.id, count=1)
     await _create_orders(message, memory_state, config, notion)
@@ -482,7 +490,7 @@ async def _create_orders(
     count = data.get("count", 1)
     comments = data.get("comments")
     if not (model_id and order_type and in_date and model_title):
-        await message.answer("Missing data. Start again with /orders_create.")
+        await message.answer("Session expired. Run /orders_create again.")
         memory_state.clear(message.from_user.id)
         return
     try:
@@ -593,6 +601,12 @@ async def _expire_close_session(query: CallbackQuery, memory_state: MemoryState)
         "Сессия устарела. Запусти /orders_close заново.",
         reply_markup=None,
     )
+    memory_state.clear(query.from_user.id)
+
+
+async def _expire_create_session(query: CallbackQuery, memory_state: MemoryState) -> None:
+    if query.message:
+        await query.message.answer("Session expired. Run /orders_create again.")
     memory_state.clear(query.from_user.id)
 
 
