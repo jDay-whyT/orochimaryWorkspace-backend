@@ -59,11 +59,17 @@ class NotionClient:
         }
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
         data = await self._request("POST", url, json=payload)
+        notion_results = data.get("results", [])
         results: list[tuple[str, str]] = []
-        for item in data.get("results", []):
-            title = _extract_title(item, "Name")
+        for item in notion_results:
+            title = _extract_title(item, "model")
             if title:
                 results.append((item["id"], title))
+        LOGGER.info(
+            "Notion model query returned %s results, produced %s models",
+            len(notion_results),
+            len(results),
+        )
         return results
 
     async def create_order(
