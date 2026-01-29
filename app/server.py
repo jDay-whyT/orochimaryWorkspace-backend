@@ -54,6 +54,7 @@ async def create_app() -> web.Application:
     app.router.add_post("/tg/webhook", telegram_webhook)
     LOGGER.info("HTTP endpoints: GET /, GET /healthz, POST /tg/webhook")
     LOGGER.info("Webhook path: /tg/webhook")
+    LOGGER.info("CREATE_QTY_MODE=manual")
     return app
 
 
