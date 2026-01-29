@@ -113,9 +113,3 @@ def comment_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="✖ Cancel", callback_data="oc|cancel|cancel"),
     )
     return builder.as_markup()
-
-
-def close_cancel_keyboard() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="✖ Cancel", callback_data="oc|cancel|cancel"))
-    return builder.as_markup()
