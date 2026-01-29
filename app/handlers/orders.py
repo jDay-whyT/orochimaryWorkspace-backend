@@ -434,7 +434,7 @@ async def handle_create_callback(
         await query.answer()
         return
     if action == "type":
-        memory_state.update(query.from_user.id, order_type=value, qty=1, step="qty_manual")
+        memory_state.update(chat, step="qty_manual", order_type=order_type, qty=1)
         await query.message.answer("Qty? (default 1). Send a number or 'skip'.")
         await query.answer()
         return
