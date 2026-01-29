@@ -133,6 +133,11 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{order_page_id}"
         await self._request("PATCH", url, json=payload)
 
+    async def update_order(self, order_page_id: str, properties: dict[str, Any]) -> None:
+        payload = {"properties": properties}
+        url = f"https://api.notion.com/v1/pages/{order_page_id}"
+        await self._request("PATCH", url, json=payload)
+
 
 def _extract_title(page: dict[str, Any], property_name: str) -> str | None:
     prop = page.get("properties", {}).get(property_name)

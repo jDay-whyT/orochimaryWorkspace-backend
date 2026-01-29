@@ -51,27 +51,71 @@ def count_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def close_keyboard(order_id: str) -> InlineKeyboardMarkup:
+def close_list_keyboard(
+    orders_page: list[dict[str, str]],
+    page: int,
+    total_pages: int,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="✅ Close today", callback_data=f"oc|close_today|{order_id}"))
-    builder.add(InlineKeyboardButton(text="📅 Close date", callback_data=f"oc|close_date|{order_id}"))
-    builder.adjust(2)
+    for order in orders_page:
+        builder.row(
+            InlineKeyboardButton(
+                text=order["label"],
+                callback_data=f"oc|pick_order|{order['page_id']}",
+            )
+        )
+    if total_pages > 1:
+        pagination: list[InlineKeyboardButton] = []
+        if page > 1:
+            pagination.append(InlineKeyboardButton(text="◀ Prev", callback_data=f"oc|page|{page - 1}"))
+        if page < total_pages:
+            pagination.append(InlineKeyboardButton(text="Next ▶", callback_data=f"oc|page|{page + 1}"))
+        if pagination:
+            builder.row(*pagination)
+    builder.row(
+        InlineKeyboardButton(text="⬅ Back", callback_data="oc|list_back|back"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data="oc|cancel|cancel"),
+    )
     return builder.as_markup()
 
 
-def close_date_keyboard() -> InlineKeyboardMarkup:
+def close_action_keyboard(page_id: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="Today", callback_data="oc|close_date_pick|today"))
-    builder.add(InlineKeyboardButton(text="Yesterday", callback_data="oc|close_date_pick|yesterday"))
-    builder.add(InlineKeyboardButton(text="⬅️ Back", callback_data="oc|close_date_back|back"))
-    builder.add(InlineKeyboardButton(text="✖️ Cancel", callback_data="oc|close_date_cancel|cancel"))
-    builder.adjust(2)
+    builder.row(
+        InlineKeyboardButton(text="✅ Close today", callback_data=f"oc|close_today|{page_id}"),
+        InlineKeyboardButton(text="📅 Close date", callback_data=f"oc|close_date|{page_id}"),
+    )
+    builder.row(InlineKeyboardButton(text="✏️ Comment", callback_data=f"oc|comment|{page_id}"))
+    builder.row(
+        InlineKeyboardButton(text="⬅ Back to list", callback_data="oc|action_back|back"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data="oc|cancel|cancel"),
+    )
     return builder.as_markup()
 
 
-def close_list_keyboard() -> InlineKeyboardMarkup:
+def close_date_keyboard_min() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="⬅️ Back", callback_data="oc|list|back"))
-    builder.add(InlineKeyboardButton(text="✖️ Cancel", callback_data="oc|list|cancel"))
-    builder.adjust(1)
+    builder.row(
+        InlineKeyboardButton(text="Today", callback_data="oc|close_date_pick|today"),
+        InlineKeyboardButton(text="Yesterday", callback_data="oc|close_date_pick|yesterday"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="⬅ Back", callback_data="oc|close_date_back|back"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data="oc|cancel|cancel"),
+    )
+    return builder.as_markup()
+
+
+def comment_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="⬅ Back", callback_data="oc|comment_back|back"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data="oc|cancel|cancel"),
+    )
+    return builder.as_markup()
+
+
+def close_cancel_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="✖ Cancel", callback_data="oc|cancel|cancel"))
     return builder.as_markup()
