@@ -297,7 +297,11 @@ async def _list_open_orders(
     )
     if editor:
         for order in orders:
-            await query.message.answer(_format_order(order), reply_markup=close_keyboard(order.page_id))
+            label = _format_order(order)
+            await query.message.answer(
+                label,
+                reply_markup=close_keyboard(label, order.page_id),
+            )
     else:
         lines = [f"• {_format_order(order)}" for order in orders]
         await query.message.answer("\n".join(lines))
@@ -305,9 +309,33 @@ async def _list_open_orders(
 
 
 def _format_order(order: NotionOrder) -> str:
-    in_part = order.in_date or ""
-    type_part = order.order_type or ""
-    return f"{html.escape(order.title)} ({html.escape(type_part)}) {html.escape(in_part)}"
+    return build_order_label(order.order_type, order.in_date)
+
+
+def format_date_short(date_str: str) -> str:
+    parsed = date.fromisoformat(date_str)
+    months = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ]
+    return f"{parsed.day:02d} {months[parsed.month - 1]}"
+
+
+def build_order_label(order_type: str | None, in_date_str: str | None) -> str:
+    safe_type = order_type or "order"
+    if not in_date_str:
+        return html.escape(safe_type)
+    return f"{format_date_short(in_date_str)} · {html.escape(safe_type)}"
 
 
 def _parse_int(value: str) -> int | None:
