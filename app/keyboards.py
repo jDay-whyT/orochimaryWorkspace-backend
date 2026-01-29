@@ -51,7 +51,7 @@ def count_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def close_keyboard(order_id: str) -> InlineKeyboardMarkup:
+def close_keyboard(label: str, order_id: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="Close today", callback_data=f"oc|close|{order_id}"))
+    builder.add(InlineKeyboardButton(text=label, callback_data=f"oc|close|{order_id}"))
     return builder.as_markup()
