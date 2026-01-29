@@ -11,7 +11,6 @@ from app.config import Config
 from app.keyboards import (
     close_list_keyboard,
     close_action_keyboard,
-    close_cancel_keyboard,
     close_date_keyboard_min,
     comment_keyboard,
     count_keyboard,
@@ -46,7 +45,7 @@ async def orders_create(message: Message, memory_state: MemoryState, config: Con
 
 @router.message(F.text == "/orders_close")
 async def orders_close(message: Message, memory_state: MemoryState, config: Config) -> None:
-    screen = await message.answer("Модель?", reply_markup=close_cancel_keyboard())
+    screen = await message.answer("Модель?", reply_markup=close_list_keyboard([], 1, 1))
     memory_state.set(
         message.from_user.id,
         {
@@ -73,7 +72,7 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
                     message,
                     memory_state,
                     "Модель?",
-                    reply_markup=close_cancel_keyboard(),
+                    reply_markup=close_list_keyboard([], 1, 1),
                     mode="close_search",
                 )
                 return
@@ -85,7 +84,7 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
                     message,
                     memory_state,
                     "Notion error, try again.",
-                    reply_markup=close_cancel_keyboard(),
+                    reply_markup=close_list_keyboard([], 1, 1),
                     mode="close_search",
                 )
                 return
@@ -94,7 +93,7 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
                     message,
                     memory_state,
                     "Модель не найдена. Попробуй еще раз.",
-                    reply_markup=close_cancel_keyboard(),
+                    reply_markup=close_list_keyboard([], 1, 1),
                     mode="close_search",
                 )
                 return
@@ -259,7 +258,13 @@ async def handle_callback(
         if action == "list_back":
             model_options = data.get("model_options", {})
             if not model_options:
-                await _expire_close_session(query, memory_state)
+                await _edit_screen_from_callback(
+                    query,
+                    memory_state,
+                    "Модель?",
+                    reply_markup=close_list_keyboard([], 1, 1),
+                    mode="close_search",
+                )
                 await query.answer()
                 return
             await _edit_screen_from_callback(
