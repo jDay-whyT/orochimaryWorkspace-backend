@@ -16,7 +16,7 @@ from app.keyboards import (
     skip_keyboard,
     types_keyboard,
 )
-from app.notion import NotionClient, NotionOrder
+from app.notion import NotionClient
 from app.state import MemoryState
 
 LOGGER = logging.getLogger(__name__)
@@ -297,19 +297,16 @@ async def _list_open_orders(
     )
     if editor:
         for order in orders:
-            label = _format_order(order)
+            label_raw = build_order_label_raw(order.order_type, order.in_date)
+            label_html = build_order_label_html(order.order_type, order.in_date)
             await query.message.answer(
-                label,
-                reply_markup=close_keyboard(label, order.page_id),
+                label_html,
+                reply_markup=close_keyboard(label_raw, order.page_id),
             )
     else:
-        lines = [f"• {_format_order(order)}" for order in orders]
+        lines = [f"• {build_order_label_html(order.order_type, order.in_date)}" for order in orders]
         await query.message.answer("\n".join(lines))
     memory_state.clear(query.from_user.id)
-
-
-def _format_order(order: NotionOrder) -> str:
-    return build_order_label(order.order_type, order.in_date)
 
 
 def format_date_short(date_str: str) -> str:
@@ -328,14 +325,18 @@ def format_date_short(date_str: str) -> str:
         "Nov",
         "Dec",
     ]
-    return f"{parsed.day:02d} {months[parsed.month - 1]}"
+    return f"{parsed.day} {months[parsed.month - 1]}"
 
 
-def build_order_label(order_type: str | None, in_date_str: str | None) -> str:
+def build_order_label_raw(order_type: str | None, in_date_str: str | None) -> str:
     safe_type = order_type or "order"
     if not in_date_str:
-        return html.escape(safe_type)
-    return f"{format_date_short(in_date_str)} · {html.escape(safe_type)}"
+        return safe_type
+    return f"{format_date_short(in_date_str)} · {safe_type}"
+
+
+def build_order_label_html(order_type: str | None, in_date_str: str | None) -> str:
+    return html.escape(build_order_label_raw(order_type, in_date_str))
 
 
 def _parse_int(value: str) -> int | None:
