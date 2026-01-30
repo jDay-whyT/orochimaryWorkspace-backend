@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
@@ -704,6 +704,77 @@ async def _edit_screen_from_message(
     )
 
 
+def _reply_markup_signature(markup: Any | None) -> Any | None:
+    if markup is None:
+        return None
+    if hasattr(markup, "model_dump"):
+        return markup.model_dump()
+    if hasattr(markup, "to_python"):
+        return markup.to_python()
+    return markup
+
+
+def _reply_markup_matches(current: Any | None, desired: Any | None) -> bool:
+    if current is desired:
+        return True
+    if current is None or desired is None:
+        return False
+    return _reply_markup_signature(current) == _reply_markup_signature(desired)
+
+
+def _message_matches(message: Message, text: str, reply_markup: Any | None, parse_mode: str | None) -> bool:
+    current_text = None
+    if parse_mode == "HTML":
+        current_text = getattr(message, "html_text", None)
+    if current_text is None:
+        current_text = message.text
+    if current_text is None:
+        return False
+    return current_text == text and _reply_markup_matches(message.reply_markup, reply_markup)
+
+
+async def safe_edit_message(
+    query: CallbackQuery,
+    text: str,
+    reply_markup: Any | None = None,
+    parse_mode: str | None = None,
+    *,
+    chat_id: int | None = None,
+    message_id: int | None = None,
+) -> None:
+    message = query.message
+    if not message:
+        return
+    target_chat_id = chat_id or getattr(getattr(message, "chat", None), "id", None)
+    target_message_id = message_id or getattr(message, "message_id", None)
+    if not target_chat_id or not target_message_id:
+        return
+    if (
+        target_chat_id == getattr(getattr(message, "chat", None), "id", None)
+        and target_message_id == getattr(message, "message_id", None)
+        and _message_matches(message, text, reply_markup, parse_mode)
+    ):
+        return
+    try:
+        await message.bot.edit_message_text(
+            chat_id=target_chat_id,
+            message_id=target_message_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return
+        raise
+    except TelegramAPIError as exc:
+        LOGGER.error(
+            "Telegram API error %s when editing screen: %s",
+            getattr(exc, "status_code", "unknown"),
+            str(exc),
+        )
+
+
 async def _edit_screen_from_callback(
     query: CallbackQuery,
     memory_state: MemoryState,
@@ -717,20 +788,14 @@ async def _edit_screen_from_callback(
     screen_message_id = data.get("screen_message_id") or getattr(query.message, "message_id", None)
     if not screen_chat_id or not screen_message_id:
         return
-    try:
-        await query.message.bot.edit_message_text(
-            chat_id=screen_chat_id,
-            message_id=screen_message_id,
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode="HTML",
-        )
-    except TelegramAPIError as exc:
-        LOGGER.error(
-            "Telegram API error %s when editing screen: %s",
-            getattr(exc, "status_code", "unknown"),
-            str(exc),
-        )
+    await safe_edit_message(
+        query,
+        text,
+        reply_markup=reply_markup,
+        parse_mode="HTML",
+        chat_id=screen_chat_id,
+        message_id=screen_message_id,
+    )
     memory_state.update(
         user_id,
         screen_chat_id=screen_chat_id,
