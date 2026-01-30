@@ -54,7 +54,7 @@ class NotionClient:
         payload = {
             "page_size": 5,
             "filter": {
-                "property": "Name",
+                "property": "model",
                 "title": {"contains": name_query},
             },
         }
@@ -64,7 +64,7 @@ class NotionClient:
         results: list[tuple[str, str]] = []
         for item in notion_results:
             # FIXED: Changed property name from "model" to "Name"
-            title = _extract_title(item, "Name")
+            title = _extract_title(item, "model")
             if title:
                 results.append((item["id"], title))
         LOGGER.info(
