@@ -50,10 +50,11 @@ class NotionClient:
         return await safe_request(session, method, url, json=json)
 
     async def query_models(self, database_id: str, name_query: str) -> list[tuple[str, str]]:
+        # FIXED: Changed property name from "model" to "Name" to match Notion Models DB
         payload = {
             "page_size": 5,
             "filter": {
-                "property": "model",
+                "property": "Name",
                 "title": {"contains": name_query},
             },
         }
@@ -62,7 +63,8 @@ class NotionClient:
         notion_results = data.get("results", [])
         results: list[tuple[str, str]] = []
         for item in notion_results:
-            title = _extract_title(item, "model")
+            # FIXED: Changed property name from "model" to "Name"
+            title = _extract_title(item, "Name")
             if title:
                 results.append((item["id"], title))
         LOGGER.info(
