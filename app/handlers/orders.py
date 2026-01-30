@@ -205,7 +205,7 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
         )
         await _try_delete_user_message(message)
         return
-<<<<<<< HEAD
+	HEAD
     if step == "ask_in_date":
         await _edit_screen_from_message(
             message,
@@ -215,10 +215,10 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
             step="ask_in_date",
         )
         await _try_delete_user_message(message)
-=======
+
         memory_state.update(message.from_user.id, qty=qty, step="ask_in_date")
         await message.answer("Select in date:", reply_markup=date_keyboard())
->>>>>>> 9e28a6c (Remove qty step from create flow (qty=1))
+	9e28a6c (Remove qty step from create flow (qty=1))
         return
     if step == "in_date_manual":
         in_date = _parse_date(text)
@@ -532,19 +532,19 @@ async def handle_create_callback(
         return
     if action == "type":
         order_type = value
-<<<<<<< HEAD
+	HEAD
         memory_state.update(query.from_user.id, step="ask_in_date", order_type=order_type, qty=1)
         await _edit_screen_from_callback(
             query,
             memory_state,
             f"Type: <b>{html.escape(order_type)}</b>\nIn date: Today / Yesterday / Enter",
-=======
+
         memory_state.update(query.from_user.id, order_type=order_type, qty=1, step="ask_in_date")
         await _edit_screen_from_callback(
             query,
             memory_state,
             f"Type: <b>{html.escape(order_type)}</b>\nIn date:",
->>>>>>> 9e28a6c (Remove qty step from create flow (qty=1))
+	 9e28a6c (Remove qty step from create flow (qty=1))
             reply_markup=create_in_date_keyboard(),
             step="ask_in_date",
         )
