@@ -530,12 +530,6 @@ async def handle_create_callback(
         return
     if action == "type":
         order_type = value
-        memory_state.update(query.from_user.id, step="ask_in_date", order_type=order_type, qty=1)
-        await _edit_screen_from_callback(
-            query,
-            memory_state,
-            f"Type: <b>{html.escape(order_type)}</b>\nIn date: Today / Yesterday / Enter",
-
         memory_state.update(query.from_user.id, order_type=order_type, qty=1, step="ask_in_date")
         await _edit_screen_from_callback(
             query,
