@@ -205,18 +205,17 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
         )
         await _try_delete_user_message(message)
         return
+    # FIXED: Removed broken code block that used undefined 'qty' variable
+    # Users should select date via buttons, not text input
     if step == "ask_in_date":
         await _edit_screen_from_message(
             message,
             memory_state,
-            "In date: Today / Yesterday / Enter",
+            "Please use the buttons to select a date.",
             reply_markup=create_in_date_keyboard(),
             step="ask_in_date",
         )
         await _try_delete_user_message(message)
-
-        memory_state.update(message.from_user.id, qty=qty, step="ask_in_date")
-        await message.answer("Select in date:", reply_markup=date_keyboard())
         return
     if step == "in_date_manual":
         in_date = _parse_date(text)
