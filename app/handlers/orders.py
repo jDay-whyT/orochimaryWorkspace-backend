@@ -79,6 +79,7 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
                     reply_markup=close_list_keyboard([], 1, 1),
                     mode="close_search",
                 )
+                await _try_delete_user_message(message)
                 return
             try:
                 models = await notion.query_models(config.notion_models_db_id, text)
@@ -91,6 +92,7 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
                     reply_markup=close_list_keyboard([], 1, 1),
                     mode="close_search",
                 )
+                await _try_delete_user_message(message)
                 return
             if not models:
                 await _edit_screen_from_message(
@@ -100,6 +102,7 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
                     reply_markup=close_list_keyboard([], 1, 1),
                     mode="close_search",
                 )
+                await _try_delete_user_message(message)
                 return
             model_options = {model_id: title for model_id, title in models}
             await _edit_screen_from_message(
@@ -110,6 +113,7 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
                 mode="close_pick_model",
                 model_options=model_options,
             )
+            await _try_delete_user_message(message)
             return
         if mode == "close_date_manual":
             close_date = _parse_date(text)
@@ -121,8 +125,10 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
                     reply_markup=close_date_keyboard_min(),
                     mode="close_date_manual",
                 )
+                await _try_delete_user_message(message)
                 return
             await _finalize_close_action(message, memory_state, config, notion, close_date)
+            await _try_delete_user_message(message)
             return
         if mode == "close_comment_manual":
             comment_text = text.strip()
@@ -134,8 +140,10 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
                     reply_markup=comment_keyboard(),
                     mode="close_comment_manual",
                 )
+                await _try_delete_user_message(message)
                 return
             await _save_order_comment(message, memory_state, config, notion, comment_text)
+            await _try_delete_user_message(message)
             return
         await _edit_screen_from_message(
             message,
@@ -197,34 +205,6 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
         )
         await _try_delete_user_message(message)
         return
-    if step == "qty_manual":
-        lowered = text.lower()
-        if not lowered or lowered == "skip":
-            qty = 1
-        else:
-            qty = _parse_int(text)
-            if not qty or not 1 <= qty <= 50:
-                order_type = data.get("order_type")
-                order_label = f"<b>{html.escape(order_type)}</b>" if order_type else "selected type"
-                await _edit_screen_from_message(
-                    message,
-                    memory_state,
-                    f"Type: {order_label}\nQty (default 1). Send number or 'skip'.",
-                    reply_markup=create_back_cancel_keyboard(),
-                    step="qty_manual",
-                )
-                await _try_delete_user_message(message)
-                return
-        memory_state.update(message.from_user.id, qty=qty, step="ask_in_date")
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "In date: Today / Yesterday / Enter",
-            reply_markup=create_in_date_keyboard(),
-            step="ask_in_date",
-        )
-        await _try_delete_user_message(message)
-        return
     if step == "ask_in_date":
         await _edit_screen_from_message(
             message,
@@ -251,7 +231,7 @@ async def handle_text(message: Message, memory_state: MemoryState, config: Confi
         await _edit_screen_from_message(
             message,
             memory_state,
-            "Comment? type or /skip",
+            "Comment? type or press Skip",
             reply_markup=create_comment_keyboard(),
             step="ask_comments",
         )
@@ -547,13 +527,13 @@ async def handle_create_callback(
         return
     if action == "type":
         order_type = value
-        memory_state.update(query.from_user.id, step="qty_manual", order_type=order_type, qty=1)
+        memory_state.update(query.from_user.id, step="ask_in_date", order_type=order_type, qty=1)
         await _edit_screen_from_callback(
             query,
             memory_state,
-            f"Type: <b>{html.escape(order_type)}</b>\nQty (default 1). Send number or 'skip'.",
-            reply_markup=create_back_cancel_keyboard(),
-            step="qty_manual",
+            f"Type: <b>{html.escape(order_type)}</b>\nIn date: Today / Yesterday / Enter",
+            reply_markup=create_in_date_keyboard(),
+            step="ask_in_date",
         )
         await query.answer()
         return
@@ -576,7 +556,7 @@ async def handle_create_callback(
             await _edit_screen_from_callback(
                 query,
                 memory_state,
-                "Comment? type or /skip",
+                "Comment? type or press Skip",
                 reply_markup=create_comment_keyboard(),
                 step="ask_comments",
             )
@@ -810,24 +790,14 @@ async def _handle_create_back(query: CallbackQuery, memory_state: MemoryState) -
             step="pick_model",
         )
         return
-    if step == "qty_manual":
-        model_title = data.get("model_title") or ""
-        await _edit_screen_from_callback(
-            query,
-            memory_state,
-            f"Model: <b>{html.escape(model_title)}</b>\nPick order type:",
-            reply_markup=create_types_keyboard(),
-            step="pick_type",
-        )
-        return
     if step == "ask_in_date":
         order_type = data.get("order_type") or ""
         await _edit_screen_from_callback(
             query,
             memory_state,
-            f"Type: <b>{html.escape(order_type)}</b>\nQty (default 1). Send number or 'skip'.",
-            reply_markup=create_back_cancel_keyboard(),
-            step="qty_manual",
+            f"Model: <b>{html.escape(data.get('model_title') or '')}</b>\nPick order type:",
+            reply_markup=create_types_keyboard(),
+            step="pick_type",
         )
         return
     if step == "in_date_manual":
@@ -843,7 +813,7 @@ async def _handle_create_back(query: CallbackQuery, memory_state: MemoryState) -
         await _edit_screen_from_callback(
             query,
             memory_state,
-            "In date: Today / Yesterday / Enter",
+            f"Type: <b>{html.escape(data.get('order_type') or '')}</b>\nIn date: Today / Yesterday / Enter",
             reply_markup=create_in_date_keyboard(),
             step="ask_in_date",
         )
@@ -852,7 +822,7 @@ async def _handle_create_back(query: CallbackQuery, memory_state: MemoryState) -
         await _edit_screen_from_callback(
             query,
             memory_state,
-            "Comment? type or /skip",
+            "Comment? type or press Skip",
             reply_markup=create_comment_keyboard(),
             step="ask_comments",
         )
