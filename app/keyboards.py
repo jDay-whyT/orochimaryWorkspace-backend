@@ -33,6 +33,78 @@ def skip_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def create_cancel_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="✖ Cancel", callback_data="ocreate|cancel|cancel"))
+    return builder.as_markup()
+
+
+def create_back_cancel_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="⬅ Back", callback_data="ocreate|back|back"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data="ocreate|cancel|cancel"),
+    )
+    return builder.as_markup()
+
+
+def create_models_keyboard(models: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for model_id, title in models:
+        builder.add(InlineKeyboardButton(text=title, callback_data=f"ocreate|model|{model_id}"))
+    builder.adjust(1)
+    builder.row(
+        InlineKeyboardButton(text="⬅ Back", callback_data="ocreate|back|back"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data="ocreate|cancel|cancel"),
+    )
+    return builder.as_markup()
+
+
+def create_types_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for value in ["short", "ad request", "call", "custom"]:
+        builder.add(InlineKeyboardButton(text=value, callback_data=f"ocreate|type|{value}"))
+    builder.adjust(2)
+    builder.row(
+        InlineKeyboardButton(text="⬅ Back", callback_data="ocreate|back|back"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data="ocreate|cancel|cancel"),
+    )
+    return builder.as_markup()
+
+
+def create_in_date_keyboard(include_enter: bool = True) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="Today", callback_data="ocreate|date|today"))
+    builder.add(InlineKeyboardButton(text="Yesterday", callback_data="ocreate|date|yesterday"))
+    if include_enter:
+        builder.add(InlineKeyboardButton(text="Enter", callback_data="ocreate|date|enter"))
+    builder.adjust(2)
+    builder.row(
+        InlineKeyboardButton(text="⬅ Back", callback_data="ocreate|back|back"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data="ocreate|cancel|cancel"),
+    )
+    return builder.as_markup()
+
+
+def create_comment_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="Skip", callback_data="ocreate|comment|skip"))
+    builder.row(
+        InlineKeyboardButton(text="⬅ Back", callback_data="ocreate|back|back"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data="ocreate|cancel|cancel"),
+    )
+    return builder.as_markup()
+
+
+def create_success_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="New order", callback_data="ocreate|start|start"),
+        InlineKeyboardButton(text="Close orders", callback_data="oclose|start|start"),
+    )
+    return builder.as_markup()
+
+
 def close_list_keyboard(
     orders_page: list[dict[str, str]],
     page: int,
