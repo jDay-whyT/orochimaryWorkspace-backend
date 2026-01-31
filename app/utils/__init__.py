@@ -17,6 +17,9 @@ from app.utils.constants import (
     ORDER_STATUS_CANCELED,
     PAGE_SIZE,
 )
+from app.utils.telegram import (
+    safe_edit_message,
+)
 
 __all__ = [
     "format_date_short",
@@ -34,4 +37,5 @@ __all__ = [
     "ORDER_STATUS_DONE",
     "ORDER_STATUS_CANCELED",
     "PAGE_SIZE",
+    "safe_edit_message",
 ]
