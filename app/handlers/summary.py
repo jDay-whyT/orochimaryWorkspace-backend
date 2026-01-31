@@ -170,14 +170,27 @@ async def _process_model_search(
 ) -> None:
     """Process model search query."""
     query_text = message.text.strip()
-    
-    models_service = ModelsService(config)
-    models = await models_service.search_models(query_text)
-    
+
     data = memory_state.get(message.from_user.id) or {}
     screen_chat_id = data.get("screen_chat_id")
     screen_message_id = data.get("screen_message_id")
-    
+
+    models_service = ModelsService(config)
+    try:
+        models = await models_service.search_models(query_text)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception("Failed to search models: %s", e)
+        text = f"❌ <b>Error searching models</b>\n\nDatabase connection failed. Please contact admin."
+        await message.bot.edit_message_text(
+            text,
+            chat_id=screen_chat_id,
+            message_id=screen_message_id,
+            reply_markup=back_keyboard("summary"),
+            parse_mode="HTML",
+        )
+        return
+
     if not models:
         text = f"🔍 No models found for: {html.escape(query_text)}\n\nTry again:"
         await message.bot.edit_message_text(

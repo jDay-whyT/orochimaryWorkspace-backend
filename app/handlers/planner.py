@@ -353,34 +353,34 @@ async def _handle_search_results(
     models_service = ModelsService(config)
     try:
         results = await models_service.search_models(query_text, limit=10)
-        
+
         if not results:
             await message.answer(
                 f"No models found for '{html.escape(query_text)}'",
                 parse_mode="HTML",
             )
             return
-        
+
         from aiogram.types import InlineKeyboardButton
         from aiogram.utils.keyboard import InlineKeyboardBuilder
-        
+
         builder = InlineKeyboardBuilder()
-        
+
         for model in results:
             builder.row(InlineKeyboardButton(
                 text=model["name"],
                 callback_data=f"planner|select_model|{model['id']}"
             ))
-        
+
         builder.row(
             InlineKeyboardButton(text="◀️ Back", callback_data="planner|back|select_model"),
             InlineKeyboardButton(text="✖ Cancel", callback_data="planner|cancel|cancel"),
         )
-        
+
         # Update screen message
         chat_id = state.get("screen_chat_id")
         message_id = state.get("screen_message_id")
-        
+
         if chat_id and message_id:
             from aiogram import Bot
             bot = message.bot
@@ -392,7 +392,15 @@ async def _handle_search_results(
                 reply_markup=builder.as_markup(),
                 parse_mode="HTML",
             )
-    
+
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception("Failed to search models: %s", e)
+        await message.answer(
+            "❌ <b>Error searching models</b>\n\nDatabase connection failed. Please contact admin.",
+            parse_mode="HTML",
+        )
+
     finally:
         await models_service.close()
 

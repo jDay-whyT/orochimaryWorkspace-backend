@@ -898,18 +898,26 @@ async def handle_text_input(
     if step == "waiting_query":
         if not text:
             return
-        
+
         try:
             models = await notion.query_models(config.db_models, text)
         except Exception as e:
-            LOGGER.exception("Failed to search models: %s", e)
+            LOGGER.exception("Failed to search models (DB: %s): %s", config.db_models, e)
+            # Show error to user instead of silently failing
+            await message.answer(
+                "❌ <b>Error searching models</b>\n\n"
+                "Database connection failed. Please contact admin.\n\n"
+                f"<code>Error: {escape_html(str(e))[:100]}</code>",
+                reply_markup=back_cancel_keyboard(flow or "orders"),
+                parse_mode="HTML",
+            )
             return
-        
+
         if not models:
             # Send new message with error
             await message.answer(
                 "No models found. Try another search:",
-                reply_markup=back_cancel_keyboard("orders"),
+                reply_markup=back_cancel_keyboard(flow or "orders"),
                 parse_mode="HTML",
             )
             return
