@@ -42,3 +42,8 @@ def assert_called_with(mock, *expected_args, **expected_kwargs) -> None:
 
     for key, value in expected_kwargs.items():
         assert kwargs.get(key) == value, f"Kwarg {key} expected {value}, got {kwargs.get(key)}"
+
+async def send(msg_factory, handler, text: str, *deps):
+    msg = msg_factory(text=text)
+    await handler(msg, *deps)
+    return msg
