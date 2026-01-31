@@ -155,12 +155,13 @@ class NotionClient:
     # ==================== Models ====================
 
     async def query_models(
-        self, 
-        database_id: str, 
+        self,
+        database_id: str,
         name_query: str,
         limit: int = 10,
     ) -> list[NotionModel]:
         """Search models by name."""
+        LOGGER.info("Querying models database %s with query: %s", database_id, name_query)
         payload = {
             "page_size": limit,
             "filter": {
@@ -169,8 +170,23 @@ class NotionClient:
             },
         }
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
-        data = await self._request("POST", url, json=payload)
-        
+
+        try:
+            data = await self._request("POST", url, json=payload)
+        except RuntimeError as e:
+            LOGGER.error("Failed to query models database %s: %s", database_id, e)
+            # Log helpful debugging info
+            if "404" in str(e):
+                LOGGER.error(
+                    "Database not found (404). Possible causes:\n"
+                    "  1. DB_MODELS environment variable is not set correctly\n"
+                    "  2. Database ID '%s' doesn't exist\n"
+                    "  3. Notion token doesn't have access to this database\n"
+                    "  4. Database was deleted or moved",
+                    database_id
+                )
+            raise
+
         results: list[NotionModel] = []
         for item in data.get("results", []):
             title = _extract_title(item, "model")
@@ -182,7 +198,8 @@ class NotionClient:
                     status=_extract_status(item, "status"),
                     winrate=_extract_select(item, "winrate"),
                 ))
-        
+
+        LOGGER.info("Found %d models for query '%s'", len(results), name_query)
         return results
 
     async def get_model(self, page_id: str) -> NotionModel | None:
