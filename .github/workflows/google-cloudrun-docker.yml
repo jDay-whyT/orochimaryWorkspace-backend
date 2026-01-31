@@ -97,8 +97,8 @@ jobs:
             TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
             TELEGRAM_WEBHOOK_SECRET=${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
             NOTION_TOKEN=${{ secrets.NOTION_TOKEN }}
-            DB_MODELS=${{ secrets.NOTION_MODELS_DB_ID }}
-            DB_ORDERS=${{ secrets.NOTION_ORDERS_DB_ID }}
+            DB_MODELS=${{ secrets.DB_MODELS }}
+            DB_ORDERS=${{ secrets.DB_ORDERS }}
             DB_PLANNER=${{ secrets.DB_PLANNER }}
             DB_ACCOUNTING=${{ secrets.DB_ACCOUNTING }}
             ADMIN_IDS=${{ vars.ADMIN_IDS }}
