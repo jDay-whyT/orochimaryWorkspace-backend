@@ -11,7 +11,8 @@ class StateEntry:
 
 @dataclass
 class MemoryState:
-    ttl_seconds: int = 1800
+    """In-memory user state storage with TTL."""
+    ttl_seconds: int = 1800  # 30 minutes
     _storage: dict[int, StateEntry] = field(default_factory=dict)
 
     def _now(self) -> float:
