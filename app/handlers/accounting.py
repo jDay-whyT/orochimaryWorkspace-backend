@@ -66,6 +66,8 @@ async def handle_accounting_callback(
             await _start_add_files(query, config, memory_state, recent_models)
         elif action == "model":
             await _select_model(query, config, memory_state, recent_models, value)
+        elif action == "select_model":
+            await _select_model(query, config, memory_state, recent_models, value)
         elif action == "files" and len(parts) >= 4:
             page_id = parts[2]
             count = int(parts[3])
