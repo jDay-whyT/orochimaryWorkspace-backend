@@ -30,6 +30,7 @@ from app.utils import (
     escape_html,
     ORDER_TYPES,
     PAGE_SIZE,
+    safe_edit_message,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -154,35 +155,35 @@ async def handle_back(
     
     if value == "main":
         memory_state.clear(user_id)
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             "📦 <b>Orders</b>\n\nSelect an action:",
             reply_markup=orders_menu_keyboard(),
-            parse_mode="HTML",
         )
-    
+
     elif value == "menu":
         memory_state.clear(user_id)
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             "📦 <b>Orders</b>\n\nSelect an action:",
             reply_markup=orders_menu_keyboard(),
-            parse_mode="HTML",
         )
     
     elif value == "model_select":
         # Back to model selection
         recent = recent_models.get(user_id)
         if recent:
-            await query.message.edit_text(
+            await safe_edit_message(
+                query,
                 "Select model:",
                 reply_markup=recent_models_keyboard(recent, "orders"),
-                parse_mode="HTML",
             )
         else:
             memory_state.update(user_id, flow="search", step="waiting_query")
-            await query.message.edit_text(
+            await safe_edit_message(
+                query,
                 "🔍 Enter model name to search:",
                 reply_markup=back_cancel_keyboard("orders"),
-                parse_mode="HTML",
             )
     
     elif value == "list":
@@ -194,60 +195,60 @@ async def handle_back(
         recent = recent_models.get(user_id)
         memory_state.update(user_id, step="select_model")
         if recent:
-            await query.message.edit_text(
+            await safe_edit_message(
+                query,
                 "➕ <b>New Order</b>\n\nSelect model:",
                 reply_markup=recent_models_keyboard(recent, "orders"),
-                parse_mode="HTML",
             )
         else:
             memory_state.update(user_id, step="waiting_query")
-            await query.message.edit_text(
+            await safe_edit_message(
+                query,
                 "➕ <b>New Order</b>\n\n🔍 Enter model name:",
                 reply_markup=back_cancel_keyboard("orders"),
-                parse_mode="HTML",
             )
     
     elif value == "type":
         # Back to type selection
         memory_state.update(user_id, step="select_type")
         model_title = data.get("model_title", "")
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             f"➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n\n"
             f"Select order type:",
             reply_markup=order_types_keyboard(),
-            parse_mode="HTML",
         )
-    
+
     elif value == "qty":
         # Back to quantity selection
         memory_state.update(user_id, step="select_qty")
         model_title = data.get("model_title", "")
         order_type = data.get("order_type", "")
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             f"➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n"
             f"Type: <b>{escape_html(order_type)}</b>\n\n"
             f"Select quantity:",
             reply_markup=order_qty_keyboard(),
-            parse_mode="HTML",
         )
-    
+
     elif value == "date":
         # Back to date selection
         memory_state.update(user_id, step="select_date")
         model_title = data.get("model_title", "")
         order_type = data.get("order_type", "")
         qty = data.get("qty", 1)
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             f"➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n"
             f"Type: <b>{escape_html(order_type)}</b> × {qty}\n\n"
             f"Select date:",
             reply_markup=order_date_keyboard(),
-            parse_mode="HTML",
         )
-    
+
     elif value == "comment":
         # Back to comment prompt
         memory_state.update(user_id, step="comment_prompt")
@@ -255,14 +256,14 @@ async def handle_back(
         order_type = data.get("order_type", "")
         qty = data.get("qty", 1)
         in_date = data.get("in_date")
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             f"➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n"
             f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
             f"Date: <b>{format_date_short(in_date)}</b>\n\n"
             f"Add comment?",
             reply_markup=order_comment_keyboard(),
-            parse_mode="HTML",
         )
     
     await query.answer()
@@ -271,10 +272,10 @@ async def handle_back(
 async def handle_cancel(query: CallbackQuery, memory_state: MemoryState) -> None:
     """Handle cancel action."""
     memory_state.clear(query.from_user.id)
-    await query.message.edit_text(
+    await safe_edit_message(
+        query,
         "📦 <b>Orders</b>\n\nCancelled.",
         reply_markup=orders_menu_keyboard(),
-        parse_mode="HTML",
     )
     await query.answer()
 
@@ -288,10 +289,10 @@ async def start_model_search(query: CallbackQuery, memory_state: MemoryState) ->
         flow="search",
         step="waiting_query",
     )
-    await query.message.edit_text(
+    await safe_edit_message(
+        query,
         "🔍 Enter model name to search:",
         reply_markup=back_cancel_keyboard("orders"),
-        parse_mode="HTML",
     )
     await query.answer()
 
@@ -333,12 +334,12 @@ async def handle_model_select(
             model_title=model_title,
             step="select_type",
         )
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             f"➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n\n"
             f"Select order type:",
             reply_markup=order_types_keyboard(),
-            parse_mode="HTML",
         )
     else:
         # Show open orders for model
@@ -373,11 +374,11 @@ async def show_open_orders_list(
         from app.state import RecentModels
         # This is a simplified path - normally we'd inject recent_models
         memory_state.update(user_id, flow="view", step="select_model")
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             "📋 <b>Open Orders</b>\n\n"
             "🔍 Enter model name to search:",
             reply_markup=back_cancel_keyboard("orders"),
-            parse_mode="HTML",
         )
         await query.answer()
         return
@@ -410,11 +411,11 @@ async def _show_orders_for_model(
     memory_state.update(user_id, orders=[_order_to_dict(o) for o in orders])
     
     if not orders:
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             f"📋 <b>Open Orders: {escape_html(model_title)}</b>\n\n"
             f"✅ No open orders!",
             reply_markup=orders_menu_keyboard(),
-            parse_mode="HTML",
         )
         return
     
@@ -438,11 +439,11 @@ async def _show_orders_for_model(
             "label": label,
         })
     
-    await query.message.edit_text(
+    await safe_edit_message(
+        query,
         f"📋 <b>Open Orders: {escape_html(model_title)}</b>\n\n"
         f"Total: {len(orders)} (page {page}/{total_pages})",
         reply_markup=orders_list_keyboard(orders_data, page, total_pages),
-        parse_mode="HTML",
     )
 
 
@@ -502,12 +503,12 @@ async def show_order_details(
     order_type = order.get("order_type", "order")
     comments = order.get("comments", "")
     comments_str = f"\n💬 {escape_html(comments)}" if comments else ""
-    
-    await query.message.edit_text(
+
+    await safe_edit_message(
+        query,
         f"📦 <b>{escape_html(order_type)}</b> · {escape_html(model_title)}\n"
         f"In: {format_date_short(in_date)}{days_str}{comments_str}",
         reply_markup=order_action_keyboard(page_id),
-        parse_mode="HTML",
     )
     await query.answer()
 
@@ -571,10 +572,10 @@ async def start_comment_input(
         selected_order=page_id,
         step="waiting_comment",
     )
-    await query.message.edit_text(
+    await safe_edit_message(
+        query,
         "💬 Enter comment for this order:",
         reply_markup=back_cancel_keyboard("orders"),
-        parse_mode="HTML",
     )
     await query.answer()
 
@@ -602,19 +603,19 @@ async def start_new_order(
     )
     
     if recent:
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             "➕ <b>New Order</b>\n\n"
             "⭐ Recent models:",
             reply_markup=recent_models_keyboard(recent, "orders"),
-            parse_mode="HTML",
         )
     else:
         memory_state.update(user_id, step="waiting_query")
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             "➕ <b>New Order</b>\n\n"
             "🔍 Enter model name to search:",
             reply_markup=back_cancel_keyboard("orders"),
-            parse_mode="HTML",
         )
     
     await query.answer()
@@ -640,14 +641,14 @@ async def handle_type_select(
         step="select_qty",
         qty=1,
     )
-    
-    await query.message.edit_text(
+
+    await safe_edit_message(
+        query,
         f"➕ <b>New Order</b>\n\n"
         f"Model: <b>{escape_html(model_title)}</b>\n"
         f"Type: <b>{escape_html(order_type)}</b>\n\n"
         f"Select quantity:",
         reply_markup=order_qty_keyboard(),
-        parse_mode="HTML",
     )
     await query.answer()
 
@@ -665,13 +666,13 @@ async def handle_qty_select(
     
     if value == "custom":
         memory_state.update(user_id, step="waiting_qty")
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             f"➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n"
             f"Type: <b>{escape_html(order_type)}</b>\n\n"
             f"Enter quantity (1-99):",
             reply_markup=back_cancel_keyboard("orders"),
-            parse_mode="HTML",
         )
         await query.answer()
         return
@@ -689,14 +690,14 @@ async def handle_qty_select(
         qty=qty,
         step="select_date",
     )
-    
-    await query.message.edit_text(
+
+    await safe_edit_message(
+        query,
         f"➕ <b>New Order</b>\n\n"
         f"Model: <b>{escape_html(model_title)}</b>\n"
         f"Type: <b>{escape_html(order_type)}</b> × {qty}\n\n"
         f"Select date:",
         reply_markup=order_date_keyboard(),
-        parse_mode="HTML",
     )
     await query.answer()
 
@@ -724,15 +725,15 @@ async def handle_date_select(
         in_date=in_date.isoformat(),
         step="comment_prompt",
     )
-    
-    await query.message.edit_text(
+
+    await safe_edit_message(
+        query,
         f"➕ <b>New Order</b>\n\n"
         f"Model: <b>{escape_html(model_title)}</b>\n"
         f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
         f"Date: <b>{format_date_short(in_date)}</b>\n\n"
         f"Add comment?",
         reply_markup=order_comment_keyboard(),
-        parse_mode="HTML",
     )
     await query.answer()
 
@@ -761,15 +762,15 @@ async def start_order_comment_input(
     in_date = data.get("in_date")
     
     memory_state.update(user_id, step="waiting_comment")
-    
-    await query.message.edit_text(
+
+    await safe_edit_message(
+        query,
         f"➕ <b>New Order</b>\n\n"
         f"Model: <b>{escape_html(model_title)}</b>\n"
         f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
         f"Date: <b>{format_date_short(in_date)}</b>\n\n"
         f"💬 Enter comment:",
         reply_markup=back_cancel_keyboard("orders"),
-        parse_mode="HTML",
     )
     await query.answer()
 
@@ -790,15 +791,15 @@ async def _show_confirmation(
     comments = data.get("comments")
     
     comments_str = f"\n💬 {escape_html(comments)}" if comments else ""
-    
-    await query.message.edit_text(
+
+    await safe_edit_message(
+        query,
         f"➕ <b>Confirm Order</b>\n\n"
         f"Model: <b>{escape_html(model_title)}</b>\n"
         f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
         f"Date: <b>{format_date_short(in_date)}</b>{comments_str}\n\n"
         f"Create order?",
         reply_markup=order_confirm_keyboard(),
-        parse_mode="HTML",
     )
 
 
@@ -850,14 +851,14 @@ async def create_order(
         return
     
     memory_state.clear(user_id)
-    
-    await query.message.edit_text(
+
+    await safe_edit_message(
+        query,
         f"✅ <b>Order Created!</b>\n\n"
         f"Model: <b>{escape_html(model_title)}</b>\n"
         f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
         f"Date: <b>{format_date_short(in_date)}</b>",
         reply_markup=order_success_keyboard(),
-        parse_mode="HTML",
     )
     await query.answer("Order created!")
 
