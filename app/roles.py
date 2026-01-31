@@ -31,6 +31,16 @@ def can_edit(user_id: int, config: Config) -> bool:
     return role in (Role.ADMIN, Role.EDITOR)
 
 
+def is_editor_or_admin(user_id: int, config: Config) -> bool:
+    """Backward-compatible alias for editor/admin checks."""
+    return can_edit(user_id, config)
+
+
+def is_editor(user_id: int, config: Config) -> bool:
+    """Backward-compatible alias for editor checks (admin allowed)."""
+    return can_edit(user_id, config)
+
+
 def is_admin(user_id: int, config: Config) -> bool:
     """Check if user is admin."""
     return get_user_role(user_id, config) == Role.ADMIN
