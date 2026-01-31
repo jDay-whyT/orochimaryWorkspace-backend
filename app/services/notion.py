@@ -169,13 +169,22 @@ class NotionClient:
     ) -> list[NotionModel]:
         """Search models by name."""
         LOGGER.info("Querying models database %s with query: %s", database_id, name_query)
-        payload = {
-            "page_size": limit,
-            "filter": {
-                "property": "model",
-                "title": {"contains": name_query},
-            },
-        }
+
+        # If query is empty, fetch all models without filter
+        if not name_query or not name_query.strip():
+            payload = {
+                "page_size": limit,
+            }
+        else:
+            # Search by 'open' title field
+            payload = {
+                "page_size": limit,
+                "filter": {
+                    "property": "open",
+                    "title": {"contains": name_query},
+                },
+            }
+
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
 
         try:
@@ -196,15 +205,20 @@ class NotionClient:
 
         results: list[NotionModel] = []
         for item in data.get("results", []):
-            title = _extract_title(item, "model")
+            title = await self._extract_model_title(item)
             if title:
-                results.append(NotionModel(
-                    page_id=item["id"],
-                    title=title,
-                    project=_extract_select(item, "project"),
-                    status=_extract_status(item, "status"),
-                    winrate=_extract_select(item, "winrate"),
-                ))
+                # Check if title matches query (for client-side filtering when title comes from relation)
+                if not name_query or not name_query.strip() or \
+                   name_query.lower() in title.lower():
+                    results.append(NotionModel(
+                        page_id=item["id"],
+                        title=title,
+                        project=_extract_select(item, "project"),
+                        status=_extract_status(item, "status"),
+                        winrate=_extract_select(item, "winrate"),
+                    ))
+            else:
+                LOGGER.warning("Skipping model %s - no valid title found", item.get("id"))
 
         LOGGER.info("Found %d models for query '%s'", len(results), name_query)
         return results
@@ -214,8 +228,9 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         try:
             data = await self._request("GET", url)
-            title = _extract_title(data, "model")
+            title = await self._extract_model_title(data)
             if not title:
+                LOGGER.warning("Model %s has no valid title", page_id)
                 return None
             return NotionModel(
                 page_id=data["id"],
@@ -227,6 +242,73 @@ class NotionClient:
         except Exception:
             LOGGER.exception("Failed to get model %s", page_id)
             return None
+
+    async def _extract_model_title(self, page: dict[str, Any]) -> str | None:
+        """
+        Extract model title with fallback logic:
+        1. Try 'open' title field (standard title field)
+        2. Try 'model' relation field (fetch related page title)
+        3. Return None if both fail
+        """
+        page_id = page.get("id", "unknown")
+
+        # Try standard title field 'open'
+        title = _extract_title(page, "open")
+        if title:
+            LOGGER.debug("Model %s: using 'open' title: %s", page_id, title)
+            return title
+
+        # Log available properties for debugging
+        properties = page.get("properties", {})
+        available_props = list(properties.keys())
+        LOGGER.debug("Model %s: 'open' is empty, available properties: %s",
+                    page_id, available_props)
+
+        # If 'open' is empty, try to get title from 'model' relation
+        model_relation_id = _extract_relation_id(page, "model")
+        if model_relation_id:
+            LOGGER.info("Model %s: 'open' empty, fetching from relation 'model': %s",
+                        page_id, model_relation_id)
+            try:
+                # Fetch the related page to get its title
+                related_url = f"https://api.notion.com/v1/pages/{model_relation_id}"
+                related_data = await self._request("GET", related_url)
+
+                # Try to extract title from the related page
+                related_title = _extract_title(related_data, "open")
+                if related_title:
+                    LOGGER.info("Model %s: using related page title: %s",
+                                page_id, related_title)
+                    return related_title
+
+                # If related page also has no 'open' title, try other title fields
+                for field in ["model", "name", "title"]:
+                    related_title = _extract_title(related_data, field)
+                    if related_title:
+                        LOGGER.info("Model %s: using related page field '%s': %s",
+                                    page_id, field, related_title)
+                        return related_title
+
+                # Log related page structure for debugging
+                related_props = list(related_data.get("properties", {}).keys())
+                LOGGER.warning(
+                    "Model %s: related page %s has no title. "
+                    "Related page properties: %s",
+                    page_id, model_relation_id, related_props
+                )
+            except Exception as e:
+                LOGGER.warning("Model %s: failed to fetch related page %s: %s",
+                              page_id, model_relation_id, e)
+        else:
+            LOGGER.debug("Model %s: no 'model' relation found", page_id)
+
+        LOGGER.warning(
+            "Model %s: no valid title found. "
+            "Available properties: %s. "
+            "Consider adding a non-empty 'open' title field in Notion.",
+            page_id, available_props
+        )
+        return None
 
     # ==================== Orders ====================
 
@@ -620,10 +702,23 @@ class NotionClient:
 def _extract_title(page: dict[str, Any], property_name: str) -> str | None:
     """Extract title property value."""
     prop = page.get("properties", {}).get(property_name)
-    if not prop or prop.get("type") != "title":
+    if not prop:
         return None
-    fragments = prop.get("title", [])
-    return "".join(part.get("plain_text", "") for part in fragments).strip() or None
+
+    # Support both 'title' and 'rich_text' types for flexibility
+    prop_type = prop.get("type")
+    if prop_type == "title":
+        fragments = prop.get("title", [])
+    elif prop_type == "rich_text":
+        fragments = prop.get("rich_text", [])
+    else:
+        return None
+
+    if not fragments:
+        return None
+
+    text = "".join(part.get("plain_text", "") for part in fragments).strip()
+    return text if text else None
 
 
 def _extract_rich_text(page: dict[str, Any], property_name: str) -> str | None:
