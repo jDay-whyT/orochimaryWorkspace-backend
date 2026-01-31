@@ -86,7 +86,10 @@ async def handle_orders_callback(
         
         elif action == "model":
             await handle_model_select(query, value, memory_state, config, notion, recent_models)
-        
+
+        elif action == "select_model":
+            await handle_model_select(query, value, memory_state, config, notion, recent_models)
+
         # Open orders list
         elif action == "open":
             await show_open_orders_list(query, memory_state, config, notion)
@@ -933,8 +936,8 @@ async def handle_text_input(
         await message.answer(
             f"🔍 Search results for '<b>{escape_html(text)}</b>':",
             reply_markup=models_keyboard(
-                [(m.page_id, m.title) for m in models],
                 "orders",
+                [(m.page_id, m.title) for m in models],
             ),
             parse_mode="HTML",
         )

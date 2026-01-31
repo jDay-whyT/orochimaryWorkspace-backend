@@ -71,6 +71,8 @@ async def handle_summary_callback(
             await _start_search(query, memory_state)
         elif action == "model":
             await _show_model_summary(query, config, memory_state, recent_models, value)
+        elif action == "select_model":
+            await _show_model_summary(query, config, memory_state, recent_models, value)
         elif action == "debts":
             await _show_debts(query, config, memory_state, value)
         elif action == "orders":
@@ -210,7 +212,7 @@ async def _process_model_search(
         text,
         chat_id=screen_chat_id,
         message_id=screen_message_id,
-        reply_markup=models_keyboard(model_list, "summary"),
+        reply_markup=models_keyboard("summary", model_list),
         parse_mode="HTML",
     )
     
