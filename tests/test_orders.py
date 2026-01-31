@@ -1,17 +1,19 @@
-import asyncio
 from datetime import date
 from unittest.mock import AsyncMock
+
+import pytest
 
 from app.handlers.orders import handle_orders_callback, show_orders_menu
 from app.state import MemoryState
 from tests.fakes import FakeCallbackQuery, FakeMessage
-from tests.helpers import assert_called_with, assert_contains, extract_last_text, last_outgoing
+from tests.helpers import assert_called_with, assert_contains, last_outgoing
 
 
-def test_orders_menu_opens(config_admin):
+@pytest.mark.asyncio
+async def test_orders_menu_opens(config_admin):
     message = FakeMessage(user_id=111)
 
-    asyncio.run(show_orders_menu(message, config_admin))
+    await show_orders_menu(message, config_admin)
 
     last = last_outgoing(message)
     assert last is not None
@@ -19,7 +21,8 @@ def test_orders_menu_opens(config_admin):
     assert last["reply_markup"] is not None
 
 
-def test_orders_open_error_alert(config_admin, notion_mock, recent_models):
+@pytest.mark.asyncio
+async def test_orders_open_error_alert(config_admin, notion_mock, recent_models):
     message = FakeMessage(user_id=111)
     query = FakeCallbackQuery("orders|open|noop", message, user_id=111)
     memory_state = MemoryState()
@@ -27,7 +30,7 @@ def test_orders_open_error_alert(config_admin, notion_mock, recent_models):
 
     notion_mock.query_open_orders = AsyncMock(side_effect=RuntimeError("boom"))
 
-    asyncio.run(handle_orders_callback(query, config_admin, notion_mock, memory_state, recent_models))
+    await handle_orders_callback(query, config_admin, notion_mock, memory_state, recent_models)
 
     assert query.callback_answers
     last = query.callback_answers[-1]
@@ -35,7 +38,8 @@ def test_orders_open_error_alert(config_admin, notion_mock, recent_models):
     assert last["show_alert"] is True
 
 
-def test_orders_create_calls_notion(config_admin, notion_mock, recent_models):
+@pytest.mark.asyncio
+async def test_orders_create_calls_notion(config_admin, notion_mock, recent_models):
     message = FakeMessage(user_id=111)
     query = FakeCallbackQuery("orders|confirm|ok", message, user_id=111)
     memory_state = MemoryState()
@@ -51,7 +55,7 @@ def test_orders_create_calls_notion(config_admin, notion_mock, recent_models):
         },
     )
 
-    asyncio.run(handle_orders_callback(query, config_admin, notion_mock, memory_state, recent_models))
+    await handle_orders_callback(query, config_admin, notion_mock, memory_state, recent_models)
 
     expected_date = date(2024, 1, 15)
     assert_called_with(
