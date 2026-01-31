@@ -164,6 +164,15 @@ async def handle_back(
             reply_markup=orders_menu_keyboard(),
         )
 
+    elif value == "back":
+        # Generic back from back_cancel_keyboard - return to menu
+        memory_state.clear(user_id)
+        await safe_edit_message(
+            query,
+            "📦 <b>Orders</b>\n\nSelect an action:",
+            reply_markup=orders_menu_keyboard(),
+        )
+
     elif value == "menu":
         memory_state.clear(user_id)
         await safe_edit_message(

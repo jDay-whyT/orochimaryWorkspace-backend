@@ -399,6 +399,14 @@ async def _handle_back(
     if value == "main":
         await query.message.delete()
         memory_state.clear(query.from_user.id)
+    elif value == "back":
+        # Generic back from back_keyboard - return to menu
+        await query.message.edit_text(
+            "💰 <b>Accounting</b>\n\nSelect an action:",
+            reply_markup=accounting_menu_keyboard(),
+            parse_mode="HTML",
+        )
+        memory_state.clear(query.from_user.id)
     else:
         await query.message.edit_text(
             "💰 <b>Accounting</b>\n\nSelect an action:",
