@@ -178,7 +178,7 @@ async def _process_model_search(
         text,
         chat_id=screen_chat_id,
         message_id=screen_message_id,
-        reply_markup=models_keyboard(model_list, "account"),
+        reply_markup=models_keyboard("account", model_list),
         parse_mode="HTML",
     )
     
