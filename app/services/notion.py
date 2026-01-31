@@ -93,6 +93,13 @@ class NotionClient:
         if self._session and not self._session.closed:
             if self._session_loop and self._session_loop is loop and not loop.is_closed():
                 return self._session
+            # Close old session from different event loop to prevent resource leaks
+            LOGGER.info("Closing stale session from different event loop")
+            try:
+                await self._session.close()
+            except Exception as e:
+                LOGGER.warning("Error closing stale session: %s", e)
+
         self._session = aiohttp.ClientSession(
             headers={
                 "Authorization": f"Bearer {self._token}",
