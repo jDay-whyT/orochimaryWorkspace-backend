@@ -97,5 +97,12 @@ jobs:
             TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
             TELEGRAM_WEBHOOK_SECRET=${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
             NOTION_TOKEN=${{ secrets.NOTION_TOKEN }}
-            NOTION_ORDERS_DB_ID=${{ secrets.NOTION_ORDERS_DB_ID }}
-            NOTION_MODELS_DB_ID=${{ secrets.NOTION_MODELS_DB_ID }}
+            DB_MODELS=${{ secrets.NOTION_MODELS_DB_ID }}
+            DB_ORDERS=${{ secrets.NOTION_ORDERS_DB_ID }}
+            DB_PLANNER=${{ secrets.DB_PLANNER }}
+            DB_ACCOUNTING=${{ secrets.DB_ACCOUNTING }}
+            ADMIN_IDS=${{ vars.ADMIN_IDS }}
+            EDITOR_IDS=${{ vars.EDITOR_IDS }}
+            VIEWER_IDS=${{ vars.VIEWER_IDS }}
+            TIMEZONE=${{ vars.TIMEZONE }}
+            FILES_PER_MONTH=${{ vars.FILES_PER_MONTH }}
