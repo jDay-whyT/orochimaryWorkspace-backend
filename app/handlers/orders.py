@@ -1,1154 +1,1027 @@
-import html
 import logging
-from datetime import date, datetime, timedelta
-from typing import Any
+from datetime import date
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
 from app.keyboards import (
-    close_list_keyboard,
-    close_action_keyboard,
-    close_date_keyboard_min,
-    comment_keyboard,
-    create_back_cancel_keyboard,
-    create_cancel_keyboard,
-    create_comment_keyboard,
-    create_in_date_keyboard,
-    create_models_keyboard,
-    create_success_keyboard,
-    create_types_keyboard,
+    orders_menu_keyboard,
+    orders_list_keyboard,
+    order_action_keyboard,
+    order_types_keyboard,
+    order_qty_keyboard,
+    order_date_keyboard,
+    order_comment_keyboard,
+    order_confirm_keyboard,
+    order_success_keyboard,
+    recent_models_keyboard,
     models_keyboard,
+    back_cancel_keyboard,
 )
-from app.notion import NotionClient, NotionOrder
-from app.state import MemoryState
+from app.roles import is_authorized, can_edit
+from app.services import NotionClient, NotionOrder
+from app.state import MemoryState, RecentModels
+from app.utils import (
+    format_date_short,
+    days_open,
+    today,
+    resolve_relative_date,
+    escape_html,
+    ORDER_TYPES,
+    PAGE_SIZE,
+)
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
-CLOSE_PAGE_SIZE = 5
 
 
-@router.message(F.text == "/orders_create")
-async def orders_create(message: Message, memory_state: MemoryState, config: Config) -> None:
-    if not _is_editor(message.from_user.id, config):
-        await message.answer("You have read-only access. Creating orders is disabled.")
-        return
-    screen = await message.answer("Create order: send model name", reply_markup=create_cancel_keyboard())
-    memory_state.set(
-        message.from_user.id,
-        {
-            "flow": "create",
-            "step": "ask_model",
-            "screen_chat_id": screen.chat.id,
-            "screen_message_id": screen.message_id,
-        },
+# ==================== Menu ====================
+
+async def show_orders_menu(message: Message, config: Config) -> None:
+    """Show orders section menu."""
+    await message.answer(
+        "📦 <b>Orders</b>\n\n"
+        "Select an action:",
+        reply_markup=orders_menu_keyboard(),
+        parse_mode="HTML",
     )
 
 
-@router.message(F.text == "/orders_close")
-async def orders_close(message: Message, memory_state: MemoryState, config: Config) -> None:
-    screen = await message.answer("Модель?", reply_markup=close_list_keyboard([], 1, 1))
-    memory_state.set(
-        message.from_user.id,
-        {
-            "flow": "close",
-            "mode": "close_search",
-            "screen_chat_id": screen.chat.id,
-            "screen_message_id": screen.message_id,
-        },
-    )
+# ==================== Callback Handlers ====================
 
-
-@router.message(F.text)
-async def handle_text(message: Message, memory_state: MemoryState, config: Config, notion: NotionClient) -> None:
-    data = memory_state.get(message.from_user.id)
-    if not data:
-        return
-    text = message.text.strip()
-    flow = data.get("flow")
-    if flow == "close":
-        mode = data.get("mode")
-        if mode == "close_search":
-            if not text:
-                await _edit_screen_from_message(
-                    message,
-                    memory_state,
-                    "Модель?",
-                    reply_markup=close_list_keyboard([], 1, 1),
-                    mode="close_search",
-                )
-                await _try_delete_user_message(message)
-                return
-            try:
-                models = await notion.query_models(config.notion_models_db_id, text)
-            except Exception:
-                LOGGER.exception("Failed to query models from Notion")
-                await _edit_screen_from_message(
-                    message,
-                    memory_state,
-                    "Notion error, try again.",
-                    reply_markup=close_list_keyboard([], 1, 1),
-                    mode="close_search",
-                )
-                await _try_delete_user_message(message)
-                return
-            if not models:
-                await _edit_screen_from_message(
-                    message,
-                    memory_state,
-                    "Модель не найдена. Попробуй еще раз.",
-                    reply_markup=close_list_keyboard([], 1, 1),
-                    mode="close_search",
-                )
-                await _try_delete_user_message(message)
-                return
-            model_options = {model_id: title for model_id, title in models}
-            await _edit_screen_from_message(
-                message,
-                memory_state,
-                "Выбери модель:",
-                reply_markup=models_keyboard(models, prefix="oclose"),
-                mode="close_pick_model",
-                model_options=model_options,
-            )
-            await _try_delete_user_message(message)
-            return
-        if mode == "close_date_manual":
-            close_date = _parse_date(text)
-            if not close_date:
-                await _edit_screen_from_message(
-                    message,
-                    memory_state,
-                    "Неверная дата. Пример: 2026-01-28",
-                    reply_markup=close_date_keyboard_min(),
-                    mode="close_date_manual",
-                )
-                await _try_delete_user_message(message)
-                return
-            await _finalize_close_action(message, memory_state, config, notion, close_date)
-            await _try_delete_user_message(message)
-            return
-        if mode == "close_comment_manual":
-            comment_text = text.strip()
-            if not comment_text:
-                await _edit_screen_from_message(
-                    message,
-                    memory_state,
-                    "Комментарий не может быть пустым.",
-                    reply_markup=comment_keyboard(),
-                    mode="close_comment_manual",
-                )
-                await _try_delete_user_message(message)
-                return
-            await _save_order_comment(message, memory_state, config, notion, comment_text)
-            await _try_delete_user_message(message)
-            return
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Сессия устарела. Запусти /orders_close заново.",
-            reply_markup=None,
-        )
-        memory_state.clear(message.from_user.id)
-        return
-    step = data.get("step")
-    if step == "ask_model":
-        if not text:
-            await _edit_screen_from_message(
-                message,
-                memory_state,
-                "Create order: send model name",
-                reply_markup=create_cancel_keyboard(),
-                step="ask_model",
-            )
-            await _try_delete_user_message(message)
-            return
-        try:
-            models = await notion.query_models(config.notion_models_db_id, text)
-        except Exception:
-            LOGGER.exception("Failed to query models from Notion")
-            await _edit_screen_from_message(
-                message,
-                memory_state,
-                "Notion error, try again.",
-                reply_markup=create_cancel_keyboard(),
-                step="ask_model",
-            )
-            await _try_delete_user_message(message)
-            return
-        if not models:
-            await _edit_screen_from_message(
-                message,
-                memory_state,
-                "No models found. Try another name.",
-                reply_markup=create_cancel_keyboard(),
-                step="ask_model",
-            )
-            await _try_delete_user_message(message)
-            return
-        model_options = {model_id: title for model_id, title in models}
-        memory_state.update(
-            message.from_user.id,
-            step="pick_model",
-            model_options=model_options,
-            model_list=models,
-            model_query=text,
-        )
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            f"Search model: <b>{html.escape(text)}</b>",
-            reply_markup=create_models_keyboard(models),
-            step="pick_model",
-        )
-        await _try_delete_user_message(message)
-        return
-    if step == "ask_in_date":
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "In date: Today / Yesterday / Enter",
-            reply_markup=create_in_date_keyboard(),
-            step="ask_in_date",
-        )
-        await _try_delete_user_message(message)
-
-        memory_state.update(message.from_user.id, qty=qty, step="ask_in_date")
-        await message.answer("Select in date:", reply_markup=date_keyboard())
-        return
-    if step == "in_date_manual":
-        in_date = _parse_date(text)
-        if not in_date:
-            await _edit_screen_from_message(
-                message,
-                memory_state,
-                "Enter date in YYYY-MM-DD format.",
-                reply_markup=create_in_date_keyboard(include_enter=False),
-                step="in_date_manual",
-            )
-            await _try_delete_user_message(message)
-            return
-        memory_state.update(message.from_user.id, in_date=in_date, step="ask_comments")
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Comment? type or press Skip",
-            reply_markup=create_comment_keyboard(),
-            step="ask_comments",
-        )
-        await _try_delete_user_message(message)
-        return
-    if step == "ask_comments":
-        comments = None if text.lower() == "skip" else text
-        memory_state.update(message.from_user.id, comments=comments)
-        await _continue_after_comments(message, memory_state, config, notion)
-        await _try_delete_user_message(message)
-        return
-    if step == "ask_count":
-        count = _parse_int(text)
-        if not count or not 1 <= count <= 999:
-            await _edit_screen_from_message(
-                message,
-                memory_state,
-                "Count? Send a number.",
-                reply_markup=create_back_cancel_keyboard(),
-                step="ask_count",
-            )
-            await _try_delete_user_message(message)
-            return
-        memory_state.update(message.from_user.id, count=count)
-        await _create_orders(message, memory_state, config, notion)
-        await _try_delete_user_message(message)
-        return
-    await _edit_screen_from_message(
-        message,
-        memory_state,
-        "Session expired. Run /orders_create again.",
-        reply_markup=None,
-    )
-    memory_state.clear(message.from_user.id)
-
-
-@router.callback_query(F.data.startswith("oclose|"))
-async def handle_close_callback(
+@router.callback_query(F.data.startswith("orders|"))
+async def handle_orders_callback(
     query: CallbackQuery,
-    memory_state: MemoryState,
     config: Config,
     notion: NotionClient,
+    memory_state: MemoryState,
+    recent_models: RecentModels,
 ) -> None:
+    """Main orders callback handler."""
+    if not is_authorized(query.from_user.id, config):
+        await query.answer("Access denied", show_alert=True)
+        return
+    
     parts = query.data.split("|", 2)
     if len(parts) < 3:
         await query.answer()
         return
+    
     _, action, value = parts
-    data = memory_state.get(query.from_user.id) or {}
-    flow = data.get("flow")
-    if action == "start":
-        await _edit_screen_from_callback(
-            query,
-            memory_state,
-            "Модель?",
-            reply_markup=close_list_keyboard([], 1, 1),
-            flow="close",
-            mode="close_search",
-        )
-        await query.answer()
-        return
-    close_actions = {
-        "list_back",
-        "page",
-        "pick_order",
-        "action_back",
-        "close_today",
-        "close_date",
-        "close_date_pick",
-        "close_date_back",
-        "comment",
-        "comment_back",
-        "cancel",
-    }
-    if flow != "close" and action in close_actions:
-        await _expire_close_session(query, memory_state)
-        await query.answer()
-        return
-    if action == "model":
-        if flow != "close":
-            await _expire_close_session(query, memory_state)
+    user_id = query.from_user.id
+    
+    try:
+        # Menu navigation
+        if action == "back":
+            await handle_back(query, value, memory_state, config, notion, recent_models)
+        
+        elif action == "cancel":
+            await handle_cancel(query, memory_state)
+        
+        # Search/Model selection
+        elif action == "search":
+            await start_model_search(query, memory_state)
+        
+        elif action == "model":
+            await handle_model_select(query, value, memory_state, config, notion, recent_models)
+        
+        # Open orders list
+        elif action == "open":
+            await show_open_orders_list(query, memory_state, config, notion)
+        
+        elif action == "select":
+            await show_order_details(query, value, memory_state, config, notion)
+        
+        elif action == "page":
+            await handle_pagination(query, value, memory_state, config, notion)
+        
+        # Close order
+        elif action == "close_today":
+            await close_order(query, value, "today", memory_state, config, notion)
+        
+        elif action == "close_yesterday":
+            await close_order(query, value, "yesterday", memory_state, config, notion)
+        
+        # Comment
+        elif action == "comment":
+            await start_comment_input(query, value, memory_state)
+        
+        # New order flow
+        elif action == "new":
+            await start_new_order(query, memory_state, config, recent_models)
+        
+        elif action == "type":
+            await handle_type_select(query, value, memory_state)
+        
+        elif action == "qty":
+            await handle_qty_select(query, value, memory_state)
+        
+        elif action == "date":
+            await handle_date_select(query, value, memory_state, config)
+        
+        elif action == "comment_skip":
+            await handle_comment_skip(query, memory_state, config)
+        
+        elif action == "comment_add":
+            await start_order_comment_input(query, memory_state)
+        
+        elif action == "confirm":
+            await create_order(query, memory_state, config, notion, recent_models)
+        
+        else:
             await query.answer()
-            return
-        model_options = data.get("model_options", {})
-        title = model_options.get(value)
-        if not title:
-            await query.answer("Model expired. Search again.", show_alert=True)
-            await _expire_close_session(query, memory_state)
-            return
-        memory_state.update(query.from_user.id, model_id=value, model_title=title, selected_model_id=value)
-        memory_state.update(
-            query.from_user.id,
-            selected_model_title=title,
-            current_page=1,
-            mode="close_list",
-        )
-        await _show_open_orders_screen(
-            query.message,
-            memory_state,
-            config,
-            notion,
-            user_id=query.from_user.id,
-        )
-        await query.answer()
-        return
-    if flow == "close" and action in close_actions:
-        if action == "list_back":
-            model_options = data.get("model_options", {})
-            if not model_options:
-                await _edit_screen_from_callback(
-                    query,
-                    memory_state,
-                    "Модель?",
-                    reply_markup=close_list_keyboard([], 1, 1),
-                    mode="close_search",
-                )
-                await query.answer()
-                return
-            await _edit_screen_from_callback(
-                query,
-                memory_state,
-                "Выбери модель:",
-                reply_markup=models_keyboard(list(model_options.items()), prefix="oclose"),
-                mode="close_pick_model",
-            )
-            await query.answer()
-            return
-        if action == "page":
-            page = _parse_int(value)
-            if not page:
-                await query.answer()
-                return
-            memory_state.update(query.from_user.id, current_page=page, mode="close_list")
-            await _show_open_orders_screen(
-                query.message,
-                memory_state,
-                config,
-                notion,
-                user_id=query.from_user.id,
-            )
-            await query.answer()
-            return
-        if action == "pick_order":
-            await _show_action_screen(
-                query.message,
-                memory_state,
-                config,
-                notion,
-                value,
-                user_id=query.from_user.id,
-            )
-            await query.answer()
-            return
-        if action == "action_back":
-            memory_state.update(query.from_user.id, mode="close_list")
-            await _show_open_orders_screen(
-                query.message,
-                memory_state,
-                config,
-                notion,
-                user_id=query.from_user.id,
-            )
-            await query.answer()
-            return
-        if action == "close_today":
-            if not _is_editor(query.from_user.id, config):
-                await query.answer("Read-only access", show_alert=True)
-                return
-            close_date = _today(config)
-            await _finalize_close_action(
-                query.message,
-                memory_state,
-                config,
-                notion,
-                close_date,
-                page_id=value,
-                user_id=query.from_user.id,
-            )
-            await query.answer()
-            return
-        if action == "close_date":
-            if not _is_editor(query.from_user.id, config):
-                await query.answer("Read-only access", show_alert=True)
-                return
-            memory_state.update(query.from_user.id, selected_order_page_id=value, mode="close_date_manual")
-            await _edit_screen_from_callback(
-                query,
-                memory_state,
-                "Введи дату закрытия (YYYY-MM-DD) или нажми Today/Yesterday",
-                reply_markup=close_date_keyboard_min(),
-            )
-            await query.answer()
-            return
-        if action == "close_date_pick":
-            close_date = _resolve_relative_date(value, config)
-            if not close_date:
-                await query.answer("Invalid date", show_alert=True)
-                return
-            await _finalize_close_action(
-                query.message,
-                memory_state,
-                config,
-                notion,
-                close_date,
-                user_id=query.from_user.id,
-            )
-            await query.answer()
-            return
-        if action == "close_date_back":
-            await _show_action_screen(
-                query.message,
-                memory_state,
-                config,
-                notion,
-                data.get("selected_order_page_id"),
-                user_id=query.from_user.id,
-            )
-            await query.answer()
-            return
-        if action == "comment":
-            if not _is_editor(query.from_user.id, config):
-                await query.answer("Read-only access", show_alert=True)
-                return
-            memory_state.update(query.from_user.id, selected_order_page_id=value, mode="close_comment_manual")
-            await _edit_screen_from_callback(
-                query,
-                memory_state,
-                "Комментарий:",
-                reply_markup=comment_keyboard(),
-            )
-            await query.answer()
-            return
-        if action == "comment_back":
-            await _show_action_screen(
-                query.message,
-                memory_state,
-                config,
-                notion,
-                data.get("selected_order_page_id"),
-                user_id=query.from_user.id,
-            )
-            await query.answer()
-            return
-        if action == "cancel":
-            await _edit_screen_from_callback(query, memory_state, "Отменено.", reply_markup=None)
-            memory_state.clear(query.from_user.id)
-            await query.answer()
-            return
-        await query.answer()
-        return
-    await query.answer()
+    
+    except Exception as e:
+        LOGGER.exception("Error in orders callback: %s", e)
+        await query.answer("Error occurred. Please try again.", show_alert=True)
 
 
-@router.callback_query(F.data.startswith("ocreate|"))
-async def handle_create_callback(
+# ==================== Back/Cancel ====================
+
+async def handle_back(
     query: CallbackQuery,
+    value: str,
     memory_state: MemoryState,
     config: Config,
     notion: NotionClient,
+    recent_models: RecentModels,
 ) -> None:
-    parts = query.data.split("|", 2)
-    if len(parts) < 3:
-        await query.answer()
-        return
-    _, action, value = parts
-    data = memory_state.get(query.from_user.id) or {}
-    if action == "start":
-        await _start_create_flow_from_callback(query, memory_state)
-        await query.answer()
-        return
+    """Handle back navigation."""
+    user_id = query.from_user.id
+    data = memory_state.get(user_id) or {}
     flow = data.get("flow")
-    if flow != "create":
-        await _expire_create_session(query, memory_state)
-        await query.answer()
-        return
-    if action == "model":
-        model_options = data.get("model_options", {})
-        title = model_options.get(value)
-        if not title:
-            await _expire_create_session(query, memory_state)
-            await query.answer()
-            return
-        memory_state.update(query.from_user.id, model_id=value, model_title=title, selected_model_id=value)
-        memory_state.update(query.from_user.id, step="pick_type")
-        await _edit_screen_from_callback(
-            query,
-            memory_state,
-            f"Model: <b>{html.escape(title)}</b>\nPick order type:",
-            reply_markup=create_types_keyboard(),
-            step="pick_type",
+    
+    if value == "main":
+        memory_state.clear(user_id)
+        await query.message.edit_text(
+            "📦 <b>Orders</b>\n\nSelect an action:",
+            reply_markup=orders_menu_keyboard(),
+            parse_mode="HTML",
         )
-        await query.answer()
-        return
-    if action == "type":
-        order_type = value
-        memory_state.update(query.from_user.id, order_type=order_type, qty=1, step="ask_in_date")
-        await _edit_screen_from_callback(
-            query,
-            memory_state,
-            f"Type: <b>{html.escape(order_type)}</b>\nIn date:",
-            reply_markup=create_in_date_keyboard(),
-            step="ask_in_date",
+    
+    elif value == "menu":
+        memory_state.clear(user_id)
+        await query.message.edit_text(
+            "📦 <b>Orders</b>\n\nSelect an action:",
+            reply_markup=orders_menu_keyboard(),
+            parse_mode="HTML",
         )
-        await query.answer()
-        return
-    if action == "date":
-        if value == "enter":
-            memory_state.update(query.from_user.id, step="in_date_manual")
-            await _edit_screen_from_callback(
-                query,
-                memory_state,
-                "Enter date in YYYY-MM-DD format.",
-                reply_markup=create_in_date_keyboard(include_enter=False),
-                step="in_date_manual",
+    
+    elif value == "model_select":
+        # Back to model selection
+        recent = recent_models.get(user_id)
+        if recent:
+            await query.message.edit_text(
+                "Select model:",
+                reply_markup=recent_models_keyboard(recent, "orders"),
+                parse_mode="HTML",
             )
         else:
-            in_date = _resolve_relative_date(value, config)
-            if not in_date:
-                await query.answer("Invalid date", show_alert=True)
-                return
-            memory_state.update(query.from_user.id, in_date=in_date, step="ask_comments")
-            await _edit_screen_from_callback(
-                query,
-                memory_state,
-                "Comment? type or press Skip",
-                reply_markup=create_comment_keyboard(),
-                step="ask_comments",
+            memory_state.update(user_id, flow="search", step="waiting_query")
+            await query.message.edit_text(
+                "🔍 Enter model name to search:",
+                reply_markup=back_cancel_keyboard("orders"),
+                parse_mode="HTML",
             )
-        await query.answer()
-        return
-    if action == "comment":
-        if value == "skip":
-            memory_state.update(query.from_user.id, comments=None)
-        await _continue_after_comments(query.message, memory_state, config, notion)
-        await query.answer()
-        return
-    if action == "back":
-        await _handle_create_back(query, memory_state)
-        await query.answer()
-        return
-    if action == "cancel":
-        await _edit_screen_from_callback(query, memory_state, "Cancelled.", reply_markup=None)
-        memory_state.clear(query.from_user.id)
-        await query.answer()
-        return
+    
+    elif value == "list":
+        # Back to orders list
+        await show_open_orders_list(query, memory_state, config, notion)
+    
+    elif value == "model":
+        # Back to model selection in new order flow
+        recent = recent_models.get(user_id)
+        memory_state.update(user_id, step="select_model")
+        if recent:
+            await query.message.edit_text(
+                "➕ <b>New Order</b>\n\nSelect model:",
+                reply_markup=recent_models_keyboard(recent, "orders"),
+                parse_mode="HTML",
+            )
+        else:
+            memory_state.update(user_id, step="waiting_query")
+            await query.message.edit_text(
+                "➕ <b>New Order</b>\n\n🔍 Enter model name:",
+                reply_markup=back_cancel_keyboard("orders"),
+                parse_mode="HTML",
+            )
+    
+    elif value == "type":
+        # Back to type selection
+        memory_state.update(user_id, step="select_type")
+        model_title = data.get("model_title", "")
+        await query.message.edit_text(
+            f"➕ <b>New Order</b>\n\n"
+            f"Model: <b>{escape_html(model_title)}</b>\n\n"
+            f"Select order type:",
+            reply_markup=order_types_keyboard(),
+            parse_mode="HTML",
+        )
+    
+    elif value == "qty":
+        # Back to quantity selection
+        memory_state.update(user_id, step="select_qty")
+        model_title = data.get("model_title", "")
+        order_type = data.get("order_type", "")
+        await query.message.edit_text(
+            f"➕ <b>New Order</b>\n\n"
+            f"Model: <b>{escape_html(model_title)}</b>\n"
+            f"Type: <b>{escape_html(order_type)}</b>\n\n"
+            f"Select quantity:",
+            reply_markup=order_qty_keyboard(),
+            parse_mode="HTML",
+        )
+    
+    elif value == "date":
+        # Back to date selection
+        memory_state.update(user_id, step="select_date")
+        model_title = data.get("model_title", "")
+        order_type = data.get("order_type", "")
+        qty = data.get("qty", 1)
+        await query.message.edit_text(
+            f"➕ <b>New Order</b>\n\n"
+            f"Model: <b>{escape_html(model_title)}</b>\n"
+            f"Type: <b>{escape_html(order_type)}</b> × {qty}\n\n"
+            f"Select date:",
+            reply_markup=order_date_keyboard(),
+            parse_mode="HTML",
+        )
+    
+    elif value == "comment":
+        # Back to comment prompt
+        memory_state.update(user_id, step="comment_prompt")
+        model_title = data.get("model_title", "")
+        order_type = data.get("order_type", "")
+        qty = data.get("qty", 1)
+        in_date = data.get("in_date")
+        await query.message.edit_text(
+            f"➕ <b>New Order</b>\n\n"
+            f"Model: <b>{escape_html(model_title)}</b>\n"
+            f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
+            f"Date: <b>{format_date_short(in_date)}</b>\n\n"
+            f"Add comment?",
+            reply_markup=order_comment_keyboard(),
+            parse_mode="HTML",
+        )
+    
     await query.answer()
 
 
-async def _continue_after_comments(
-    message: Message,
+async def handle_cancel(query: CallbackQuery, memory_state: MemoryState) -> None:
+    """Handle cancel action."""
+    memory_state.clear(query.from_user.id)
+    await query.message.edit_text(
+        "📦 <b>Orders</b>\n\nCancelled.",
+        reply_markup=orders_menu_keyboard(),
+        parse_mode="HTML",
+    )
+    await query.answer()
+
+
+# ==================== Model Search ====================
+
+async def start_model_search(query: CallbackQuery, memory_state: MemoryState) -> None:
+    """Start model search flow."""
+    memory_state.update(
+        query.from_user.id,
+        flow="search",
+        step="waiting_query",
+    )
+    await query.message.edit_text(
+        "🔍 Enter model name to search:",
+        reply_markup=back_cancel_keyboard("orders"),
+        parse_mode="HTML",
+    )
+    await query.answer()
+
+
+async def handle_model_select(
+    query: CallbackQuery,
+    model_id: str,
+    memory_state: MemoryState,
+    config: Config,
+    notion: NotionClient,
+    recent_models: RecentModels,
+) -> None:
+    """Handle model selection."""
+    user_id = query.from_user.id
+    data = memory_state.get(user_id) or {}
+    flow = data.get("flow")
+    
+    # Get model info
+    model_options = data.get("model_options", {})
+    model_title = model_options.get(model_id)
+    
+    if not model_title:
+        # Try to fetch from Notion
+        model = await notion.get_model(model_id)
+        if model:
+            model_title = model.title
+        else:
+            await query.answer("Model not found", show_alert=True)
+            return
+    
+    # Add to recent
+    recent_models.add(user_id, model_id, model_title)
+    
+    if flow == "new_order":
+        # Continue with new order flow
+        memory_state.update(
+            user_id,
+            model_id=model_id,
+            model_title=model_title,
+            step="select_type",
+        )
+        await query.message.edit_text(
+            f"➕ <b>New Order</b>\n\n"
+            f"Model: <b>{escape_html(model_title)}</b>\n\n"
+            f"Select order type:",
+            reply_markup=order_types_keyboard(),
+            parse_mode="HTML",
+        )
+    else:
+        # Show open orders for model
+        memory_state.update(
+            user_id,
+            flow="view",
+            model_id=model_id,
+            model_title=model_title,
+            page=1,
+        )
+        await _show_orders_for_model(query, memory_state, config, notion)
+    
+    await query.answer()
+
+
+# ==================== Open Orders List ====================
+
+async def show_open_orders_list(
+    query: CallbackQuery,
     memory_state: MemoryState,
     config: Config,
     notion: NotionClient,
 ) -> None:
-    data = memory_state.get(message.from_user.id) or {}
-    if data.get("order_type") == "short":
-        memory_state.update(message.from_user.id, step="ask_count")
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Count? Send a number.",
-            reply_markup=create_back_cancel_keyboard(),
-            step="ask_count",
+    """Show list of all open orders."""
+    user_id = query.from_user.id
+    data = memory_state.get(user_id) or {}
+    
+    model_id = data.get("model_id")
+    
+    if not model_id:
+        # Need to select model first
+        from app.state import RecentModels
+        # This is a simplified path - normally we'd inject recent_models
+        memory_state.update(user_id, flow="view", step="select_model")
+        await query.message.edit_text(
+            "📋 <b>Open Orders</b>\n\n"
+            "🔍 Enter model name to search:",
+            reply_markup=back_cancel_keyboard("orders"),
+            parse_mode="HTML",
+        )
+        await query.answer()
+        return
+    
+    await _show_orders_for_model(query, memory_state, config, notion)
+    await query.answer()
+
+
+async def _show_orders_for_model(
+    query: CallbackQuery,
+    memory_state: MemoryState,
+    config: Config,
+    notion: NotionClient,
+) -> None:
+    """Internal: show orders for selected model."""
+    user_id = query.from_user.id
+    data = memory_state.get(user_id) or {}
+    
+    model_id = data.get("model_id")
+    model_title = data.get("model_title", "")
+    page = data.get("page", 1)
+    
+    # Fetch orders
+    orders = await notion.query_open_orders(config.db_orders, model_id)
+    
+    # Sort by in_date
+    orders.sort(key=lambda o: o.in_date or "9999-99-99")
+    
+    # Store in state
+    memory_state.update(user_id, orders=[_order_to_dict(o) for o in orders])
+    
+    if not orders:
+        await query.message.edit_text(
+            f"📋 <b>Open Orders: {escape_html(model_title)}</b>\n\n"
+            f"✅ No open orders!",
+            reply_markup=orders_menu_keyboard(),
+            parse_mode="HTML",
         )
         return
-    memory_state.update(message.from_user.id, count=1)
-    await _create_orders(message, memory_state, config, notion)
+    
+    # Pagination
+    total_pages = (len(orders) + PAGE_SIZE - 1) // PAGE_SIZE
+    page = min(page, total_pages)
+    start = (page - 1) * PAGE_SIZE
+    page_orders = orders[start:start + PAGE_SIZE]
+    
+    memory_state.update(user_id, page=page)
+    
+    # Build list
+    today_date = today(config.timezone)
+    orders_data = []
+    for order in page_orders:
+        days = days_open(order.in_date, today_date)
+        days_str = f" · {days}d" if days is not None else ""
+        label = f"{order.order_type or 'order'} · {format_date_short(order.in_date)}{days_str}"
+        orders_data.append({
+            "page_id": order.page_id,
+            "label": label,
+        })
+    
+    await query.message.edit_text(
+        f"📋 <b>Open Orders: {escape_html(model_title)}</b>\n\n"
+        f"Total: {len(orders)} (page {page}/{total_pages})",
+        reply_markup=orders_list_keyboard(orders_data, page, total_pages),
+        parse_mode="HTML",
+    )
 
 
-async def _create_orders(
-    message: Message,
+async def handle_pagination(
+    query: CallbackQuery,
+    value: str,
     memory_state: MemoryState,
     config: Config,
     notion: NotionClient,
 ) -> None:
-    data = memory_state.get(message.from_user.id) or {}
-    model_title = data.get("model_title")
-    model_id = data.get("model_id")
-    order_type = data.get("order_type")
+    """Handle pagination."""
+    try:
+        page = int(value)
+    except ValueError:
+        await query.answer()
+        return
+    
+    memory_state.update(query.from_user.id, page=page)
+    await _show_orders_for_model(query, memory_state, config, notion)
+    await query.answer()
+
+
+# ==================== Order Details ====================
+
+async def show_order_details(
+    query: CallbackQuery,
+    page_id: str,
+    memory_state: MemoryState,
+    config: Config,
+    notion: NotionClient,
+) -> None:
+    """Show details for a specific order."""
+    user_id = query.from_user.id
+    data = memory_state.get(user_id) or {}
+    
+    model_title = data.get("model_title", "")
+    orders = data.get("orders", [])
+    
+    # Find order in cached list
+    order = None
+    for o in orders:
+        if o.get("page_id") == page_id:
+            order = o
+            break
+    
+    if not order:
+        await query.answer("Order not found", show_alert=True)
+        return
+    
+    memory_state.update(user_id, selected_order=page_id)
+    
+    today_date = today(config.timezone)
+    in_date = order.get("in_date")
+    days = days_open(in_date, today_date)
+    days_str = f"\nDays open: {days}" if days is not None else ""
+    
+    order_type = order.get("order_type", "order")
+    comments = order.get("comments", "")
+    comments_str = f"\n💬 {escape_html(comments)}" if comments else ""
+    
+    await query.message.edit_text(
+        f"📦 <b>{escape_html(order_type)}</b> · {escape_html(model_title)}\n"
+        f"In: {format_date_short(in_date)}{days_str}{comments_str}",
+        reply_markup=order_action_keyboard(page_id),
+        parse_mode="HTML",
+    )
+    await query.answer()
+
+
+# ==================== Close Order ====================
+
+async def close_order(
+    query: CallbackQuery,
+    page_id: str,
+    when: str,
+    memory_state: MemoryState,
+    config: Config,
+    notion: NotionClient,
+) -> None:
+    """Close an order."""
+    if not can_edit(query.from_user.id, config):
+        await query.answer("You don't have permission to close orders", show_alert=True)
+        return
+    
+    out_date = resolve_relative_date(when, config.timezone)
+    if not out_date:
+        await query.answer("Invalid date", show_alert=True)
+        return
+    
+    try:
+        await notion.close_order(page_id, out_date)
+    except Exception as e:
+        LOGGER.exception("Failed to close order: %s", e)
+        await query.answer("Failed to close order", show_alert=True)
+        return
+    
+    # Get order info for message
+    data = memory_state.get(query.from_user.id) or {}
+    orders = data.get("orders", [])
+    order = next((o for o in orders if o.get("page_id") == page_id), None)
+    
+    in_date = order.get("in_date") if order else None
+    if in_date:
+        days = (out_date - date.fromisoformat(in_date)).days + 1
+        message = f"✅ Order closed in {days} days!"
+    else:
+        message = "✅ Order closed!"
+    
+    await query.answer(message, show_alert=True)
+    
+    # Refresh list
+    await _show_orders_for_model(query, memory_state, config, notion)
+
+
+# ==================== Comment ====================
+
+async def start_comment_input(
+    query: CallbackQuery,
+    page_id: str,
+    memory_state: MemoryState,
+) -> None:
+    """Start comment input for existing order."""
+    memory_state.update(
+        query.from_user.id,
+        flow="comment",
+        selected_order=page_id,
+        step="waiting_comment",
+    )
+    await query.message.edit_text(
+        "💬 Enter comment for this order:",
+        reply_markup=back_cancel_keyboard("orders"),
+        parse_mode="HTML",
+    )
+    await query.answer()
+
+
+# ==================== New Order Flow ====================
+
+async def start_new_order(
+    query: CallbackQuery,
+    memory_state: MemoryState,
+    config: Config,
+    recent_models: RecentModels,
+) -> None:
+    """Start new order creation flow."""
+    if not can_edit(query.from_user.id, config):
+        await query.answer("You don't have permission to create orders", show_alert=True)
+        return
+    
+    user_id = query.from_user.id
+    recent = recent_models.get(user_id)
+    
+    memory_state.update(
+        user_id,
+        flow="new_order",
+        step="select_model",
+    )
+    
+    if recent:
+        await query.message.edit_text(
+            "➕ <b>New Order</b>\n\n"
+            "⭐ Recent models:",
+            reply_markup=recent_models_keyboard(recent, "orders"),
+            parse_mode="HTML",
+        )
+    else:
+        memory_state.update(user_id, step="waiting_query")
+        await query.message.edit_text(
+            "➕ <b>New Order</b>\n\n"
+            "🔍 Enter model name to search:",
+            reply_markup=back_cancel_keyboard("orders"),
+            parse_mode="HTML",
+        )
+    
+    await query.answer()
+
+
+async def handle_type_select(
+    query: CallbackQuery,
+    order_type: str,
+    memory_state: MemoryState,
+) -> None:
+    """Handle order type selection."""
+    if order_type not in ORDER_TYPES:
+        await query.answer("Invalid type", show_alert=True)
+        return
+    
+    user_id = query.from_user.id
+    data = memory_state.get(user_id) or {}
+    model_title = data.get("model_title", "")
+    
+    memory_state.update(
+        user_id,
+        order_type=order_type,
+        step="select_qty",
+        qty=1,
+    )
+    
+    await query.message.edit_text(
+        f"➕ <b>New Order</b>\n\n"
+        f"Model: <b>{escape_html(model_title)}</b>\n"
+        f"Type: <b>{escape_html(order_type)}</b>\n\n"
+        f"Select quantity:",
+        reply_markup=order_qty_keyboard(),
+        parse_mode="HTML",
+    )
+    await query.answer()
+
+
+async def handle_qty_select(
+    query: CallbackQuery,
+    value: str,
+    memory_state: MemoryState,
+) -> None:
+    """Handle quantity selection."""
+    user_id = query.from_user.id
+    data = memory_state.get(user_id) or {}
+    model_title = data.get("model_title", "")
+    order_type = data.get("order_type", "")
+    
+    if value == "custom":
+        memory_state.update(user_id, step="waiting_qty")
+        await query.message.edit_text(
+            f"➕ <b>New Order</b>\n\n"
+            f"Model: <b>{escape_html(model_title)}</b>\n"
+            f"Type: <b>{escape_html(order_type)}</b>\n\n"
+            f"Enter quantity (1-99):",
+            reply_markup=back_cancel_keyboard("orders"),
+            parse_mode="HTML",
+        )
+        await query.answer()
+        return
+    
+    try:
+        qty = int(value)
+        if qty < 1 or qty > 99:
+            raise ValueError()
+    except ValueError:
+        await query.answer("Invalid quantity", show_alert=True)
+        return
+    
+    memory_state.update(
+        user_id,
+        qty=qty,
+        step="select_date",
+    )
+    
+    await query.message.edit_text(
+        f"➕ <b>New Order</b>\n\n"
+        f"Model: <b>{escape_html(model_title)}</b>\n"
+        f"Type: <b>{escape_html(order_type)}</b> × {qty}\n\n"
+        f"Select date:",
+        reply_markup=order_date_keyboard(),
+        parse_mode="HTML",
+    )
+    await query.answer()
+
+
+async def handle_date_select(
+    query: CallbackQuery,
+    value: str,
+    memory_state: MemoryState,
+    config: Config,
+) -> None:
+    """Handle date selection."""
+    in_date = resolve_relative_date(value, config.timezone)
+    if not in_date:
+        await query.answer("Invalid date", show_alert=True)
+        return
+    
+    user_id = query.from_user.id
+    data = memory_state.get(user_id) or {}
+    model_title = data.get("model_title", "")
+    order_type = data.get("order_type", "")
+    qty = data.get("qty", 1)
+    
+    memory_state.update(
+        user_id,
+        in_date=in_date.isoformat(),
+        step="comment_prompt",
+    )
+    
+    await query.message.edit_text(
+        f"➕ <b>New Order</b>\n\n"
+        f"Model: <b>{escape_html(model_title)}</b>\n"
+        f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
+        f"Date: <b>{format_date_short(in_date)}</b>\n\n"
+        f"Add comment?",
+        reply_markup=order_comment_keyboard(),
+        parse_mode="HTML",
+    )
+    await query.answer()
+
+
+async def handle_comment_skip(
+    query: CallbackQuery,
+    memory_state: MemoryState,
+    config: Config,
+) -> None:
+    """Skip comment and show confirmation."""
+    memory_state.update(query.from_user.id, comments=None, step="confirm")
+    await _show_confirmation(query, memory_state, config)
+    await query.answer()
+
+
+async def start_order_comment_input(
+    query: CallbackQuery,
+    memory_state: MemoryState,
+) -> None:
+    """Start comment input for new order."""
+    user_id = query.from_user.id
+    data = memory_state.get(user_id) or {}
+    model_title = data.get("model_title", "")
+    order_type = data.get("order_type", "")
     qty = data.get("qty", 1)
     in_date = data.get("in_date")
-    count = data.get("count", 1)
+    
+    memory_state.update(user_id, step="waiting_comment")
+    
+    await query.message.edit_text(
+        f"➕ <b>New Order</b>\n\n"
+        f"Model: <b>{escape_html(model_title)}</b>\n"
+        f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
+        f"Date: <b>{format_date_short(in_date)}</b>\n\n"
+        f"💬 Enter comment:",
+        reply_markup=back_cancel_keyboard("orders"),
+        parse_mode="HTML",
+    )
+    await query.answer()
+
+
+async def _show_confirmation(
+    query: CallbackQuery,
+    memory_state: MemoryState,
+    config: Config,
+) -> None:
+    """Show order confirmation screen."""
+    user_id = query.from_user.id
+    data = memory_state.get(user_id) or {}
+    
+    model_title = data.get("model_title", "")
+    order_type = data.get("order_type", "")
+    qty = data.get("qty", 1)
+    in_date = data.get("in_date")
     comments = data.get("comments")
-    if not (model_id and order_type and in_date and model_title):
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Session expired. Run /orders_create again.",
-            reply_markup=None,
-        )
-        memory_state.clear(message.from_user.id)
+    
+    comments_str = f"\n💬 {escape_html(comments)}" if comments else ""
+    
+    await query.message.edit_text(
+        f"➕ <b>Confirm Order</b>\n\n"
+        f"Model: <b>{escape_html(model_title)}</b>\n"
+        f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
+        f"Date: <b>{format_date_short(in_date)}</b>{comments_str}\n\n"
+        f"Create order?",
+        reply_markup=order_confirm_keyboard(),
+        parse_mode="HTML",
+    )
+
+
+async def create_order(
+    query: CallbackQuery,
+    memory_state: MemoryState,
+    config: Config,
+    notion: NotionClient,
+    recent_models: RecentModels,
+) -> None:
+    """Create the order in Notion."""
+    if not can_edit(query.from_user.id, config):
+        await query.answer("You don't have permission to create orders", show_alert=True)
         return
+    
+    user_id = query.from_user.id
+    data = memory_state.get(user_id) or {}
+    
+    model_id = data.get("model_id")
+    model_title = data.get("model_title", "")
+    order_type = data.get("order_type")
+    qty = data.get("qty", 1)
+    in_date_str = data.get("in_date")
+    comments = data.get("comments")
+    
+    if not all([model_id, order_type, in_date_str]):
+        await query.answer("Missing data. Please start over.", show_alert=True)
+        memory_state.clear(user_id)
+        return
+    
+    in_date = date.fromisoformat(in_date_str)
+    
     try:
-        for idx in range(1, qty + 1):
-            title = f"{order_type} {idx}/{qty} — {in_date.isoformat()}"
+        # Create order(s)
+        for i in range(1, qty + 1):
+            title = f"{order_type} {i}/{qty} — {in_date_str}"
             await notion.create_order(
-                config.notion_orders_db_id,
+                config.db_orders,
                 model_id,
                 order_type,
                 in_date,
-                count,
-                title,
-                comments,
+                count=1,
+                title=title,
+                comments=comments,
             )
-    except Exception:
-        LOGGER.exception("Failed to create orders in Notion")
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Notion error, try again.",
-            reply_markup=None,
-        )
-        memory_state.clear(message.from_user.id)
+    except Exception as e:
+        LOGGER.exception("Failed to create order: %s", e)
+        await query.answer("Failed to create order", show_alert=True)
         return
-    completion_text = f"Created {qty} orders for <b>{html.escape(model_title)}</b> ✅"
-    await _edit_screen_from_message(
-        message,
-        memory_state,
-        completion_text,
-        reply_markup=create_success_keyboard(),
+    
+    memory_state.clear(user_id)
+    
+    await query.message.edit_text(
+        f"✅ <b>Order Created!</b>\n\n"
+        f"Model: <b>{escape_html(model_title)}</b>\n"
+        f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
+        f"Date: <b>{format_date_short(in_date)}</b>",
+        reply_markup=order_success_keyboard(),
+        parse_mode="HTML",
     )
-    memory_state.clear(message.from_user.id)
+    await query.answer("Order created!")
 
 
-async def _edit_screen_from_message(
+# ==================== Text Input Handler ====================
+
+@router.message(F.text)
+async def handle_text_input(
     message: Message,
+    config: Config,
+    notion: NotionClient,
     memory_state: MemoryState,
-    text: str,
-    reply_markup: Any | None = None,
-    user_id: int | None = None,
-    **updates: Any,
+    recent_models: RecentModels,
 ) -> None:
-    target_user_id = user_id or message.from_user.id
-    data = memory_state.get(target_user_id) or {}
-    screen_chat_id = data.get("screen_chat_id")
-    screen_message_id = data.get("screen_message_id")
-    created_new = False
-    if not screen_chat_id or not screen_message_id:
-        if message.from_user and message.from_user.id != target_user_id:
-            screen_chat_id = message.chat.id
-            screen_message_id = message.message_id
-        else:
-            screen = await message.answer(text, reply_markup=reply_markup, parse_mode="HTML")
-            screen_chat_id = screen.chat.id
-            screen_message_id = screen.message_id
-            created_new = True
-    if screen_chat_id and screen_message_id and not created_new:
+    """Handle text input for search and comments."""
+    if not is_authorized(message.from_user.id, config):
+        return
+    
+    user_id = message.from_user.id
+    data = memory_state.get(user_id) or {}
+    
+    flow = data.get("flow")
+    step = data.get("step")
+    
+    if flow not in ("search", "new_order", "view", "comment"):
+        return
+    
+    text = message.text.strip()
+    
+    # Delete user message to keep chat clean
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    
+    # Model search
+    if step == "waiting_query":
+        if not text:
+            return
+        
         try:
-            await message.bot.edit_message_text(
-                chat_id=screen_chat_id,
-                message_id=screen_message_id,
-                text=text,
-                reply_markup=reply_markup,
+            models = await notion.query_models(config.db_models, text)
+        except Exception as e:
+            LOGGER.exception("Failed to search models: %s", e)
+            return
+        
+        if not models:
+            # Send new message with error
+            await message.answer(
+                "No models found. Try another search:",
+                reply_markup=back_cancel_keyboard("orders"),
                 parse_mode="HTML",
             )
-        except TelegramAPIError as exc:
-            LOGGER.error(
-                "Telegram API error %s when editing screen: %s",
-                getattr(exc, "status_code", "unknown"),
-                str(exc),
-            )
-    memory_state.update(
-        target_user_id,
-        screen_chat_id=screen_chat_id,
-        screen_message_id=screen_message_id,
-        **updates,
-    )
-
-
-async def _edit_screen_from_callback(
-    query: CallbackQuery,
-    memory_state: MemoryState,
-    text: str,
-    reply_markup: Any | None = None,
-    **updates: Any,
-) -> None:
-    user_id = query.from_user.id
-    data = memory_state.get(user_id) or {}
-    screen_chat_id = data.get("screen_chat_id") or getattr(getattr(query.message, "chat", None), "id", None)
-    screen_message_id = data.get("screen_message_id") or getattr(query.message, "message_id", None)
-    if not screen_chat_id or not screen_message_id:
-        return
-    try:
-        await query.message.bot.edit_message_text(
-            chat_id=screen_chat_id,
-            message_id=screen_message_id,
-            text=text,
-            reply_markup=reply_markup,
+            return
+        
+        model_options = {m.page_id: m.title for m in models}
+        memory_state.update(
+            user_id,
+            model_options=model_options,
+            step="select_model",
+        )
+        
+        # Send results as new message
+        await message.answer(
+            f"🔍 Search results for '<b>{escape_html(text)}</b>':",
+            reply_markup=models_keyboard(
+                [(m.page_id, m.title) for m in models],
+                "orders",
+            ),
             parse_mode="HTML",
         )
-    except TelegramAPIError as exc:
-        LOGGER.error(
-            "Telegram API error %s when editing screen: %s",
-            getattr(exc, "status_code", "unknown"),
-            str(exc),
-        )
-    memory_state.update(
-        user_id,
-        screen_chat_id=screen_chat_id,
-        screen_message_id=screen_message_id,
-        **updates,
-    )
-
-
-async def _expire_close_session(query: CallbackQuery, memory_state: MemoryState) -> None:
-    await _edit_screen_from_callback(
-        query,
-        memory_state,
-        "Сессия устарела. Запусти /orders_close заново.",
-        reply_markup=None,
-    )
-    memory_state.clear(query.from_user.id)
-
-
-async def _expire_create_session(query: CallbackQuery, memory_state: MemoryState) -> None:
-    await _edit_screen_from_callback(
-        query,
-        memory_state,
-        "Session expired. Run /orders_create again.",
-        reply_markup=None,
-    )
-    memory_state.clear(query.from_user.id)
-
-
-async def _start_create_flow_from_callback(query: CallbackQuery, memory_state: MemoryState) -> None:
-    await _edit_screen_from_callback(
-        query,
-        memory_state,
-        "Create order: send model name",
-        reply_markup=create_cancel_keyboard(),
-        flow="create",
-        step="ask_model",
-    )
-
-
-async def _handle_create_back(query: CallbackQuery, memory_state: MemoryState) -> None:
-    data = memory_state.get(query.from_user.id) or {}
-    step = data.get("step")
-    if step == "pick_model":
-        await _edit_screen_from_callback(
-            query,
-            memory_state,
-            "Create order: send model name",
-            reply_markup=create_cancel_keyboard(),
-            step="ask_model",
-        )
-        return
-    if step == "pick_type":
-        model_list = data.get("model_list") or list((data.get("model_options") or {}).items())
-        model_query = data.get("model_query") or ""
-        await _edit_screen_from_callback(
-            query,
-            memory_state,
-            f"Search model: <b>{html.escape(model_query)}</b>" if model_query else "Search model:",
-            reply_markup=create_models_keyboard(model_list),
-            step="pick_model",
-        )
-        return
-    if step == "ask_in_date":
-        order_type = data.get("order_type") or ""
-        await _edit_screen_from_callback(
-            query,
-            memory_state,
-            f"Model: <b>{html.escape(data.get('model_title') or '')}</b>\nPick order type:",
-            reply_markup=create_types_keyboard(),
-            step="pick_type",
-        )
-        return
-    if step == "in_date_manual":
-        await _edit_screen_from_callback(
-            query,
-            memory_state,
-            "In date: Today / Yesterday / Enter",
-            reply_markup=create_in_date_keyboard(),
-            step="ask_in_date",
-        )
-        return
-    if step == "ask_comments":
-        await _edit_screen_from_callback(
-            query,
-            memory_state,
-            f"Type: <b>{html.escape(data.get('order_type') or '')}</b>\nIn date: Today / Yesterday / Enter",
-            reply_markup=create_in_date_keyboard(),
-            step="ask_in_date",
-        )
-        return
-    if step == "ask_count":
-        await _edit_screen_from_callback(
-            query,
-            memory_state,
-            "Comment? type or press Skip",
-            reply_markup=create_comment_keyboard(),
-            step="ask_comments",
-        )
-        return
-    await _edit_screen_from_callback(
-        query,
-        memory_state,
-        "Create order: send model name",
-        reply_markup=create_cancel_keyboard(),
-        step="ask_model",
-    )
-
-
-async def _try_delete_user_message(message: Message) -> None:
-    try:
-        await message.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
-    except TelegramAPIError:
-        return
-
-
-def _build_orders_payload(orders: list[NotionOrder]) -> list[dict[str, str | None]]:
-    return [
-        {
-            "page_id": order.page_id,
-            "label": build_order_label_raw(order.order_type, order.in_date),
-            "in_date": order.in_date,
-            "order_type": order.order_type,
-        }
-        for order in orders
-    ]
-
-
-async def _show_open_orders_screen(
-    message: Message,
-    memory_state: MemoryState,
-    config: Config,
-    notion: NotionClient,
-    user_id: int | None = None,
-) -> None:
-    target_user_id = user_id or message.from_user.id
-    data = memory_state.get(target_user_id) or {}
-    model_id = data.get("selected_model_id") or data.get("model_id")
-    model_title = data.get("selected_model_title") or data.get("model_title")
-    if not model_id or not model_title:
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Сессия устарела. Запусти /orders_close заново.",
-            reply_markup=None,
-            user_id=target_user_id,
-        )
-        memory_state.clear(target_user_id)
-        return
-    try:
-        orders = await notion.query_open_orders(config.notion_orders_db_id, model_id)
-    except Exception:
-        LOGGER.exception("Failed to query open orders from Notion")
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Notion error, try again.",
-            reply_markup=None,
-            user_id=target_user_id,
-        )
-        memory_state.clear(target_user_id)
-        return
-    orders = sorted(orders, key=_order_sort_key)
-    open_orders = _build_orders_payload(orders)
-    if not open_orders:
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Открытых нет ✅",
-            reply_markup=close_list_keyboard([], 1, 1),
-            user_id=target_user_id,
-            mode="close_list",
-            open_orders=open_orders,
-            current_page=1,
-            selected_model_id=model_id,
-            selected_model_title=model_title,
-        )
-        return
-    page = data.get("current_page", 1)
-    total_pages = max(1, (len(open_orders) + CLOSE_PAGE_SIZE - 1) // CLOSE_PAGE_SIZE)
-    if page > total_pages:
-        page = total_pages
-    start = (page - 1) * CLOSE_PAGE_SIZE
-    orders_page = open_orders[start : start + CLOSE_PAGE_SIZE]
-    header = f"Открытые: {html.escape(model_title)} (page {page}/{total_pages})"
-    await _edit_screen_from_message(
-        message,
-        memory_state,
-        header,
-        reply_markup=close_list_keyboard(orders_page, page, total_pages),
-        user_id=target_user_id,
-        mode="close_list",
-        open_orders=open_orders,
-        current_page=page,
-        selected_model_id=model_id,
-        selected_model_title=model_title,
-    )
-
-
-async def _show_action_screen(
-    message: Message,
-    memory_state: MemoryState,
-    config: Config,
-    notion: NotionClient,
-    page_id: str | None,
-    user_id: int | None = None,
-) -> None:
-    target_user_id = user_id or message.from_user.id
-    data = memory_state.get(target_user_id) or {}
-    if not page_id:
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Сессия устарела. Запусти /orders_close заново.",
-            reply_markup=None,
-            user_id=target_user_id,
-        )
-        memory_state.clear(target_user_id)
-        return
-    order = _find_order(data.get("open_orders", []), page_id)
-    if not order:
-        await _show_open_orders_screen(message, memory_state, config, notion, user_id=target_user_id)
-        return
-    label = order["label"]
-    await _edit_screen_from_message(
-        message,
-        memory_state,
-        f"{html.escape(label)}\n\nВыбери действие",
-        reply_markup=close_action_keyboard(page_id),
-        user_id=target_user_id,
-        mode="close_action",
-        selected_order_page_id=page_id,
-        selected_order_label=label,
-    )
-
-
-def _find_order(open_orders: list[dict[str, str | None]], page_id: str) -> dict[str, str | None] | None:
-    for order in open_orders:
-        if order.get("page_id") == page_id:
-            return order
-    return None
-
-
-async def _finalize_close_action(
-    message: Message,
-    memory_state: MemoryState,
-    config: Config,
-    notion: NotionClient,
-    close_date: date,
-    page_id: str | None = None,
-    user_id: int | None = None,
-) -> None:
-    target_user_id = user_id or message.from_user.id
-    if not _is_editor(target_user_id, config):
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Read-only access.",
-            reply_markup=None,
-            user_id=target_user_id,
-        )
-        return
-    data = memory_state.get(target_user_id) or {}
-    target_page_id = page_id or data.get("selected_order_page_id")
-    if not target_page_id:
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Сессия устарела. Запусти /orders_close заново.",
-            reply_markup=None,
-            user_id=target_user_id,
-        )
-        memory_state.clear(target_user_id)
-        return
-    order = _find_order(data.get("open_orders", []), target_page_id)
-    in_date = order.get("in_date") if order else None
-    try:
-        await notion.close_order(target_page_id, close_date)
-    except Exception:
-        LOGGER.exception("Failed to close order in Notion")
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Notion error, try again.",
-            reply_markup=None,
-            user_id=target_user_id,
-        )
-        return
-    completion = _build_completion_message(in_date, close_date)
-    await _edit_screen_from_message(message, memory_state, completion, reply_markup=None, user_id=target_user_id)
-    await _show_open_orders_screen(message, memory_state, config, notion, user_id=target_user_id)
-
-
-async def _save_order_comment(
-    message: Message,
-    memory_state: MemoryState,
-    config: Config,
-    notion: NotionClient,
-    comment_text: str,
-    user_id: int | None = None,
-) -> None:
-    target_user_id = user_id or message.from_user.id
-    if not _is_editor(target_user_id, config):
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Read-only access.",
-            reply_markup=None,
-            user_id=target_user_id,
-        )
-        return
-    data = memory_state.get(target_user_id) or {}
-    page_id = data.get("selected_order_page_id")
-    if not page_id:
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Сессия устарела. Запусти /orders_close заново.",
-            reply_markup=None,
-            user_id=target_user_id,
-        )
-        memory_state.clear(target_user_id)
-        return
-    try:
-        await notion.update_order(
-            page_id,
-            {"comments": {"rich_text": [{"text": {"content": comment_text}}]}},
-        )
-    except Exception:
-        LOGGER.exception("Failed to update order comment in Notion")
-        await _edit_screen_from_message(
-            message,
-            memory_state,
-            "Notion error, try again.",
-            reply_markup=None,
-            user_id=target_user_id,
-        )
-        return
-    await _edit_screen_from_message(message, memory_state, "Сохранено ✅", reply_markup=None, user_id=target_user_id)
-    await _show_open_orders_screen(message, memory_state, config, notion, user_id=target_user_id)
-
-
-def format_date_short(date_str: str) -> str:
-    parsed = date.fromisoformat(date_str)
-    months = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    ]
-    return f"{parsed.day} {months[parsed.month - 1]}"
-
-
-def build_order_label_raw(order_type: str | None, in_date_str: str | None) -> str:
-    safe_type = order_type or "order"
-    if not in_date_str:
-        return safe_type
-    return f"{format_date_short(in_date_str)} · {safe_type}"
-
-
-def _parse_int(value: str) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _parse_date(value: str) -> date | None:
-    if not value:
-        return None
-    for fmt in ("%Y-%m-%d", "%d.%m.%Y"):
+    
+    # Custom quantity
+    elif step == "waiting_qty":
         try:
-            return datetime.strptime(value, fmt).date()
-        except (TypeError, ValueError):
-            continue
-    return None
+            qty = int(text)
+            if qty < 1 or qty > 99:
+                raise ValueError()
+        except ValueError:
+            await message.answer(
+                "Please enter a number between 1 and 99:",
+                reply_markup=back_cancel_keyboard("orders"),
+                parse_mode="HTML",
+            )
+            return
+        
+        model_title = data.get("model_title", "")
+        order_type = data.get("order_type", "")
+        
+        memory_state.update(
+            user_id,
+            qty=qty,
+            step="select_date",
+        )
+        
+        await message.answer(
+            f"➕ <b>New Order</b>\n\n"
+            f"Model: <b>{escape_html(model_title)}</b>\n"
+            f"Type: <b>{escape_html(order_type)}</b> × {qty}\n\n"
+            f"Select date:",
+            reply_markup=order_date_keyboard(),
+            parse_mode="HTML",
+        )
+    
+    # Comment input for new order
+    elif step == "waiting_comment" and flow == "new_order":
+        memory_state.update(
+            user_id,
+            comments=text if text else None,
+            step="confirm",
+        )
+        
+        data = memory_state.get(user_id) or {}
+        model_title = data.get("model_title", "")
+        order_type = data.get("order_type", "")
+        qty = data.get("qty", 1)
+        in_date = data.get("in_date")
+        
+        comments_str = f"\n💬 {escape_html(text)}" if text else ""
+        
+        await message.answer(
+            f"➕ <b>Confirm Order</b>\n\n"
+            f"Model: <b>{escape_html(model_title)}</b>\n"
+            f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
+            f"Date: <b>{format_date_short(in_date)}</b>{comments_str}\n\n"
+            f"Create order?",
+            reply_markup=order_confirm_keyboard(),
+            parse_mode="HTML",
+        )
+    
+    # Comment input for existing order
+    elif step == "waiting_comment" and flow == "comment":
+        page_id = data.get("selected_order")
+        if not page_id:
+            return
+        
+        try:
+            await notion.update_order_comment(page_id, text)
+        except Exception as e:
+            LOGGER.exception("Failed to update comment: %s", e)
+            await message.answer("Failed to save comment", parse_mode="HTML")
+            return
+        
+        memory_state.update(user_id, flow="view", step=None)
+        
+        await message.answer(
+            "💬 Comment saved!",
+            reply_markup=orders_menu_keyboard(),
+            parse_mode="HTML",
+        )
 
 
-def _resolve_relative_date(value: str, config: Config) -> date | None:
-    today = _today(config)
-    if value == "today":
-        return today
-    if value == "yesterday":
-        return today - timedelta(days=1)
-    return None
+# ==================== Helpers ====================
 
-
-def _today(config: Config) -> date:
-    return datetime.now(config.timezone).date()
-
-
-def _is_editor(user_id: int, config: Config) -> bool:
-    return user_id in config.allowed_editors
-
-
-def _order_sort_key(order: NotionOrder) -> tuple[int, date]:
-    if not order.in_date:
-        return (1, date.max)
-    parsed = _parse_date(order.in_date)
-    if not parsed:
-        return (1, date.max)
-    return (0, parsed)
-
-
-def _build_completion_message(in_date_str: str | None, close_date: date) -> str:
-    if not in_date_str:
-        return "Заказ выполнен ✅"
-    in_date = _parse_date(in_date_str)
-    if not in_date:
-        return "Заказ выполнен ✅"
-    days = (close_date - in_date).days + 1
-    if days < 1:
-        days = 1
-    return f"Заказ выполнен за {days} дней"
+def _order_to_dict(order: NotionOrder) -> dict:
+    """Convert NotionOrder to dict for state storage."""
+    return {
+        "page_id": order.page_id,
+        "title": order.title,
+        "model_id": order.model_id,
+        "order_type": order.order_type,
+        "in_date": order.in_date,
+        "out_date": order.out_date,
+        "status": order.status,
+        "count": order.count,
+        "comments": order.comments,
+    }
