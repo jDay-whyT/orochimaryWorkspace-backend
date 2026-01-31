@@ -133,6 +133,16 @@ async def _handle_back(
     if value == "main":
         memory_state.clear(query.from_user.id)
         await query.message.delete()
+    elif value == "back":
+        # Generic back from back_keyboard - return to menu
+        recent = recent_models.get(query.from_user.id)
+        text = "📊 <b>Summary</b>\n\n⭐ Recent:\n\nSelect a model:"
+        await query.message.edit_text(
+            text,
+            reply_markup=summary_menu_keyboard(recent),
+            parse_mode="HTML",
+        )
+        memory_state.clear(query.from_user.id)
     elif value == "menu":
         recent = recent_models.get(query.from_user.id)
         text = "📊 <b>Summary</b>\n\n⭐ Recent:\n\nSelect a model:"

@@ -63,7 +63,7 @@ async def handle_planner_callback(
         elif action == "upcoming":
             await _show_upcoming_shoots(query, config)
         elif action == "new":
-            await _start_new_shoot(query, config, recent_models)
+            await _start_new_shoot(query, config, memory_state, recent_models)
         elif action == "shoot":
             await _show_shoot_details(query, config, value)
         elif action == "done":
@@ -77,6 +77,9 @@ async def handle_planner_callback(
         elif action == "comment":
             await _start_add_comment(query, memory_state, value)
         elif action == "select_model":
+            await _select_model_for_shoot(query, config, memory_state, recent_models, value)
+        elif action == "model":
+            # Alias for select_model (used by recent_models_keyboard)
             await _select_model_for_shoot(query, config, memory_state, recent_models, value)
         elif action == "search":
             await _start_search(query, memory_state)
@@ -122,6 +125,12 @@ async def handle_text_input(
     
     step = state.get("step")
     
+    # Delete user message to keep chat clean
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
     try:
         if step == "search_model":
             await _handle_search_results(message, config, memory_state, recent_models)
@@ -147,6 +156,14 @@ async def _handle_back(
     if value == "main":
         memory_state.clear(query.from_user.id)
         await query.message.delete()
+    elif value == "back":
+        # Generic back from back_cancel_keyboard - return to menu
+        memory_state.clear(query.from_user.id)
+        await query.message.edit_text(
+            "📅 <b>Planner</b>\n\nSelect an action:",
+            reply_markup=planner_menu_keyboard(),
+            parse_mode="HTML",
+        )
     elif value == "menu":
         memory_state.clear(query.from_user.id)
         await query.message.edit_text(
@@ -247,16 +264,14 @@ async def _show_upcoming_shoots(query: CallbackQuery, config: Config) -> None:
 async def _start_new_shoot(
     query: CallbackQuery,
     config: Config,
+    memory_state: MemoryState,
     recent_models: RecentModels,
 ) -> None:
     """Start new shoot creation flow."""
     if not is_editor_or_admin(query.from_user.id, config):
         await query.answer("Only editors can create shoots", show_alert=True)
         return
-    
-    from app.state import MemoryState
-    memory_state = MemoryState()
-    
+
     memory_state.set(
         query.from_user.id,
         {
