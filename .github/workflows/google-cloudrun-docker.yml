@@ -1,0 +1,101 @@
+name: Deploy TG Bot (Cloud Run)
+run-name: Deploy ${{ github.ref_name }} — ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare deployment values
+        id: prep
+        env:
+          PROJECT_RAW: ${{ secrets.GCP_PROJECT }}
+          REGION_RAW: ${{ secrets.GCP_REGION }}
+          SERVICE_RAW: ${{ secrets.CLOUD_RUN_SERVICE }}
+          AR_REPO_RAW: orochimary
+          IMAGE_RAW: orochimary-bot
+        run: |
+          set -euo pipefail
+
+          PROJECT_ID_LC=$(echo "$PROJECT_RAW" | tr '[:upper:]' '[:lower:]')
+          REGION_LC=$(echo "$REGION_RAW" | tr '[:upper:]' '[:lower:]')
+          AR_REPO_LC=$(echo "$AR_REPO_RAW" | tr '[:upper:]' '[:lower:]')
+          IMAGE_LC=$(echo "$IMAGE_RAW" | tr '[:upper:]' '[:lower:]')
+          SERVICE_NAME="$SERVICE_RAW"
+
+          if ! printf '%s' "$PROJECT_ID_LC" | grep -Eq '^[a-z0-9-]+$'; then
+            echo "::error::GCP_PROJECT must be a valid project-id (lowercase letters, numbers, hyphens). Current value: $PROJECT_RAW"
+            exit 1
+          fi
+
+          if ! printf '%s' "$REGION_LC" | grep -Eq '^[a-z0-9-]+$'; then
+            echo "::error::GCP_REGION must be lowercase and contain only letters, numbers, and hyphens. Current value: $REGION_RAW"
+            exit 1
+          fi
+
+          if ! printf '%s' "$AR_REPO_LC" | grep -Eq '^[a-z0-9-]+$'; then
+            echo "::error::Artifact Registry repo must be lowercase and contain only letters, numbers, and hyphens. Current value: $AR_REPO_RAW"
+            exit 1
+          fi
+
+          if ! printf '%s' "$IMAGE_LC" | grep -Eq '^[a-z0-9-]+$'; then
+            echo "::error::Image name must be lowercase and contain only letters, numbers, and hyphens. Current value: $IMAGE_RAW"
+            exit 1
+          fi
+
+          echo "Resolved values:"
+          echo "REGION=$REGION_LC"
+          echo "PROJECT_ID_LC=$PROJECT_ID_LC"
+          echo "AR_REPO=$AR_REPO_LC"
+          echo "IMAGE=$IMAGE_LC"
+          echo "SERVICE=$SERVICE_NAME"
+
+          IMAGE_URI="${REGION_LC}-docker.pkg.dev/${PROJECT_ID_LC}/${AR_REPO_LC}/${IMAGE_LC}:${GITHUB_SHA}"
+
+          {
+            echo "project_id=$PROJECT_ID_LC"
+            echo "region=$REGION_LC"
+            echo "service=$SERVICE_NAME"
+            echo "image_uri=$IMAGE_URI"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      # FIXED: Removed duplicate "Prepare deployment variables" step that was never used
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ steps.prep.outputs.region }}-docker.pkg.dev" --quiet
+
+      - name: Build and push image
+        run: |
+          docker build -t "${{ steps.prep.outputs.image_uri }}" .
+          docker push "${{ steps.prep.outputs.image_uri }}"
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ steps.prep.outputs.service }}
+          region: ${{ steps.prep.outputs.region }}
+          image: ${{ steps.prep.outputs.image_uri }}
+          env_vars: |-
+            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+            TELEGRAM_WEBHOOK_SECRET=${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+            NOTION_TOKEN=${{ secrets.NOTION_TOKEN }}
+            NOTION_ORDERS_DB_ID=${{ secrets.NOTION_ORDERS_DB_ID }}
+            NOTION_MODELS_DB_ID=${{ secrets.NOTION_MODELS_DB_ID }}
