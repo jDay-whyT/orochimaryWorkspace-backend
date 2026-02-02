@@ -1,4 +1,3 @@
-from app.keyboards.main import main_menu_keyboard
 from app.keyboards.inline import (
     back_keyboard,
     cancel_keyboard,
@@ -25,7 +24,6 @@ from app.keyboards.inline import (
 from app.keyboards.calendar import calendar_keyboard, parse_calendar_navigation
 
 __all__ = [
-    "main_menu_keyboard",
     "back_keyboard",
     "cancel_keyboard",
     "back_cancel_keyboard",
