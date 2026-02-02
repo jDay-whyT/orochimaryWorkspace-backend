@@ -879,7 +879,7 @@ async def create_order(
 
 # ==================== Text Input Handler ====================
 
-@router.message(FlowFilter({"search", "new_order", "view", "comment"}) & F.text)
+@router.message(FlowFilter({"search", "new_order", "view", "comment"}), F.text)
 async def handle_text_input(
     message: Message,
     config: Config,

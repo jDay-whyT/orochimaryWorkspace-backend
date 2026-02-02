@@ -92,7 +92,7 @@ async def handle_accounting_callback(
     await query.answer()
 
 
-@router.message(FlowFilter({"accounting"}) & F.text)
+@router.message(FlowFilter({"accounting"}), F.text)
 async def handle_text_input(
     message: Message,
     config: Config,
