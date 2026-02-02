@@ -26,7 +26,7 @@ async def search_model_by_name_or_alias(
     payload = {
         "filter": {
             "or": [
-                {"property": "open", "title": {"contains": name}},
+                {"property": "model", "title": {"contains": name}},
                 {"property": "aliases", "multi_select": {"contains": name}},
             ]
         }
@@ -42,7 +42,7 @@ async def search_model_by_name_or_alias(
 
     models = []
     for item in response.get("results", []):
-        title = _extract_title(item, "open")
+        title = _extract_title(item, "model")
         aliases = _extract_multi_select(item, "aliases")
 
         if not title:

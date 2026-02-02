@@ -176,11 +176,11 @@ class NotionClient:
                 "page_size": limit,
             }
         else:
-            # Search by 'open' title field
+            # Search by 'model' title field
             payload = {
                 "page_size": limit,
                 "filter": {
-                    "property": "open",
+                    "property": "model",
                     "title": {"contains": name_query},
                 },
             }
@@ -246,66 +246,36 @@ class NotionClient:
     async def _extract_model_title(self, page: dict[str, Any]) -> str | None:
         """
         Extract model title with fallback logic:
-        1. Try 'open' title field (standard title field)
-        2. Try 'model' relation field (fetch related page title)
-        3. Return None if both fail
+        1. Try 'model' title field (standard title field)
+        2. Try other title fields (open, name, title)
+        3. Return None if all fail
         """
         page_id = page.get("id", "unknown")
 
-        # Try standard title field 'open'
-        title = _extract_title(page, "open")
+        # Try standard title field 'model'
+        title = _extract_title(page, "model")
         if title:
-            LOGGER.debug("Model %s: using 'open' title: %s", page_id, title)
+            LOGGER.debug("Model %s: using 'model' title: %s", page_id, title)
             return title
 
         # Log available properties for debugging
         properties = page.get("properties", {})
         available_props = list(properties.keys())
-        LOGGER.debug("Model %s: 'open' is empty, available properties: %s",
+        LOGGER.debug("Model %s: 'model' is empty, available properties: %s",
                     page_id, available_props)
 
-        # If 'open' is empty, try to get title from 'model' relation
-        model_relation_id = _extract_relation_id(page, "model")
-        if model_relation_id:
-            LOGGER.info("Model %s: 'open' empty, fetching from relation 'model': %s",
-                        page_id, model_relation_id)
-            try:
-                # Fetch the related page to get its title
-                related_url = f"https://api.notion.com/v1/pages/{model_relation_id}"
-                related_data = await self._request("GET", related_url)
-
-                # Try to extract title from the related page
-                related_title = _extract_title(related_data, "open")
-                if related_title:
-                    LOGGER.info("Model %s: using related page title: %s",
-                                page_id, related_title)
-                    return related_title
-
-                # If related page also has no 'open' title, try other title fields
-                for field in ["model", "name", "title"]:
-                    related_title = _extract_title(related_data, field)
-                    if related_title:
-                        LOGGER.info("Model %s: using related page field '%s': %s",
-                                    page_id, field, related_title)
-                        return related_title
-
-                # Log related page structure for debugging
-                related_props = list(related_data.get("properties", {}).keys())
-                LOGGER.warning(
-                    "Model %s: related page %s has no title. "
-                    "Related page properties: %s",
-                    page_id, model_relation_id, related_props
-                )
-            except Exception as e:
-                LOGGER.warning("Model %s: failed to fetch related page %s: %s",
-                              page_id, model_relation_id, e)
-        else:
-            LOGGER.debug("Model %s: no 'model' relation found", page_id)
+        # Fallback: try other common title fields
+        for field in ["open", "name", "title"]:
+            fallback_title = _extract_title(page, field)
+            if fallback_title:
+                LOGGER.info("Model %s: using fallback field '%s': %s",
+                            page_id, field, fallback_title)
+                return fallback_title
 
         LOGGER.warning(
             "Model %s: no valid title found. "
             "Available properties: %s. "
-            "Consider adding a non-empty 'open' title field in Notion.",
+            "Consider adding a non-empty 'model' title field in Notion.",
             page_id, available_props
         )
         return None
