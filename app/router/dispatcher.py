@@ -74,12 +74,39 @@ async def route_message(
         # Add to recent
         recent_models.add(message.from_user.id, model["id"], model["name"])
     else:
-        if intent not in (Intent.UNKNOWN,):
+        # Check if intent requires model
+        if intent not in (
+            Intent.UNKNOWN,
+            Intent.SHOW_SUMMARY,
+            Intent.SHOW_ORDERS,
+            Intent.SHOW_PLANNER,
+            Intent.SHOW_ACCOUNT,
+        ):
             await message.answer("❌ Не указано имя модели.")
             return
 
     # 4. Route to handler
-    if intent == Intent.CREATE_ORDERS:
+    if intent == Intent.SHOW_SUMMARY:
+        from app.handlers.summary import show_summary_menu
+
+        await show_summary_menu(message, config, recent_models)
+
+    elif intent == Intent.SHOW_ORDERS:
+        from app.handlers.orders import show_orders_menu
+
+        await show_orders_menu(message, config)
+
+    elif intent == Intent.SHOW_PLANNER:
+        from app.handlers.planner import show_planner_menu
+
+        await show_planner_menu(message, config)
+
+    elif intent == Intent.SHOW_ACCOUNT:
+        from app.handlers.accounting import show_accounting_menu
+
+        await show_accounting_menu(message, config)
+
+    elif intent == Intent.CREATE_ORDERS:
         from app.handlers.orders import handle_create_orders_nlp
 
         await handle_create_orders_nlp(message, model, entities, config, notion)
