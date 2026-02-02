@@ -1,3 +1,4 @@
+from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -408,3 +409,94 @@ def summary_card_keyboard(model_id: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="◀️ Back", callback_data="summary|back|menu"),
         ],
     ])
+
+
+# ==================== NLP Router Keyboards ====================
+
+def nlp_model_selection_keyboard(
+    models: list[dict],
+    intent: str,
+    entities: Any,
+) -> InlineKeyboardMarkup:
+    """
+    Keyboard for selecting model when multiple matches found.
+    models: [{"id": str, "name": str, "aliases": list[str]}, ...]
+    """
+    builder = InlineKeyboardBuilder()
+
+    for model in models[:5]:  # Limit to 5 models
+        builder.row(
+            InlineKeyboardButton(
+                text=model["name"], callback_data=f"nlp:select_model:{model['id']}:{intent}"
+            )
+        )
+
+    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel"))
+
+    return builder.as_markup()
+
+
+def nlp_order_confirm_keyboard(
+    model_id: str, order_type: str, count: int, date_iso: str
+) -> InlineKeyboardMarkup:
+    """Confirmation keyboard for creating orders via NLP."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📅 Сегодня",
+                    callback_data=f"nlp:order_date:{model_id}:{order_type}:{count}:today",
+                ),
+                InlineKeyboardButton(
+                    text="📅 Вчера",
+                    callback_data=f"nlp:order_date:{model_id}:{order_type}:{count}:yesterday",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✅ Создать",
+                    callback_data=f"nlp:order_confirm:{model_id}:{order_type}:{count}:{date_iso}",
+                ),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel"),
+            ],
+        ]
+    )
+
+
+def nlp_disambiguate_keyboard(model_id: str, number: int) -> InlineKeyboardMarkup:
+    """Keyboard for disambiguating intent (files vs orders)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"📁 Добавить {number} файлов",
+                    callback_data=f"nlp:disambig_files:{model_id}:{number}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"📦 Создать {number} заказов",
+                    callback_data=f"nlp:disambig_orders:{model_id}:{number}",
+                )
+            ],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel")],
+        ]
+    )
+
+
+def nlp_report_keyboard(model_id: str) -> InlineKeyboardMarkup:
+    """Keyboard for report actions."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📦 Детали Orders", callback_data=f"nlp:report_orders:{model_id}"
+                ),
+                InlineKeyboardButton(
+                    text="📁 Детали Accounting",
+                    callback_data=f"nlp:report_accounting:{model_id}",
+                ),
+            ],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="nlp:cancel:cancel")],
+        ]
+    )

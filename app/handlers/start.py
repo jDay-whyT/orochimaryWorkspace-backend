@@ -29,11 +29,17 @@ async def cmd_start(message: Message, config: Config) -> None:
     
     role = get_user_role(user_id, config)
     LOGGER.info("User %s started bot with role %s", user_id, role.value)
-    
+
     await message.answer(
-        "👋 Welcome to OROCHIMARY Bot!\n\n"
-        "Use the menu below to navigate:",
+        "👋 Привет! Я бот для управления моделями.\n\n"
+        "📝 <b>Примеры запросов:</b>\n"
+        "• три кастома мелиса — создать 3 заказа\n"
+        "• мелиса 30 файлов — добавить файлы\n"
+        "• репорт мелиса — статистика за месяц\n\n"
+        "Просто пиши мне текстом! 🚀\n\n"
+        "Или используй меню ниже:",
         reply_markup=main_menu_keyboard(),
+        parse_mode="HTML",
     )
 
 
@@ -73,6 +79,27 @@ async def menu_account(message: Message, config: Config) -> None:
     """Handle Account menu button."""
     if not is_authorized(message.from_user.id, config):
         return
-    
+
     from app.handlers.accounting import show_accounting_menu
     await show_accounting_menu(message, config)
+
+
+# ==================== NLP Router ====================
+
+@router.message(F.text)
+async def handle_nlp_message(
+    message: Message,
+    config: Config,
+    notion,
+    memory_state,
+    recent_models: RecentModels,
+) -> None:
+    """Handle NLP text messages (router-based)."""
+    if not is_authorized(message.from_user.id, config):
+        return
+
+    # Import router
+    from app.router import route_message
+
+    # Route the message
+    await route_message(message, config, notion, memory_state, recent_models)

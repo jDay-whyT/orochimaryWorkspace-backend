@@ -488,5 +488,103 @@ async def _process_comment(
         reply_markup=accounting_menu_keyboard(),
         parse_mode="HTML",
     )
-    
+
     memory_state.clear(message.from_user.id)
+
+
+# ==================== NLP Handlers ====================
+
+async def handle_add_files_nlp(
+    message: Message,
+    model: dict,
+    entities: Any,
+    config: Config,
+    notion: Any,
+    recent_models: RecentModels,
+) -> None:
+    """
+    Handle adding files from NLP message.
+
+    Args:
+        message: Telegram message
+        model: {"id": str, "name": str, "aliases": list}
+        entities: Extracted entities with numbers
+        config: Config
+        notion: NotionClient
+        recent_models: RecentModels
+    """
+    from app.services import NotionClient
+
+    if not is_editor(message.from_user.id, config):
+        await message.answer("❌ У вас нет прав на добавление файлов.")
+        return
+
+    # Extract count from entities
+    if not entities.numbers:
+        await message.answer("❌ Укажите количество файлов. Пример: 'мелиса 30 файлов'")
+        return
+
+    count = entities.numbers[0]
+
+    # Validate count
+    if count < 1 or count > 1000:
+        await message.answer("❌ Количество должно быть положительным (1-1000)")
+        return
+
+    model_id = model["id"]
+    model_name = model["name"]
+
+    # Get current month name
+    now = datetime.now(tz=config.timezone)
+    month_str = now.strftime("%B %Y")  # e.g., "February 2026"
+
+    # Get or create accounting record for current month
+    try:
+        # Query for existing record
+        record = await notion.get_accounting_record(
+            config.db_accounting, model_id, month_str
+        )
+
+        if not record:
+            # Create new record
+            LOGGER.info(
+                "Creating new accounting record for model %s, month %s",
+                model_id,
+                month_str,
+            )
+            await notion.create_accounting_record(
+                config.db_accounting, model_id, count, month_str, config.files_per_month
+            )
+            new_amount = count
+        else:
+            # Update existing record
+            LOGGER.info(
+                "Updating existing accounting record %s, adding %d files",
+                record.page_id,
+                count,
+            )
+            current_amount = record.amount or 0
+            new_amount = current_amount + count
+            new_percent = new_amount / float(config.files_per_month)
+
+            await notion.update_accounting_files(
+                record.page_id, new_amount, new_percent
+            )
+
+        # Calculate percentage
+        percent = new_amount / float(config.files_per_month)
+
+        # Show success message
+        await message.answer(
+            f"✅ Добавлено {count} файлов!\n\n"
+            f"<b>{html.escape(model_name)}</b> | {month_str}\n"
+            f"Файлов: {new_amount} ({int(percent * 100)}%)",
+            parse_mode="HTML",
+        )
+
+        # Add to recent models
+        recent_models.add(message.from_user.id, model_id, model_name)
+
+    except Exception as e:
+        LOGGER.exception("Failed to add files: %s", e)
+        await message.answer("❌ Ошибка при добавлении файлов. Попробуйте позже.")
