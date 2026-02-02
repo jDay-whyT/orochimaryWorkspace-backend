@@ -109,7 +109,7 @@ async def handle_planner_callback(
         await query.answer(f"Error: {str(e)}", show_alert=True)
 
 
-@router.message(FlowFilter({"planner"}) & F.text)
+@router.message(FlowFilter({"planner"}), F.text)
 async def handle_text_input(
     message: Message,
     config: Config,
