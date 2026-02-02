@@ -4,6 +4,7 @@ from aiogram import Bot, Dispatcher
 
 from app.config import Config
 from app.handlers import start, orders, summary, planner, accounting
+from app.router import create_intent_router
 from app.services import NotionClient
 from app.state import MemoryState, RecentModels
 
@@ -14,13 +15,14 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, Me
     """Create bot, dispatcher and services."""
     bot = Bot(token=config.telegram_bot_token)
     dp = Dispatcher()
-    
-    # Register handlers
+
+    # Register handlers (specific handlers first, then intent router)
     dp.include_router(start.router)
     dp.include_router(orders.router)
     dp.include_router(summary.router)
     dp.include_router(planner.router)
     dp.include_router(accounting.router)
+    dp.include_router(create_intent_router())
     
     # Create services
     notion = NotionClient(config.notion_token)
