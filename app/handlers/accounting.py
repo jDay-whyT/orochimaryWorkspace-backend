@@ -8,6 +8,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
+from app.filters import FlowFilter
 from app.keyboards.inline import (
     accounting_menu_keyboard,
     accounting_quick_files_keyboard,
@@ -91,7 +92,7 @@ async def handle_accounting_callback(
     await query.answer()
 
 
-@router.message(F.text)
+@router.message(FlowFilter({"accounting"}) & F.text)
 async def handle_text_input(
     message: Message,
     config: Config,
@@ -101,11 +102,8 @@ async def handle_text_input(
     """Handle text input for accounting."""
     if not is_authorized(message.from_user.id, config):
         return
-    
+
     data = memory_state.get(message.from_user.id)
-    if not data or data.get("flow") != "accounting":
-        return
-    
     step = data.get("step")
     
     try:

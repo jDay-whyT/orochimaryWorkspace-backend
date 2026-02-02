@@ -14,14 +14,16 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, Me
     """Create bot, dispatcher and services."""
     bot = Bot(token=config.telegram_bot_token)
     dp = Dispatcher()
-    
-    # Register handlers (start must be last - it has catch-all F.text handler)
-    dp.include_router(orders.router)
-    dp.include_router(summary.router)
-    dp.include_router(planner.router)
-    dp.include_router(accounting.router)
+
+    # Register handlers in priority order:
+    # 1. Flow-specific routers with FlowFilter (only handle text when their flow is active)
+    dp.include_router(orders.router)       # FlowFilter({"search", "new_order", "view", "comment"})
+    dp.include_router(summary.router)      # FlowFilter({"summary"})
+    dp.include_router(planner.router)      # FlowFilter({"planner"})
+    dp.include_router(accounting.router)   # FlowFilter({"accounting"})
     dp.include_router(reports.router)
-    dp.include_router(start.router)  # Must be last!
+    # 2. Fallback router (NLP + /start) - handles all unmatched text messages
+    dp.include_router(start.router)        # MUST BE LAST - catches all text via NLP
     
     # Create services
     notion = NotionClient(config.notion_token)

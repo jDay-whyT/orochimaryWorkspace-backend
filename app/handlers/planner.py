@@ -6,6 +6,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
+from app.filters import FlowFilter
 from app.keyboards.inline import (
     planner_menu_keyboard,
     models_keyboard,
@@ -108,7 +109,7 @@ async def handle_planner_callback(
         await query.answer(f"Error: {str(e)}", show_alert=True)
 
 
-@router.message(F.text)
+@router.message(FlowFilter({"planner"}) & F.text)
 async def handle_text_input(
     message: Message,
     config: Config,
@@ -118,11 +119,8 @@ async def handle_text_input(
     """Handle text input for planner search and comments."""
     if not is_authorized(message.from_user.id, config):
         return
-    
+
     state = memory_state.get(message.from_user.id)
-    if not state or state.get("flow") != "planner":
-        return
-    
     step = state.get("step")
     
     # Delete user message to keep chat clean

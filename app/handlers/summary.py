@@ -7,6 +7,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
+from app.filters import FlowFilter
 from app.keyboards.inline import (
     summary_menu_keyboard,
     summary_card_keyboard,
@@ -91,7 +92,7 @@ async def handle_summary_callback(
         await query.answer(f"Error: {str(e)}", show_alert=True)
 
 
-@router.message(F.text)
+@router.message(FlowFilter({"summary"}) & F.text)
 async def handle_text_input(
     message: Message,
     config: Config,
@@ -101,11 +102,8 @@ async def handle_text_input(
     """Handle text input for summary search."""
     if not is_authorized(message.from_user.id, config):
         return
-    
+
     data = memory_state.get(message.from_user.id)
-    if not data or data.get("flow") != "summary":
-        return
-    
     step = data.get("step")
     
     try:
