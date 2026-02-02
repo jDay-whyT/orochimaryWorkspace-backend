@@ -23,6 +23,7 @@ async def cmd_start(message: Message, config: Config) -> None:
             "You are not authorized to use this bot.\n"
             "Contact administrator to get access."
         )
+        LOGGER.info("NLP msg from user_id=%s text=%r", user_id, message.text)
         LOGGER.warning("Unauthorized access attempt from user %s", user_id)
         return
 
