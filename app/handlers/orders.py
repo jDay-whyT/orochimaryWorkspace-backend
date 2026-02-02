@@ -6,6 +6,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
+from app.filters import FlowFilter
 from app.keyboards import (
     orders_menu_keyboard,
     orders_list_keyboard,
@@ -878,7 +879,7 @@ async def create_order(
 
 # ==================== Text Input Handler ====================
 
-@router.message(F.text)
+@router.message(FlowFilter({"search", "new_order", "view", "comment"}) & F.text)
 async def handle_text_input(
     message: Message,
     config: Config,
@@ -889,15 +890,11 @@ async def handle_text_input(
     """Handle text input for search and comments."""
     if not is_authorized(message.from_user.id, config):
         return
-    
+
     user_id = message.from_user.id
     data = memory_state.get(user_id) or {}
-    
-    flow = data.get("flow")
+
     step = data.get("step")
-    
-    if flow not in ("search", "new_order", "view", "comment"):
-        return
     
     text = message.text.strip()
     
