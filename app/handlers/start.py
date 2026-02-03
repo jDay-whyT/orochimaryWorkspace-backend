@@ -6,7 +6,8 @@ from aiogram.types import Message, ReplyKeyboardRemove
 
 from app.config import Config
 from app.roles import is_authorized, get_user_role
-from app.state import RecentModels
+from app.services import NotionClient
+from app.state import MemoryState, RecentModels
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -52,8 +53,8 @@ async def cmd_start(message: Message, config: Config) -> None:
 async def handle_nlp_message(
     message: Message,
     config: Config,
-    notion,
-    memory_state,
+    notion: NotionClient,
+    memory_state: MemoryState,
     recent_models: RecentModels,
 ) -> None:
     """Handle NLP text messages (router-based)."""
