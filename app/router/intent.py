@@ -35,7 +35,7 @@ ORDERS_MENU_KEYWORDS = ["заказы", "orders"]
 
 PLANNER_KEYWORDS = ["планировщик", "planner", "план"]
 
-ACCOUNT_KEYWORDS = ["аккаунт", "account", "accounting"]
+ACCOUNT_KEYWORDS = ["аккаунт", "аккаунта", "account", "accounting"]
 
 
 def classify_intent(text: str) -> Intent:

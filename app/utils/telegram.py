@@ -18,11 +18,15 @@ async def safe_edit_message(
         parse_mode: Message parse mode (default: HTML)
 
     Returns:
-        True if message was edited successfully, False if it was not modified.
+        True if message was edited successfully, False if it was not modified or message is None.
 
     Raises:
         TelegramBadRequest: For other Telegram errors (not message is not modified)
     """
+    # Check if message exists
+    if not query.message:
+        return False
+
     try:
         await query.message.edit_text(
             text,
