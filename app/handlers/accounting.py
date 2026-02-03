@@ -208,30 +208,43 @@ async def _show_current_month(
     memory_state: MemoryState,
 ) -> None:
     """Show current month accounting records."""
-    accounting_service = AccountingService(config)
-    records = await accounting_service.get_current_month_records()
-    
-    now = datetime.now(config.timezone)
-    month_str = now.strftime("%B")
-    
-    if not records:
-        text = f"💰 <b>{month_str} Accounting</b>\n\nNo records yet."
-    else:
-        text = f"💰 <b>{month_str} Accounting</b>\n\n"
-        for record in records[:10]:  # Limit to 10
-            name = record.get("model_name", "Unknown")
-            amount = record.get("amount", 0)
-            percent = record.get("percent", 0.0)
-            text += f"• <b>{html.escape(name)}</b>\n"
-            text += f"  Files: {amount} ({format_percent(percent)})\n\n"
-    
-    await query.message.edit_text(
-        text,
-        reply_markup=accounting_menu_keyboard(),
-        parse_mode="HTML",
-    )
-    
-    memory_state.clear(query.from_user.id)
+    try:
+        accounting_service = AccountingService(config)
+        records = await accounting_service.get_current_month_records()
+
+        now = datetime.now(config.timezone)
+        month_str = now.strftime("%B")
+
+        if not records:
+            text = f"💰 <b>{month_str} Accounting</b>\n\nNo records yet."
+        else:
+            text = f"💰 <b>{month_str} Accounting</b>\n\n"
+            for record in records[:10]:  # Limit to 10
+                name = record.get("model_name", "Unknown")
+                amount = record.get("amount", 0)
+                percent = record.get("percent", 0.0)
+                text += f"• <b>{html.escape(name)}</b>\n"
+                text += f"  Files: {amount} ({format_percent(percent)})\n\n"
+
+        await query.message.edit_text(
+            text,
+            reply_markup=accounting_menu_keyboard(),
+            parse_mode="HTML",
+        )
+
+        memory_state.clear(query.from_user.id)
+    except Exception as e:
+        LOGGER.exception("Error showing current month accounting")
+        try:
+            await query.message.edit_text(
+                "❌ <b>Error loading accounting data</b>\n\n"
+                "Please try again later or contact admin.",
+                reply_markup=accounting_menu_keyboard(),
+                parse_mode="HTML",
+            )
+        except Exception:
+            # If even error message fails, just log it
+            pass
 
 
 async def _start_add_files(
@@ -269,46 +282,50 @@ async def _select_model(
     model_id: str,
 ) -> None:
     """Model selected for adding files."""
-    models_service = ModelsService(config)
-    model = await models_service.get_model_by_id(model_id)
-    
-    if not model:
-        await query.answer("Model not found", show_alert=True)
-        return
-    
-    model_name = model.get("name", "Unknown")
-    recent_models.add(query.from_user.id, model_id, model_name)
-    
-    # Get current record
-    accounting_service = AccountingService(config)
-    record = await accounting_service.get_record_by_model(model_id)
-    
-    now = datetime.now(config.timezone)
-    month_str = now.strftime("%B")
-    
-    current_amount = record["amount"] if record else 0
-    current_percent = record["percent"] if record else 0.0
-    
-    text = f"💰 <b>{html.escape(model_name)} · {month_str}</b>\n\n"
-    text += f"Current: {current_amount} ({format_percent(current_percent)})\n\n"
-    text += "Add files (quick select):"
-    
-    # Create dummy page_id for quick files keyboard
-    # We'll store model info in memory state
-    memory_state.update(
-        query.from_user.id,
-        step="add_files",
-        model_id=model_id,
-        model_name=model_name,
-        current_amount=current_amount,
-    )
-    
-    # Use model_id as page_id placeholder in keyboard
-    await query.message.edit_text(
-        text,
-        reply_markup=accounting_quick_files_keyboard(model_id, current_amount),
-        parse_mode="HTML",
-    )
+    try:
+        models_service = ModelsService(config)
+        model = await models_service.get_model_by_id(model_id)
+
+        if not model:
+            await query.answer("Model not found", show_alert=True)
+            return
+
+        model_name = model.get("name", "Unknown")
+        recent_models.add(query.from_user.id, model_id, model_name)
+
+        # Get current record
+        accounting_service = AccountingService(config)
+        record = await accounting_service.get_record_by_model(model_id)
+
+        now = datetime.now(config.timezone)
+        month_str = now.strftime("%B")
+
+        current_amount = record["amount"] if record else 0
+        current_percent = record["percent"] if record else 0.0
+
+        text = f"💰 <b>{html.escape(model_name)} · {month_str}</b>\n\n"
+        text += f"Current: {current_amount} ({format_percent(current_percent)})\n\n"
+        text += "Add files (quick select):"
+
+        # Create dummy page_id for quick files keyboard
+        # We'll store model info in memory state
+        memory_state.update(
+            query.from_user.id,
+            step="add_files",
+            model_id=model_id,
+            model_name=model_name,
+            current_amount=current_amount,
+        )
+
+        # Use model_id as page_id placeholder in keyboard
+        await query.message.edit_text(
+            text,
+            reply_markup=accounting_quick_files_keyboard(model_id, current_amount),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        LOGGER.exception("Error selecting model for accounting")
+        await query.answer("Error loading model data", show_alert=True)
 
 
 async def _add_files_to_record(
@@ -322,33 +339,37 @@ async def _add_files_to_record(
     if not is_editor(query.from_user.id, config):
         await query.answer("Only editors can add files", show_alert=True)
         return
-    
-    data = memory_state.get(query.from_user.id) or {}
-    model_id = data.get("model_id") or page_id
-    model_name = data.get("model_name", "Unknown")
-    
-    accounting_service = AccountingService(config)
-    result = await accounting_service.add_files(
-        model_id=model_id,
-        model_name=model_name,
-        files_to_add=count,
-    )
-    
-    now = datetime.now(config.timezone)
-    month_str = now.strftime("%B")
-    
-    text = f"✅ <b>Files added!</b>\n\n"
-    text += f"<b>{html.escape(model_name)} · {month_str}</b>\n"
-    text += f"Total: {result['amount']} ({format_percent(result['percent'])})\n"
-    text += f"Added: +{count}"
-    
-    await query.message.edit_text(
-        text,
-        reply_markup=accounting_menu_keyboard(),
-        parse_mode="HTML",
-    )
-    
-    memory_state.clear(query.from_user.id)
+
+    try:
+        data = memory_state.get(query.from_user.id) or {}
+        model_id = data.get("model_id") or page_id
+        model_name = data.get("model_name", "Unknown")
+
+        accounting_service = AccountingService(config)
+        result = await accounting_service.add_files(
+            model_id=model_id,
+            model_name=model_name,
+            files_to_add=count,
+        )
+
+        now = datetime.now(config.timezone)
+        month_str = now.strftime("%B")
+
+        text = f"✅ <b>Files added!</b>\n\n"
+        text += f"<b>{html.escape(model_name)} · {month_str}</b>\n"
+        text += f"Total: {result['amount']} ({format_percent(result['percent'])})\n"
+        text += f"Added: +{count}"
+
+        await query.message.edit_text(
+            text,
+            reply_markup=accounting_menu_keyboard(),
+            parse_mode="HTML",
+        )
+
+        memory_state.clear(query.from_user.id)
+    except Exception as e:
+        LOGGER.exception("Error adding files to accounting record")
+        await query.answer("Error adding files. Please try again.", show_alert=True)
 
 
 async def _show_record_details(
@@ -497,7 +518,7 @@ async def handle_add_files_nlp(
     model: dict,
     entities: Any,
     config: Config,
-    notion: Any,
+    notion: "NotionClient",
     recent_models: RecentModels,
 ) -> None:
     """
@@ -511,7 +532,6 @@ async def handle_add_files_nlp(
         notion: NotionClient
         recent_models: RecentModels
     """
-    from app.services import NotionClient
 
     if not is_editor(message.from_user.id, config):
         await message.answer("❌ У вас нет прав на добавление файлов.")
@@ -532,9 +552,9 @@ async def handle_add_files_nlp(
     model_id = model["id"]
     model_name = model["name"]
 
-    # Get current month name
+    # Get current month name (using consistent format)
     now = datetime.now(tz=config.timezone)
-    month_str = now.strftime("%B %Y")  # e.g., "February 2026"
+    month_str = now.strftime("%B")  # e.g., "February"
 
     # Get or create accounting record for current month
     try:

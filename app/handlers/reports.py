@@ -33,7 +33,7 @@ async def handle_report_nlp(
 
     # Get current month name
     now = datetime.now(tz=config.timezone)
-    month_str = now.strftime("%B %Y")  # e.g., "February 2026"
+    month_str = now.strftime("%B")  # e.g., "February"
 
     # Query accounting for current month
     try:
