@@ -34,10 +34,25 @@ ORDER_TYPE_KEYWORDS = {
 }
 
 IGNORE_KEYWORDS = [
+    # File keywords
     "файл", "file", "файлов", "files",
+    # Report keywords
     "репорт", "report", "статистика", "stats", "стат",
-    "три", "два", "пять", "one", "two", "three", "five",
+    # Number words
+    "три", "два", "пять", "один", "one", "two", "three", "five",
+    # Date keywords
     "сегодня", "вчера", "today", "yesterday",
+    # Command verbs (Russian)
+    "добавить", "добавь", "создай", "создать", "сделай", "сделать",
+    "покажи", "показать", "дай", "давай",
+    # Command verbs (English)
+    "add", "create", "make", "show", "give",
+    # Noun keywords (common words that aren't model names)
+    "заказ", "заказы", "заказов", "order", "orders",
+    "аккаунт", "аккаунта", "account", "accounting",
+    "кастома", "кастомов",  # genitive/plural forms
+    "шорта", "шортов",
+    "колла", "коллов",
 ]
 
 

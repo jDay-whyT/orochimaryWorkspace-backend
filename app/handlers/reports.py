@@ -114,12 +114,14 @@ async def handle_report_callback(
             if len(orders) > 10:
                 orders_text += f"\n\n...и еще {len(orders) - 10}"
 
-            await query.message.edit_text(
-                f"📦 <b>Открытые заказы: {escape_html(model_name)}</b>\n\n"
-                f"{orders_text}",
-                reply_markup=nlp_report_keyboard(model_id),
-                parse_mode="HTML",
-            )
+            # Check if message exists before editing
+            if query.message:
+                await query.message.edit_text(
+                    f"📦 <b>Открытые заказы: {escape_html(model_name)}</b>\n\n"
+                    f"{orders_text}",
+                    reply_markup=nlp_report_keyboard(model_id),
+                    parse_mode="HTML",
+                )
             await query.answer()
 
         elif action == "report_accounting":
@@ -142,12 +144,14 @@ async def handle_report_callback(
                 for rec in records[:5]  # Limit to 5
             )
 
-            await query.message.edit_text(
-                f"📁 <b>Учет файлов: {escape_html(model_name)}</b>\n\n"
-                f"{accounting_text}",
-                reply_markup=nlp_report_keyboard(model_id),
-                parse_mode="HTML",
-            )
+            # Check if message exists before editing
+            if query.message:
+                await query.message.edit_text(
+                    f"📁 <b>Учет файлов: {escape_html(model_name)}</b>\n\n"
+                    f"{accounting_text}",
+                    reply_markup=nlp_report_keyboard(model_id),
+                    parse_mode="HTML",
+                )
             await query.answer()
 
     except Exception as e:
