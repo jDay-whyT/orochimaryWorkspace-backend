@@ -6,8 +6,14 @@ from aiogram.types import Message
 from app.config import Config
 from app.services import NotionClient
 from app.state import MemoryState, RecentModels
-from app.router.intent import Intent, classify_intent
-from app.router.entities import extract_entities
+
+# Import v2 improved command filter system
+from app.router.intent_v2 import classify_intent_v2
+from app.router.entities_v2 import extract_entities_v2
+from app.router.command_filters import CommandIntent
+
+# Keep old imports for reference type compatibility
+from app.router.intent import Intent
 
 
 LOGGER = logging.getLogger(__name__)
@@ -31,12 +37,12 @@ async def route_message(
     """
     text = message.text.strip()
 
-    # 1. Classify intent
-    intent = classify_intent(text)
+    # 1. Classify intent using improved v2 system
+    intent = classify_intent_v2(text)
     LOGGER.info("Classified intent: %s for text: %s", intent.value, text)
 
-    # 2. Extract entities
-    entities = extract_entities(text)
+    # 2. Extract entities using improved v2 system
+    entities = extract_entities_v2(text)
     LOGGER.info(
         "Extracted entities - model: %s, numbers: %s, type: %s",
         entities.model_name,
@@ -76,52 +82,52 @@ async def route_message(
     else:
         # Check if intent requires model
         if intent not in (
-            Intent.UNKNOWN,
-            Intent.SHOW_SUMMARY,
-            Intent.SHOW_ORDERS,
-            Intent.SHOW_PLANNER,
-            Intent.SHOW_ACCOUNT,
+            CommandIntent.UNKNOWN,
+            CommandIntent.SHOW_SUMMARY,
+            CommandIntent.SHOW_ORDERS,
+            CommandIntent.SHOW_PLANNER,
+            CommandIntent.SHOW_ACCOUNT,
         ):
             await message.answer("❌ Не указано имя модели.")
             return
 
     # 4. Route to handler
-    if intent == Intent.SHOW_SUMMARY:
+    if intent == CommandIntent.SHOW_SUMMARY:
         from app.handlers.summary import show_summary_menu
 
         await show_summary_menu(message, config, recent_models)
 
-    elif intent == Intent.SHOW_ORDERS:
+    elif intent == CommandIntent.SHOW_ORDERS:
         from app.handlers.orders import show_orders_menu
 
         await show_orders_menu(message, config)
 
-    elif intent == Intent.SHOW_PLANNER:
+    elif intent == CommandIntent.SHOW_PLANNER:
         from app.handlers.planner import show_planner_menu
 
         await show_planner_menu(message, config)
 
-    elif intent == Intent.SHOW_ACCOUNT:
+    elif intent == CommandIntent.SHOW_ACCOUNT:
         from app.handlers.accounting import show_accounting_menu
 
         await show_accounting_menu(message, config)
 
-    elif intent == Intent.CREATE_ORDERS:
+    elif intent == CommandIntent.CREATE_ORDERS:
         from app.handlers.orders import handle_create_orders_nlp
 
         await handle_create_orders_nlp(message, model, entities, config, notion)
 
-    elif intent == Intent.ADD_FILES:
+    elif intent == CommandIntent.ADD_FILES:
         from app.handlers.accounting import handle_add_files_nlp
 
         await handle_add_files_nlp(message, model, entities, config, notion, recent_models)
 
-    elif intent == Intent.GET_REPORT:
+    elif intent == CommandIntent.GET_REPORT:
         from app.handlers.reports import handle_report_nlp
 
         await handle_report_nlp(message, model, config, notion)
 
-    elif intent == Intent.SEARCH_MODEL:
+    elif intent == CommandIntent.SEARCH_MODEL:
         # Simple model search
         if not entities.model_name:
             await _show_help_message(message)
@@ -137,7 +143,7 @@ async def route_message(
             parse_mode="HTML",
         )
 
-    elif intent == Intent.UNKNOWN:
+    elif intent == CommandIntent.UNKNOWN:
         await _show_help_message(message)
 
 
