@@ -135,13 +135,10 @@ def classify_intent_v2(text: str) -> CommandIntent:
             )
             return cmd_filter.intent
 
-    # No filter matched - check if it's a simple model search
-    # Model search: 1-2 words, no numbers, no command keywords
-    if len(words) <= 2 and not has_number:
-        LOGGER.info("Classified as SEARCH_MODEL for text=%r", text)
-        return CommandIntent.SEARCH_MODEL
-
-    # Fallback to unknown
+    # No filter matched - fallback to UNKNOWN
+    # NOTE: Removed automatic SEARCH_MODEL fallback to prevent
+    # model lookup for garbage input like "привет", "спасибо", etc.
+    # User should use proper commands like "репорт мелиса" or "3 кастома мелиса"
     LOGGER.info("Classified as UNKNOWN for text=%r", text)
     return CommandIntent.UNKNOWN
 
