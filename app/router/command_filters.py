@@ -364,14 +364,79 @@ def normalize_text(text: str) -> str:
     return re.sub(r'\s+', ' ', text.lower().strip())
 
 
+# Словарь для конвертации слов-числительных в числа
+WORD_TO_NUMBER = {
+    # Русские числительные
+    "один": 1, "одна": 1, "одно": 1, "одного": 1, "одной": 1,
+    "два": 2, "две": 2, "двух": 2,
+    "три": 3, "трёх": 3, "тре": 3, "трех": 3,
+    "четыре": 4, "четырёх": 4, "четырех": 4,
+    "пять": 5, "пяти": 5,
+    "шесть": 6, "шести": 6,
+    "семь": 7, "семи": 7,
+    "восемь": 8, "восьми": 8,
+    "девять": 9, "девяти": 9,
+    "десять": 10, "десяти": 10,
+    # Английские числительные
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+
+
+def word2num(word: str) -> Optional[int]:
+    """
+    Convert word-number to integer.
+
+    Examples:
+        "три" -> 3
+        "пять" -> 5
+        "one" -> 1
+        "мусор" -> None
+    """
+    return WORD_TO_NUMBER.get(word.lower())
+
+
 def contains_number(text: str) -> bool:
-    """Check if text contains at least one number."""
-    return bool(re.search(r'\b\d+\b', text))
+    """Check if text contains at least one number (digit or word)."""
+    # Check for digit numbers
+    if re.search(r'\b\d+\b', text):
+        return True
+
+    # Check for word numbers
+    words = text.lower().split()
+    return any(word in WORD_TO_NUMBER for word in words)
 
 
 def extract_numbers(text: str) -> List[int]:
-    """Extract all numbers from text."""
-    return [int(n) for n in re.findall(r'\b\d+\b', text)]
+    """
+    Extract all numbers from text (both digits and word-numbers).
+
+    Examples:
+        "три кастома мелиса" -> [3]
+        "50 файлов софи" -> [50]
+        "два шорта мелиса 30 кастомов" -> [2, 30]
+    """
+    numbers = []
+
+    # Extract digit numbers
+    numbers.extend(int(n) for n in re.findall(r'\b\d+\b', text))
+
+    # Extract word numbers
+    words = text.lower().split()
+    for word in words:
+        num = word2num(word)
+        if num is not None:
+            numbers.append(num)
+
+    return numbers
 
 
 def match_multi_word_phrases(text: str, phrases: List[str]) -> bool:
