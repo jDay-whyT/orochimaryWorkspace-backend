@@ -247,7 +247,7 @@ class NotionClient:
         """
         Extract model title with fallback logic:
         1. Try 'model' title field (standard title field)
-        2. Try other title fields (open, name, title)
+        2. Try other common title fields (Name, name, title, Title)
         3. Return None if all fail
         """
         page_id = page.get("id", "unknown")
@@ -265,7 +265,7 @@ class NotionClient:
                     page_id, available_props)
 
         # Fallback: try other common title fields
-        for field in ["open", "name", "title"]:
+        for field in ["Name", "name", "title", "Title"]:
             fallback_title = _extract_title(page, field)
             if fallback_title:
                 LOGGER.info("Model %s: using fallback field '%s': %s",
@@ -321,25 +321,25 @@ class NotionClient:
     ) -> str:
         """Create a new order. Returns page ID."""
         properties: dict[str, Any] = {
-            "open": {"title": [{"text": {"content": title}}]},
+            "Name": {"title": [{"text": {"content": title}}]},
             "model": {"relation": [{"id": model_page_id}]},
             "type": {"select": {"name": order_type}},
             "in": {"date": {"start": in_date.isoformat()}},
             "status": {"select": {"name": "Open"}},
             "count": {"number": count},
         }
-        
+
         if comments:
             properties["comments"] = {"rich_text": [{"text": {"content": comments}}]}
-        
+
         if from_project:
             properties["from"] = {"select": {"name": from_project}}
-        
+
         payload = {
             "parent": {"database_id": database_id},
             "properties": properties,
         }
-        
+
         url = "https://api.notion.com/v1/pages"
         data = await self._request("POST", url, json=payload)
         return data["id"]
@@ -416,22 +416,22 @@ class NotionClient:
     ) -> str:
         """Create a new shoot. Returns page ID."""
         properties: dict[str, Any] = {
-            "open": {"title": [{"text": {"content": title}}]},
+            "Name": {"title": [{"text": {"content": title}}]},
             "model": {"relation": [{"id": model_page_id}]},
             "date": {"date": {"start": shoot_date.isoformat()}},
             "status": {"select": {"name": "planned"}},
             "location": {"select": {"name": location}},
             "content": {"multi_select": [{"name": c} for c in content]},
         }
-        
+
         if comments:
             properties["comments"] = {"rich_text": [{"text": {"content": comments}}]}
-        
+
         payload = {
             "parent": {"database_id": database_id},
             "properties": properties,
         }
-        
+
         url = "https://api.notion.com/v1/pages"
         data = await self._request("POST", url, json=payload)
         return data["id"]
@@ -554,22 +554,22 @@ class NotionClient:
         """Query accounting records filtering by month in title."""
         # Filter records that contain the month in title
         filters = [
-            {"property": "open", "title": {"contains": month_str}},
+            {"property": "Name", "title": {"contains": month_str}},
             {"or": [
                 {"property": "status", "status": {"equals": "work"}},
                 {"property": "status", "status": {"equals": "new"}},
                 {"property": "status", "status": {"equals": "inactive"}},
             ]}
         ]
-        
+
         payload = {
             "page_size": 100,
             "filter": {"and": filters},
         }
-        
+
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
         data = await self._request("POST", url, json=payload)
-        
+
         results = []
         for item in data.get("results", []):
             accounting = _parse_accounting(item)
@@ -578,7 +578,7 @@ class NotionClient:
                 model = await self.get_model(accounting.model_id)
                 accounting.model_title = model.title if model else None
             results.append(accounting)
-        
+
         return results
 
     async def get_accounting_record(
@@ -608,24 +608,24 @@ class NotionClient:
         # Get model to fetch project and status
         model = await self.get_model(model_page_id)
         status = model.status if model and model.status in ["work", "new", "inactive"] else "work"
-        
+
         percent = amount / float(files_per_month)
-        
+
         title = f"{month}"
-        
+
         properties: dict[str, Any] = {
-            "open": {"title": [{"text": {"content": title}}]},
+            "Name": {"title": [{"text": {"content": title}}]},
             "model": {"relation": [{"id": model_page_id}]},
             "amount": {"number": amount},
             "%": {"number": percent},
             "status": {"status": {"name": status}},
         }
-        
+
         payload = {
             "parent": {"database_id": database_id},
             "properties": properties,
         }
-        
+
         url = "https://api.notion.com/v1/pages"
         response = await self._request("POST", url, json=payload)
         return response["id"]
@@ -660,7 +660,7 @@ class NotionClient:
         """Update accounting comment."""
         payload = {
             "properties": {
-                "commets": {"rich_text": [{"text": {"content": comment}}]}  # Note: typo in DB
+                "comments": {"rich_text": [{"text": {"content": comment}}]}
             }
         }
         url = f"https://api.notion.com/v1/pages/{page_id}"
@@ -689,6 +689,18 @@ def _extract_title(page: dict[str, Any], property_name: str) -> str | None:
 
     text = "".join(part.get("plain_text", "") for part in fragments).strip()
     return text if text else None
+
+
+def _extract_any_title(page: dict[str, Any]) -> str | None:
+    """
+    Auto-detect and extract title from common title field names.
+    Tries: Name, name, title, Title, open (legacy)
+    """
+    for field_name in ["Name", "name", "title", "Title", "open"]:
+        title = _extract_title(page, field_name)
+        if title:
+            return title
+    return None
 
 
 def _extract_rich_text(page: dict[str, Any], property_name: str) -> str | None:
@@ -766,7 +778,7 @@ def _parse_order(item: dict[str, Any]) -> NotionOrder:
     count = _extract_number(item, "count")
     return NotionOrder(
         page_id=item["id"],
-        title=_extract_title(item, "open") or "(no title)",
+        title=_extract_any_title(item) or "(no title)",
         model_id=_extract_relation_id(item, "model"),
         order_type=_extract_select(item, "type"),
         in_date=_extract_date(item, "in"),
@@ -782,7 +794,7 @@ def _parse_planner(item: dict[str, Any]) -> NotionPlanner:
     """Parse planner entry from Notion API response."""
     return NotionPlanner(
         page_id=item["id"],
-        title=_extract_title(item, "open") or "(no title)",
+        title=_extract_any_title(item) or "(no title)",
         model_id=_extract_relation_id(item, "model"),
         date=_extract_date(item, "date"),
         status=_extract_select(item, "status"),
@@ -798,11 +810,11 @@ def _parse_accounting(item: dict[str, Any]) -> NotionAccounting:
     percent = _extract_number(item, "%")
     return NotionAccounting(
         page_id=item["id"],
-        title=_extract_title(item, "open") or "(no title)",
+        title=_extract_any_title(item) or "(no title)",
         model_id=_extract_relation_id(item, "model"),
         amount=int(amount) if amount is not None else None,
         percent=percent,
         content=_extract_multi_select(item, "content"),
         status=_extract_status(item, "status"),
-        comments=_extract_rich_text(item, "commets"),  # Note: typo in Notion DB
+        comments=_extract_rich_text(item, "comments"),
     )
