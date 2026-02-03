@@ -321,7 +321,7 @@ class NotionClient:
     ) -> str:
         """Create a new order. Returns page ID."""
         properties: dict[str, Any] = {
-            "Name": {"title": [{"text": {"content": title}}]},
+            "Title": {"title": [{"text": {"content": title}}]},
             "model": {"relation": [{"id": model_page_id}]},
             "type": {"select": {"name": order_type}},
             "in": {"date": {"start": in_date.isoformat()}},
@@ -339,6 +339,11 @@ class NotionClient:
             "parent": {"database_id": database_id},
             "properties": properties,
         }
+
+        LOGGER.info(
+            "Creating order: database_id=%s, title_key='Title', title_value='%s'",
+            database_id, title
+        )
 
         url = "https://api.notion.com/v1/pages"
         data = await self._request("POST", url, json=payload)
@@ -416,7 +421,7 @@ class NotionClient:
     ) -> str:
         """Create a new shoot. Returns page ID."""
         properties: dict[str, Any] = {
-            "Name": {"title": [{"text": {"content": title}}]},
+            "Title": {"title": [{"text": {"content": title}}]},
             "model": {"relation": [{"id": model_page_id}]},
             "date": {"date": {"start": shoot_date.isoformat()}},
             "status": {"select": {"name": "planned"}},
@@ -431,6 +436,11 @@ class NotionClient:
             "parent": {"database_id": database_id},
             "properties": properties,
         }
+
+        LOGGER.info(
+            "Creating shoot: database_id=%s, title_key='Title', title_value='%s'",
+            database_id, title
+        )
 
         url = "https://api.notion.com/v1/pages"
         data = await self._request("POST", url, json=payload)
@@ -554,7 +564,7 @@ class NotionClient:
         """Query accounting records filtering by month in title."""
         # Filter records that contain the month in title
         filters = [
-            {"property": "Name", "title": {"contains": month_str}},
+            {"property": "Title", "title": {"contains": month_str}},
             {"or": [
                 {"property": "status", "status": {"equals": "work"}},
                 {"property": "status", "status": {"equals": "new"}},
@@ -614,7 +624,7 @@ class NotionClient:
         title = f"{month}"
 
         properties: dict[str, Any] = {
-            "Name": {"title": [{"text": {"content": title}}]},
+            "Title": {"title": [{"text": {"content": title}}]},
             "model": {"relation": [{"id": model_page_id}]},
             "amount": {"number": amount},
             "%": {"number": percent},
@@ -625,6 +635,11 @@ class NotionClient:
             "parent": {"database_id": database_id},
             "properties": properties,
         }
+
+        LOGGER.info(
+            "Creating accounting record: database_id=%s, title_key='Title', title_value='%s'",
+            database_id, title
+        )
 
         url = "https://api.notion.com/v1/pages"
         response = await self._request("POST", url, json=payload)
