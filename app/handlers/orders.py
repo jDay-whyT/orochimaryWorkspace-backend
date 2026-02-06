@@ -1055,6 +1055,7 @@ async def handle_create_orders_nlp(
     entities: Any,
     config: Config,
     notion: NotionClient,
+    memory_state: MemoryState | None = None,
 ) -> None:
     """
     Handle order creation from NLP message.
@@ -1065,8 +1066,10 @@ async def handle_create_orders_nlp(
         entities: Extracted entities with numbers, order_type
         config: Config
         notion: NotionClient
+        memory_state: MemoryState for storing flow context
     """
     from app.keyboards.inline import nlp_order_confirm_keyboard
+    from app.router.entities_v2 import get_order_type_display_name
 
     if not can_edit(message.from_user.id, config):
         await message.answer("❌ У вас нет прав на создание заказов.")
@@ -1082,18 +1085,24 @@ async def handle_create_orders_nlp(
 
     # Get order type (default to "custom" if not specified)
     order_type = entities.order_type or "custom"
+    type_label = get_order_type_display_name(order_type)
 
-    # Default date: today
-    in_date = today(config.timezone)
-    date_iso = in_date.isoformat()
+    # Store flow context in memory for callback handlers
+    if memory_state:
+        memory_state.set(message.from_user.id, {
+            "flow": "nlp_order",
+            "step": "awaiting_date",
+            "model_id": model["id"],
+            "model_name": model["name"],
+            "order_type": order_type,
+            "count": count,
+        })
 
-    # Show confirmation
+    # Show confirmation with short-callback keyboard
     await message.answer(
-        f"📦 Создать {count} заказа?\n\n"
-        f"Модель: <b>{escape_html(model['name'])}</b>\n"
-        f"Тип: <b>{order_type}</b>\n"
-        f"Дата: <b>{format_date_short(in_date)}</b> (можно изменить)\n",
-        reply_markup=nlp_order_confirm_keyboard(model["id"], order_type, count, date_iso),
+        f"📦 <b>{escape_html(model['name'])}</b> · {count}x {type_label}\n"
+        f"Дата: <b>{format_date_short(today(config.timezone))}</b> (можно изменить)\n",
+        reply_markup=nlp_order_confirm_keyboard(),
         parse_mode="HTML",
     )
 
