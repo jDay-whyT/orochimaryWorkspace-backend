@@ -412,170 +412,153 @@ def summary_card_keyboard(model_id: str) -> InlineKeyboardMarkup:
 
 
 # ==================== NLP Router Keyboards ====================
+#
+# All NLP keyboards use SHORT callback_data (max ~55 bytes) to stay within
+# Telegram's 64-byte limit.  Flow context (model_id, order_type, count …)
+# is kept in memory_state; only the *new decision* goes into callback_data.
+#
+# Callback format:  nlp:{short_action}:{param}
+#   sm  = select_model     ot  = order_type      oq  = order_qty
+#   od  = order_date       oc  = order_confirm    sd  = shoot_date
+#   sdc = shoot_done_conf  ss  = shoot_select     co  = close_order
+#   cd  = close_date       ct  = comment_target   cmo = comment_order
+#   df  = disambig_files   do  = disambig_orders  ro  = report_orders
+#   ra  = report_account   af  = add_files        act = model_action
+#   x   = cancel (c=cancel, m=menu)
 
-def nlp_model_selection_keyboard(
-    models: list[dict],
-    intent: str,
-    entities: Any,
-) -> InlineKeyboardMarkup:
-    """
-    Keyboard for selecting model when multiple matches found.
-    models: [{"id": str, "name": str, "aliases": list[str]}, ...]
-    """
+
+_NLP_CANCEL_BTN = InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:x:c")
+
+
+def nlp_model_selection_keyboard(models: list[dict]) -> InlineKeyboardMarkup:
+    """Model disambiguation. Intent is stored in memory_state by caller."""
     builder = InlineKeyboardBuilder()
-
-    for model in models[:5]:  # Limit to 5 models
-        builder.row(
-            InlineKeyboardButton(
-                text=model["name"], callback_data=f"nlp:select_model:{model['id']}:{intent}"
-            )
-        )
-
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel"))
-
+    for model in models[:5]:
+        builder.row(InlineKeyboardButton(
+            text=model["name"], callback_data=f"nlp:sm:{model['id']}",
+        ))
+    builder.row(_NLP_CANCEL_BTN)
     return builder.as_markup()
 
 
-def nlp_confirm_model_keyboard(
-    model_id: str,
-    model_name: str,
-    intent: str,
-) -> InlineKeyboardMarkup:
-    """Confirm fuzzy-matched model before executing intent."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=f"Da, {model_name}",
-                    callback_data=f"nlp:select_model:{model_id}:{intent}",
-                ),
-            ],
-            [InlineKeyboardButton(text="Net", callback_data="nlp:cancel:cancel")],
-        ]
-    )
+def nlp_confirm_model_keyboard(model_id: str, model_name: str) -> InlineKeyboardMarkup:
+    """Confirm fuzzy-matched model. Intent is stored in memory_state."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"Да, {model_name}", callback_data=f"nlp:sm:{model_id}")],
+        [InlineKeyboardButton(text="Нет", callback_data="nlp:x:c")],
+    ])
 
 
-def nlp_order_confirm_keyboard(
-    model_id: str, order_type: str, count: int, date_iso: str
-) -> InlineKeyboardMarkup:
-    """Confirmation keyboard for creating orders via NLP."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📅 Сегодня",
-                    callback_data=f"nlp:order_date:{model_id}:{order_type}:{count}:today",
-                ),
-                InlineKeyboardButton(
-                    text="📅 Вчера",
-                    callback_data=f"nlp:order_date:{model_id}:{order_type}:{count}:yesterday",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="✅ Создать",
-                    callback_data=f"nlp:order_confirm:{model_id}:{order_type}:{count}:{date_iso}",
-                ),
-                InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel"),
-            ],
-        ]
-    )
+def nlp_model_actions_keyboard() -> InlineKeyboardMarkup:
+    """CRM action card shown after model context is set. model_id in memory."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📦 Заказ", callback_data="nlp:act:order"),
+            InlineKeyboardButton(text="📁 Файлы", callback_data="nlp:act:files"),
+        ],
+        [
+            InlineKeyboardButton(text="📅 Съемка", callback_data="nlp:act:shoot"),
+            InlineKeyboardButton(text="📊 Репорт", callback_data="nlp:act:report"),
+        ],
+        [
+            InlineKeyboardButton(text="📋 Заказы", callback_data="nlp:act:orders"),
+            InlineKeyboardButton(text="✓ Закрыть", callback_data="nlp:act:close"),
+        ],
+        [_NLP_CANCEL_BTN],
+    ])
 
 
-def nlp_disambiguate_keyboard(model_id: str, number: int) -> InlineKeyboardMarkup:
-    """Keyboard for disambiguating intent (files vs orders)."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=f"📁 Добавить {number} файлов",
-                    callback_data=f"nlp:disambig_files:{model_id}:{number}",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=f"📦 Создать {number} заказов",
-                    callback_data=f"nlp:disambig_orders:{model_id}:{number}",
-                )
-            ],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel")],
-        ]
-    )
+# ==================== NLP Order Keyboards ====================
+
+def nlp_order_type_keyboard() -> InlineKeyboardMarkup:
+    """Order type selection. model_id in memory."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Кастом", callback_data="nlp:ot:custom"),
+            InlineKeyboardButton(text="Шорт", callback_data="nlp:ot:short"),
+        ],
+        [
+            InlineKeyboardButton(text="Колл", callback_data="nlp:ot:call"),
+            InlineKeyboardButton(text="Ad Request", callback_data="nlp:ot:ad request"),
+        ],
+        [_NLP_CANCEL_BTN],
+    ])
 
 
-def nlp_report_keyboard(model_id: str) -> InlineKeyboardMarkup:
-    """Keyboard for report actions."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📦 Детали Orders", callback_data=f"nlp:report_orders:{model_id}"
-                ),
-                InlineKeyboardButton(
-                    text="📁 Детали Accounting",
-                    callback_data=f"nlp:report_accounting:{model_id}",
-                ),
-            ],
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="nlp:cancel:cancel")],
-        ]
-    )
+def nlp_order_qty_keyboard() -> InlineKeyboardMarkup:
+    """Quantity selection. model_id + order_type in memory."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="1", callback_data="nlp:oq:1"),
+            InlineKeyboardButton(text="2", callback_data="nlp:oq:2"),
+            InlineKeyboardButton(text="3", callback_data="nlp:oq:3"),
+            InlineKeyboardButton(text="5", callback_data="nlp:oq:5"),
+        ],
+        [_NLP_CANCEL_BTN],
+    ])
+
+
+def nlp_order_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Date + confirm for order. All context in memory."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📅 Сегодня", callback_data="nlp:od:today"),
+            InlineKeyboardButton(text="📅 Вчера", callback_data="nlp:od:yesterday"),
+        ],
+        [
+            InlineKeyboardButton(text="✅ Создать", callback_data="nlp:oc"),
+            _NLP_CANCEL_BTN,
+        ],
+    ])
+
+
+def nlp_disambiguate_keyboard(number: int) -> InlineKeyboardMarkup:
+    """Disambiguate files vs orders. model_id in memory."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"📁 Добавить {number} файлов", callback_data=f"nlp:df:{number}")],
+        [InlineKeyboardButton(text=f"📦 Создать {number} заказов", callback_data=f"nlp:do:{number}")],
+        [_NLP_CANCEL_BTN],
+    ])
+
+
+def nlp_report_keyboard() -> InlineKeyboardMarkup:
+    """Report detail buttons. model_id in memory."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📦 Детали Orders", callback_data="nlp:ro"),
+            InlineKeyboardButton(text="📁 Детали Accounting", callback_data="nlp:ra"),
+        ],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="nlp:x:c")],
+    ])
 
 
 # ==================== NLP Shoot Keyboards ====================
 
-def nlp_shoot_date_keyboard(model_id: str) -> InlineKeyboardMarkup:
-    """Date selection keyboard for shoot creation/reschedule."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Завтра",
-                    callback_data=f"nlp:shoot_date:{model_id}:tomorrow",
-                ),
-                InlineKeyboardButton(
-                    text="Послезавтра",
-                    callback_data=f"nlp:shoot_date:{model_id}:day_after",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📅 Другая дата",
-                    callback_data=f"nlp:shoot_date:{model_id}:custom",
-                ),
-            ],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel")],
-        ]
-    )
+def nlp_shoot_date_keyboard() -> InlineKeyboardMarkup:
+    """Date selection for shoot. model_id in memory."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Завтра", callback_data="nlp:sd:tomorrow"),
+            InlineKeyboardButton(text="Послезавтра", callback_data="nlp:sd:day_after"),
+        ],
+        [InlineKeyboardButton(text="📅 Другая дата", callback_data="nlp:sd:custom")],
+        [_NLP_CANCEL_BTN],
+    ])
 
 
 def nlp_shoot_confirm_done_keyboard(shoot_id: str) -> InlineKeyboardMarkup:
     """Confirm marking a shoot as done."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✅ Да",
-                    callback_data=f"nlp:shoot_done_confirm:{shoot_id}",
-                ),
-                InlineKeyboardButton(
-                    text="❌ Нет",
-                    callback_data="nlp:cancel:cancel",
-                ),
-            ],
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Да", callback_data=f"nlp:sdc:{shoot_id}"),
+            InlineKeyboardButton(text="❌ Нет", callback_data="nlp:x:c"),
+        ],
+    ])
 
 
-def nlp_shoot_select_keyboard(
-    shoots: list,
-    action: str,
-) -> InlineKeyboardMarkup:
-    """
-    Select a shoot from list.
-    action: "done" | "reschedule" | "comment"
-    """
+def nlp_shoot_select_keyboard(shoots: list, action: str) -> InlineKeyboardMarkup:
+    """Select a shoot. action: done|reschedule|comment"""
     builder = InlineKeyboardBuilder()
-
     for shoot in shoots[:5]:
         date_str = shoot.date[:10] if shoot.date else "?"
         try:
@@ -584,112 +567,38 @@ def nlp_shoot_select_keyboard(
             label = d.strftime("%d.%m")
         except (ValueError, TypeError):
             label = date_str
-
-        builder.row(
-            InlineKeyboardButton(
-                text=f"📅 {label}",
-                callback_data=f"nlp:shoot_select:{action}:{shoot.page_id}",
-            )
-        )
-
+        builder.row(InlineKeyboardButton(
+            text=f"📅 {label}",
+            callback_data=f"nlp:ss:{action}:{shoot.page_id}",
+        ))
     if len(shoots) > 5:
-        builder.row(
-            InlineKeyboardButton(
-                text=f"Показать ещё ({len(shoots) - 5})",
-                callback_data=f"nlp:shoot_more:{action}:5",
-            )
-        )
-
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel"))
+        builder.row(InlineKeyboardButton(
+            text=f"Показать ещё ({len(shoots) - 5})",
+            callback_data=f"nlp:shm:{action}:5",
+        ))
+    builder.row(_NLP_CANCEL_BTN)
     return builder.as_markup()
 
 
-# ==================== NLP Order Keyboards ====================
+# ==================== NLP Close Order Keyboards ====================
 
-def nlp_order_type_keyboard(model_id: str) -> InlineKeyboardMarkup:
-    """Order type selection for general order creation."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Кастом",
-                    callback_data=f"nlp:order_type:{model_id}:custom",
-                ),
-                InlineKeyboardButton(
-                    text="Шорт",
-                    callback_data=f"nlp:order_type:{model_id}:short",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Колл",
-                    callback_data=f"nlp:order_type:{model_id}:call",
-                ),
-                InlineKeyboardButton(
-                    text="Ad Request",
-                    callback_data=f"nlp:order_type:{model_id}:ad request",
-                ),
-            ],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel")],
-        ]
-    )
-
-
-def nlp_order_qty_keyboard(model_id: str, order_type: str) -> InlineKeyboardMarkup:
-    """Quantity selection for orders."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="1", callback_data=f"nlp:order_qty:{model_id}:{order_type}:1",
-                ),
-                InlineKeyboardButton(
-                    text="2", callback_data=f"nlp:order_qty:{model_id}:{order_type}:2",
-                ),
-                InlineKeyboardButton(
-                    text="3", callback_data=f"nlp:order_qty:{model_id}:{order_type}:3",
-                ),
-                InlineKeyboardButton(
-                    text="5", callback_data=f"nlp:order_qty:{model_id}:{order_type}:5",
-                ),
-            ],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel")],
-        ]
-    )
-
-
-def nlp_close_order_date_keyboard(order_id: str) -> InlineKeyboardMarkup:
-    """Date selection for closing an order."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✓ Сегодня",
-                    callback_data=f"nlp:close_date:today:{order_id}",
-                ),
-                InlineKeyboardButton(
-                    text="✓ Вчера",
-                    callback_data=f"nlp:close_date:yesterday:{order_id}",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📅 Другая",
-                    callback_data=f"nlp:close_date:custom:{order_id}",
-                ),
-                InlineKeyboardButton(
-                    text="❌ Отмена",
-                    callback_data="nlp:cancel:cancel",
-                ),
-            ],
-        ]
-    )
+def nlp_close_order_date_keyboard() -> InlineKeyboardMarkup:
+    """Date for closing order. order_id in memory."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✓ Сегодня", callback_data="nlp:cd:today"),
+            InlineKeyboardButton(text="✓ Вчера", callback_data="nlp:cd:yesterday"),
+        ],
+        [
+            InlineKeyboardButton(text="📅 Другая", callback_data="nlp:cd:custom"),
+            _NLP_CANCEL_BTN,
+        ],
+    ])
 
 
 def nlp_close_order_select_keyboard(orders: list) -> InlineKeyboardMarkup:
-    """Select an order to close from multiple open orders."""
+    """Select an order to close."""
     builder = InlineKeyboardBuilder()
-
     for order in orders[:5]:
         from datetime import date as _date
         days = 0
@@ -701,56 +610,36 @@ def nlp_close_order_select_keyboard(orders: list) -> InlineKeyboardMarkup:
                 days = (_date.today() - d).days
             except (ValueError, TypeError):
                 pass
-
         label = f"{order.order_type or '?'} · {date_label} ({days}d)"
-        builder.row(
-            InlineKeyboardButton(
-                text=label,
-                callback_data=f"nlp:close_order:{order.page_id}",
-            )
-        )
-
+        builder.row(InlineKeyboardButton(
+            text=label, callback_data=f"nlp:co:{order.page_id}",
+        ))
     if len(orders) > 5:
-        builder.row(
-            InlineKeyboardButton(
-                text=f"Показать ещё ({len(orders) - 5})",
-                callback_data="nlp:close_more:5",
-            )
-        )
-
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel"))
+        builder.row(InlineKeyboardButton(
+            text=f"Показать ещё ({len(orders) - 5})",
+            callback_data="nlp:clm:5",
+        ))
+    builder.row(_NLP_CANCEL_BTN)
     return builder.as_markup()
 
 
 # ==================== NLP Comment Keyboards ====================
 
-def nlp_comment_target_keyboard(model_id: str) -> InlineKeyboardMarkup:
-    """Select what to comment on."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📦 Заказ",
-                    callback_data=f"nlp:comment_target:{model_id}:order",
-                ),
-                InlineKeyboardButton(
-                    text="📅 Съемка",
-                    callback_data=f"nlp:comment_target:{model_id}:shoot",
-                ),
-                InlineKeyboardButton(
-                    text="💰 Учет",
-                    callback_data=f"nlp:comment_target:{model_id}:account",
-                ),
-            ],
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel")],
-        ]
-    )
+def nlp_comment_target_keyboard() -> InlineKeyboardMarkup:
+    """Select comment target. model_id in memory."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📦 Заказ", callback_data="nlp:ct:order"),
+            InlineKeyboardButton(text="📅 Съемка", callback_data="nlp:ct:shoot"),
+            InlineKeyboardButton(text="💰 Учет", callback_data="nlp:ct:account"),
+        ],
+        [_NLP_CANCEL_BTN],
+    ])
 
 
 def nlp_comment_order_select_keyboard(orders: list) -> InlineKeyboardMarkup:
     """Select an order to comment on."""
     builder = InlineKeyboardBuilder()
-
     for order in orders[:5]:
         from datetime import date as _date
         date_label = "?"
@@ -760,64 +649,54 @@ def nlp_comment_order_select_keyboard(orders: list) -> InlineKeyboardMarkup:
                 date_label = d.strftime("%d.%m")
             except (ValueError, TypeError):
                 pass
-
         label = f"{order.order_type or '?'} · {date_label}"
-        builder.row(
-            InlineKeyboardButton(
-                text=label,
-                callback_data=f"nlp:comment_order:{order.page_id}",
-            )
-        )
-
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel"))
+        builder.row(InlineKeyboardButton(
+            text=label, callback_data=f"nlp:cmo:{order.page_id}",
+        ))
+    builder.row(_NLP_CANCEL_BTN)
     return builder.as_markup()
 
 
-# ==================== NLP Not Found Keyboard ====================
+# ==================== NLP Files Keyboard ====================
+
+def nlp_files_qty_keyboard() -> InlineKeyboardMarkup:
+    """Quick file-count selection. model_id in memory."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="5", callback_data="nlp:af:5"),
+            InlineKeyboardButton(text="10", callback_data="nlp:af:10"),
+            InlineKeyboardButton(text="15", callback_data="nlp:af:15"),
+            InlineKeyboardButton(text="20", callback_data="nlp:af:20"),
+            InlineKeyboardButton(text="30", callback_data="nlp:af:30"),
+        ],
+        [_NLP_CANCEL_BTN],
+    ])
+
+
+# ==================== NLP Flow Control ====================
 
 def nlp_flow_waiting_keyboard() -> InlineKeyboardMarkup:
-    """Keyboard shown when user sends text while in an nlp_* flow (expects buttons)."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="\U0001f3e0 Меню",
-                    callback_data="nlp:cancel:menu",
-                ),
-                InlineKeyboardButton(
-                    text="♻️ Сбросить",
-                    callback_data="nlp:cancel:cancel",
-                ),
-            ],
-        ]
-    )
+    """Shown when user sends text while in nlp_* flow expecting buttons."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="\U0001f3e0 Меню", callback_data="nlp:x:m"),
+            InlineKeyboardButton(text="♻️ Сбросить", callback_data="nlp:x:c"),
+        ],
+    ])
 
 
-def nlp_not_found_keyboard(
-    recent: list[tuple[str, str]],
-    intent: str,
-) -> InlineKeyboardMarkup:
-    """
-    Keyboard shown when model not found.
-    Shows recent models + search.
-    """
+def nlp_not_found_keyboard(recent: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    """Model not found — recent models. Intent in memory."""
     builder = InlineKeyboardBuilder()
-
     row: list[InlineKeyboardButton] = []
     for model_id, title in recent[:5]:
         row.append(InlineKeyboardButton(
-            text=title,
-            callback_data=f"nlp:select_model:{model_id}:{intent}",
+            text=title, callback_data=f"nlp:sm:{model_id}",
         ))
         if len(row) == 3:
             builder.row(*row)
             row = []
     if row:
         builder.row(*row)
-
-    builder.row(
-        InlineKeyboardButton(text="🔍 Поиск", callback_data="nlp:search:search"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="nlp:cancel:cancel"),
-    )
-
+    builder.row(_NLP_CANCEL_BTN)
     return builder.as_markup()

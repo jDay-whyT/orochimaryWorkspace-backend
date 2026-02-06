@@ -76,6 +76,13 @@ async def route_message(
             return  # Let FlowFilter-based handlers pick this up
 
         if current_flow.startswith("nlp_"):
+            current_step = user_state.get("step", "")
+
+            # Allow text input for specific steps
+            if current_step == "awaiting_custom_date":
+                await _handle_custom_date_input(message, text, user_state, config, notion, memory_state)
+                return
+
             # nlp_* flows expect button presses, not free text.
             # Respond with a prompt instead of silently swallowing the message.
             LOGGER.info("ROUTE_MESSAGE SKIP: user=%s in nlp flow=%s, prompting for button", user_id, current_flow)
@@ -136,35 +143,34 @@ async def route_message(
             from app.keyboards.inline import nlp_confirm_model_keyboard
 
             m = resolution["model"]
-            await message.answer(
-                f"🔍 Вы имели в виду <b>{html.escape(m['name'])}</b>?",
-                reply_markup=nlp_confirm_model_keyboard(m["id"], m["name"], intent.value),
-                parse_mode="HTML",
-            )
+            # Store intent in memory (keyboard only carries model_id)
             memory_state.set(user_id, {
                 "flow": "nlp_disambiguate",
                 "intent": intent.value,
                 "entities_raw": text,
             })
+            await message.answer(
+                f"🔍 Вы имели в виду <b>{html.escape(m['name'])}</b>?",
+                reply_markup=nlp_confirm_model_keyboard(m["id"], m["name"]),
+                parse_mode="HTML",
+            )
             return
 
         elif resolution["status"] == "multiple":
             # Show disambiguation keyboard
             from app.keyboards.inline import nlp_model_selection_keyboard
 
-            await message.answer(
-                f"🔍 Уточните модель '{html.escape(entities.model_name)}':",
-                reply_markup=nlp_model_selection_keyboard(
-                    resolution["models"], intent.value, entities,
-                ),
-                parse_mode="HTML",
-            )
-            # Save state for after selection
+            # Store intent in memory (keyboard only carries model_id)
             memory_state.set(user_id, {
                 "flow": "nlp_disambiguate",
                 "intent": intent.value,
                 "entities_raw": text,
             })
+            await message.answer(
+                f"🔍 Уточните модель '{html.escape(entities.model_name)}':",
+                reply_markup=nlp_model_selection_keyboard(resolution["models"]),
+                parse_mode="HTML",
+            )
             return
 
         elif resolution["status"] == "not_found":
@@ -172,10 +178,16 @@ async def route_message(
                 recent = recent_models.get(user_id)
                 if recent:
                     from app.keyboards.inline import nlp_not_found_keyboard
+                    # Store intent in memory for when user picks a recent model
+                    memory_state.set(user_id, {
+                        "flow": "nlp_disambiguate",
+                        "intent": intent.value,
+                        "entities_raw": text,
+                    })
                     await message.answer(
                         f"❌ Модель '{html.escape(entities.model_name)}' не найдена.\n\n"
                         "Последние модели:",
-                        reply_markup=nlp_not_found_keyboard(recent, intent.value),
+                        reply_markup=nlp_not_found_keyboard(recent),
                         parse_mode="HTML",
                     )
                 else:
@@ -265,7 +277,7 @@ async def _execute_handler(
 
     if intent == CommandIntent.CREATE_ORDERS:
         from app.handlers.orders import handle_create_orders_nlp
-        await handle_create_orders_nlp(message, model, entities, config, notion)
+        await handle_create_orders_nlp(message, model, entities, config, notion, memory_state)
         return
 
     # ===== ORDERS GENERAL (priority 70) =====
@@ -290,7 +302,7 @@ async def _execute_handler(
 
     if intent == CommandIntent.GET_REPORT:
         from app.handlers.reports import handle_report_nlp
-        await handle_report_nlp(message, model, config, notion)
+        await handle_report_nlp(message, model, config, notion, memory_state)
         return
 
     if intent == CommandIntent.SHOW_MODEL_ORDERS:
@@ -313,13 +325,16 @@ async def _execute_handler(
 
     if intent == CommandIntent.SEARCH_MODEL:
         if model:
+            # CRM UX: show action card instead of text examples
+            from app.keyboards.inline import nlp_model_actions_keyboard
+            memory_state.set(message.from_user.id, {
+                "flow": "nlp_actions",
+                "model_id": model["id"],
+                "model_name": model["name"],
+            })
             await message.answer(
-                f"✅ <b>{html.escape(model['name'])}</b>\n\n"
-                f"Примеры:\n"
-                f"• {model['name']} кастом\n"
-                f"• {model['name']} 30 файлов\n"
-                f"• {model['name']} съемка на 13.02\n"
-                f"• репорт {model['name']}",
+                f"✅ <b>{html.escape(model['name'])}</b>\n\nЧто сделать?",
+                reply_markup=nlp_model_actions_keyboard(),
                 parse_mode="HTML",
             )
         else:
@@ -397,7 +412,7 @@ async def _handle_shoot_create(message, model, entities, config, notion, memory_
         })
         await message.answer(
             f"📅 <b>{html.escape(model_name)}</b> · Дата съемки:",
-            reply_markup=nlp_shoot_date_keyboard(model_id),
+            reply_markup=nlp_shoot_date_keyboard(),
             parse_mode="HTML",
         )
 
@@ -496,7 +511,7 @@ async def _handle_shoot_reschedule(message, model, entities, config, notion, mem
             date_str = shoot.date[:10] if shoot.date else "?"
             await message.answer(
                 f"📅 Перенос съемки {date_str}\n\nНовая дата:",
-                reply_markup=nlp_shoot_date_keyboard(model_id),
+                reply_markup=nlp_shoot_date_keyboard(),
                 parse_mode="HTML",
             )
         else:
@@ -532,7 +547,7 @@ async def _handle_create_orders_general(message, model, entities, config, memory
     })
     await message.answer(
         f"📦 <b>{html.escape(model['name'])}</b> · Тип заказа:",
-        reply_markup=nlp_order_type_keyboard(model["id"]),
+        reply_markup=nlp_order_type_keyboard(),
         parse_mode="HTML",
     )
 
@@ -570,11 +585,15 @@ async def _handle_close_orders(message, model, entities, config, notion, memory_
             # Single order — ask for close date
             order = orders[0]
             from app.keyboards.inline import nlp_close_order_date_keyboard
+            memory_state.set(message.from_user.id, {
+                "flow": "nlp_close",
+                "order_id": order.page_id,
+            })
             days = _calc_days_open(order.in_date)
             label = f"{order.order_type or '?'} · {_format_date_short(order.in_date)} ({days}d)"
             await message.answer(
                 f"Закрыть '{label}'?\n\nДата закрытия:",
-                reply_markup=nlp_close_order_date_keyboard(order.page_id),
+                reply_markup=nlp_close_order_date_keyboard(),
                 parse_mode="HTML",
             )
         else:
@@ -621,7 +640,7 @@ async def _handle_add_comment(message, model, entities, config, notion, memory_s
         })
         await message.answer(
             "Что комментировать?",
-            reply_markup=nlp_comment_target_keyboard(model["id"]),
+            reply_markup=nlp_comment_target_keyboard(),
             parse_mode="HTML",
         )
 
@@ -739,9 +758,16 @@ async def _handle_ambiguous(message, model, entities, config, memory_state):
     number = entities.first_number
     from app.keyboards.inline import nlp_disambiguate_keyboard
 
+    # Store model_id in memory for disambiguation callbacks
+    memory_state.set(message.from_user.id, {
+        "flow": "nlp_disambiguate",
+        "model_id": model["id"],
+        "model_name": model["name"],
+    })
+
     await message.answer(
         f"Что сделать с {number}?",
-        reply_markup=nlp_disambiguate_keyboard(model["id"], number),
+        reply_markup=nlp_disambiguate_keyboard(number),
         parse_mode="HTML",
     )
 
@@ -802,6 +828,103 @@ def _format_date_short(date_str: str | None) -> str:
         return d.strftime("%d.%m")
     except (ValueError, TypeError):
         return "?"
+
+
+async def _handle_custom_date_input(message, text, user_state, config, notion, memory_state):
+    """Handle free-text date input (DD.MM) in nlp_shoot / nlp_close flows."""
+    import re
+    from app.roles import is_editor
+
+    user_id = message.from_user.id
+    current_flow = user_state.get("flow", "")
+
+    # Parse DD.MM or DD/MM
+    m = re.match(r'^(\d{1,2})[./](\d{1,2})$', text.strip())
+    if not m:
+        await message.answer("❌ Формат: ДД.ММ (например 13.02)")
+        return
+
+    day, month = int(m.group(1)), int(m.group(2))
+    try:
+        year = date.today().year
+        parsed_date = date(year, month, day)
+        # If date is far in the past, maybe next year
+        if parsed_date < date.today() - datetime.resolution * 90:
+            parsed_date = date(year + 1, month, day)
+    except ValueError:
+        await message.answer("❌ Неверная дата")
+        return
+
+    if current_flow == "nlp_shoot":
+        step = user_state.get("step", "")
+        model_id = user_state.get("model_id", "")
+        model_name = user_state.get("model_name", "")
+
+        if step == "awaiting_custom_date" and user_state.get("shoot_id"):
+            # Reschedule
+            shoot_id = user_state["shoot_id"]
+            old_date = user_state.get("old_date", "?")
+            if not is_editor(user_id, config):
+                await message.answer("❌ Нет прав.")
+                memory_state.clear(user_id)
+                return
+            await notion.reschedule_shoot(shoot_id, parsed_date)
+            old_label = old_date[:10] if old_date else "?"
+            memory_state.clear(user_id)
+            await message.answer(
+                f"✅ Съемка перенесена с {old_label} на {parsed_date.strftime('%d.%m')}",
+                parse_mode="HTML",
+            )
+        else:
+            # Create shoot
+            if not is_editor(user_id, config):
+                await message.answer("❌ Нет прав.")
+                memory_state.clear(user_id)
+                return
+            title = f"{model_name} · {parsed_date.strftime('%d.%m')}"
+            try:
+                await notion.create_shoot(
+                    database_id=config.db_planner,
+                    model_page_id=model_id,
+                    shoot_date=parsed_date,
+                    content=[],
+                    location="home",
+                    title=title,
+                )
+                memory_state.clear(user_id)
+                await message.answer(
+                    f"✅ Съемка создана на {parsed_date.strftime('%d.%m')}",
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                LOGGER.exception("Failed to create shoot: %s", e)
+                await message.answer("❌ Ошибка при создании съемки.")
+                memory_state.clear(user_id)
+
+    elif current_flow == "nlp_close":
+        order_id = user_state.get("order_id")
+        if not order_id:
+            await message.answer("Сессия истекла. Повторите запрос.")
+            memory_state.clear(user_id)
+            return
+        if not is_editor(user_id, config):
+            await message.answer("❌ Нет прав.")
+            memory_state.clear(user_id)
+            return
+        try:
+            await notion.close_order(order_id, parsed_date)
+            memory_state.clear(user_id)
+            await message.answer(
+                f"✅ Заказ закрыт · {parsed_date.strftime('%d.%m')}",
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            LOGGER.exception("Failed to close order: %s", e)
+            await message.answer("❌ Ошибка при закрытии заказа.")
+            memory_state.clear(user_id)
+    else:
+        await message.answer("❌ Неожиданное состояние. Попробуйте заново.")
+        memory_state.clear(user_id)
 
 
 async def _show_help_message(message: Message) -> None:
