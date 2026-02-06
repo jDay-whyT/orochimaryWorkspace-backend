@@ -13,7 +13,7 @@ Callback prefix mapping:
   do  = disambig_orders ro  = report_orders    ra  = report_accounting
   af  = add_files
 
-Anti-stale token: last segment of callback_data (4-char base36 string).
+Anti-stale token: last segment of callback_data (6-char base36 string).
 Verified against memory_state["k"] to reject presses on outdated keyboards.
 
 Flow/step validation: each action checks that the current memory_state
@@ -60,8 +60,7 @@ def _validate_token(state: dict | None, parts: list[str], action: str) -> bool:
     if not state_k:
         # Legacy state without token — allow
         return True
-    # Token is always the last segment.  Determine its position based on
-    # whether the segment looks like a 4-char base36 token.
+    # Token is always the last segment.
     cb_k = parts[-1] if parts else ""
     return cb_k == state_k
 
@@ -75,7 +74,7 @@ _FLOW_STEP_RULES: dict[str, tuple[str, set[str] | None]] = {
     "od": ("nlp_order", {"awaiting_date"}),
     "oc": ("nlp_order", {"awaiting_date"}),
     "sd": ("nlp_shoot", {"awaiting_date", "awaiting_new_date", "awaiting_custom_date"}),
-    "cd": ("nlp_close", None),
+    "cd": ("nlp_close", {"awaiting_date", "awaiting_custom_date"}),
     "act": ("nlp_actions", None),
 }
 
@@ -417,6 +416,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             from app.keyboards.inline import nlp_close_order_date_keyboard
             memory_state.set(user_id, {
                 "flow": "nlp_close",
+                "step": "awaiting_date",
                 "order_id": orders[0].page_id,
                 "k": k,
             })
@@ -574,6 +574,7 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
             from app.keyboards.inline import nlp_close_order_date_keyboard
             memory_state.set(user_id, {
                 "flow": "nlp_close",
+                "step": "awaiting_date",
                 "order_id": orders[0].page_id,
                 "k": k,
             })
@@ -951,6 +952,7 @@ async def _handle_close_order_select(query, parts, config, memory_state):
     k = generate_token()
     memory_state.set(query.from_user.id, {
         "flow": "nlp_close",
+        "step": "awaiting_date",
         "order_id": order_id,
         "k": k,
     })
