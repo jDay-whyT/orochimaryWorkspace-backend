@@ -894,8 +894,9 @@ async def handle_text_input(
     user_id = message.from_user.id
     data = memory_state.get(user_id) or {}
 
+    flow = data.get("flow")
     step = data.get("step")
-    
+
     text = message.text.strip()
     
     # Delete user message to keep chat clean
@@ -1097,94 +1098,8 @@ async def handle_create_orders_nlp(
     )
 
 
-@router.callback_query(F.data.startswith("nlp:order_"))
-async def handle_nlp_order_callback(
-    query: CallbackQuery,
-    config: Config,
-    notion: NotionClient,
-) -> None:
-    """Handle NLP order callbacks."""
-    if not is_authorized(query.from_user.id, config):
-        await query.answer("Access denied", show_alert=True)
-        return
 
-    parts = query.data.split(":", 4)
-    if len(parts) < 3:
-        await query.answer()
-        return
-
-    action = parts[1]
-
-    try:
-        if action == "order_confirm":
-            # nlp:order_confirm:model_id:order_type:count:date_iso
-            _, _, model_id, order_type, count_str, date_iso = query.data.split(":", 5)
-            count = int(count_str)
-            in_date = date.fromisoformat(date_iso)
-
-            if not can_edit(query.from_user.id, config):
-                await query.answer("У вас нет прав", show_alert=True)
-                return
-
-            # Create orders
-            for i in range(1, count + 1):
-                title = f"{order_type} {i}/{count} — {date_iso}"
-                await notion.create_order(
-                    config.db_orders,
-                    model_id,
-                    order_type,
-                    in_date,
-                    count=1,
-                    title=title,
-                )
-
-            # Get model name
-            model = await notion.get_model(model_id)
-            model_name = model.title if model else "модели"
-
-            await safe_edit_message(
-                query,
-                f"✅ Создано {count} заказа для {escape_html(model_name)}!",
-            )
-            await query.answer("Заказы созданы!")
-
-        elif action == "order_date":
-            # nlp:order_date:model_id:order_type:count:relative
-            from app.keyboards.inline import nlp_order_confirm_keyboard
-
-            _, _, model_id, order_type, count_str, relative = query.data.split(":", 5)
-            count = int(count_str)
-
-            # Resolve date
-            in_date = resolve_relative_date(relative, config.timezone)
-            if not in_date:
-                await query.answer("Неверная дата", show_alert=True)
-                return
-
-            date_iso = in_date.isoformat()
-
-            # Get model name
-            model = await notion.get_model(model_id)
-            model_name = model.title if model else "модели"
-
-            # Update message with new date
-            await safe_edit_message(
-                query,
-                f"📦 Создать {count} заказа?\n\n"
-                f"Модель: <b>{escape_html(model_name)}</b>\n"
-                f"Тип: <b>{order_type}</b>\n"
-                f"Дата: <b>{format_date_short(in_date)}</b> (можно изменить)\n",
-                reply_markup=nlp_order_confirm_keyboard(model_id, order_type, count, date_iso),
-            )
-            await query.answer()
-
-    except Exception as e:
-        LOGGER.exception("Error in NLP order callback: %s", e)
-        await query.answer("Ошибка. Попробуйте снова.", show_alert=True)
-
-
-@router.callback_query(F.data.startswith("nlp:cancel"))
-async def handle_nlp_cancel(query: CallbackQuery) -> None:
-    """Handle NLP cancel action."""
-    await query.message.delete()
-    await query.answer()
+# NOTE: All nlp: callbacks (order_type, order_qty, order_confirm, order_date, cancel)
+# are handled by nlp_callbacks.router which is registered after this router.
+# Do NOT add nlp: callback handlers here — they would intercept callbacks
+# before nlp_callbacks.py can process them.
