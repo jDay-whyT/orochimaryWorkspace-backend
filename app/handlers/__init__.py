@@ -1,3 +1,3 @@
-from app.handlers import start, orders, summary, planner, accounting
+from app.handlers import start, orders, summary, planner, accounting, nlp_callbacks
 
-__all__ = ["start", "orders", "summary", "planner", "accounting"]
+__all__ = ["start", "orders", "summary", "planner", "accounting", "nlp_callbacks"]

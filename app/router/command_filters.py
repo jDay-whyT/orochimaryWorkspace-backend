@@ -7,6 +7,19 @@ Centralized command filter database with support for:
 - Regex patterns
 
 This module provides a single source of truth for all bot command recognition.
+
+Priority levels (from spec):
+100: SHOOT domain ("съемка"/"шут"/"заплан")
+ 90: FILES domain ("файлы"/"фото"/"сняла" + число)
+ 80: ORDERS with type ("кастом"/"шорт"/"колл"/"ад реквест")
+ 70: ORDERS general ("запрос"/"новый заказ")
+ 60: ORDERS close ("закрыт"/"готов")
+ 55: COMMENT ("коммент:")
+ 50: MODEL actions ("покажи"/"заказы" + модель)
+ 40: MENU ("сводка"/"планировщик" без модели)
+ 35: FILES_STATS ("файлы" без числа)
+ 30: AMBIGUOUS (модель + число, нет маркера)
+  0: UNKNOWN (fallback menu)
 """
 
 import re
@@ -17,13 +30,43 @@ from enum import Enum
 
 class CommandIntent(Enum):
     """User command intents."""
-    CREATE_ORDERS = "create_orders"
+    # Shoot domain (priority 100)
+    SHOOT_CREATE = "shoot_create"
+    SHOOT_DONE = "shoot_done"
+    SHOOT_RESCHEDULE = "shoot_reschedule"
+
+    # Files domain (priority 90)
     ADD_FILES = "add_files"
+
+    # Orders with type (priority 80)
+    CREATE_ORDERS = "create_orders"
+
+    # Orders general (priority 70)
+    CREATE_ORDERS_GENERAL = "create_orders_general"
+
+    # Orders close (priority 60)
+    CLOSE_ORDERS = "close_orders"
+
+    # Comment (priority 55)
+    ADD_COMMENT = "add_comment"
+
+    # Model actions (priority 50)
     GET_REPORT = "get_report"
+    SHOW_MODEL_ORDERS = "show_model_orders"
+
+    # Menu (priority 40)
     SHOW_SUMMARY = "show_summary"
     SHOW_ORDERS = "show_orders"
     SHOW_PLANNER = "show_planner"
     SHOW_ACCOUNT = "show_account"
+
+    # Files stats - "мелиса файлы" without number (priority 35)
+    FILES_STATS = "files_stats"
+
+    # Ambiguous (priority 30)
+    AMBIGUOUS = "ambiguous"
+
+    # Search/Unknown (priority 0)
     SEARCH_MODEL = "search_model"
     UNKNOWN = "unknown"
 
@@ -63,88 +106,104 @@ class CommandFilter:
 #                         COMMAND FILTER DATABASE
 # ============================================================================
 
-# Приоритет: чем выше число, тем выше приоритет проверки
-# 100 - меню команды (высший приоритет)
-# 50 - действия с обязательными параметрами
-# 10 - действия без параметров
-# 0 - поиск модели (самый низкий)
-
 COMMAND_FILTERS = [
-    # ========== МЕНЮ КОМАНДЫ (Priority: 100) ==========
+    # ========== SHOOT DOMAIN (Priority: 100) ==========
+    # "съемка" always takes highest priority, ignoring other markers
 
     CommandFilter(
-        intent=CommandIntent.SHOW_SUMMARY,
-        keywords=[
-            # Русские варианты
-            "сводка", "сводку", "сводки",
-            # Английские варианты
-            "summary",
-            # Возможные сокращения
-            "сводк",
+        intent=CommandIntent.SHOOT_DONE,
+        keywords=[],
+        multi_word_phrases=[
+            "съемка выполнена", "съемка готова", "съемка done",
+            "съёмка выполнена", "съёмка готова", "съёмка done",
+            "шут выполнен", "шут готов", "шут done",
         ],
         patterns=[
-            re.compile(r'\bсводк[а-я]*\b', re.IGNORECASE),
-            re.compile(r'\bsummary\b', re.IGNORECASE),
+            re.compile(
+                r'\bсъ[её]мк[а-я]*\b.{0,40}\b(выполнен|готов|done)\b',
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r'\b(выполнен|готов|done)\b.{0,40}\bсъ[её]мк[а-я]*\b',
+                re.IGNORECASE,
+            ),
+        ],
+        priority=102,
+    ),
+
+    CommandFilter(
+        intent=CommandIntent.SHOOT_RESCHEDULE,
+        keywords=[],
+        multi_word_phrases=[
+            "съемка перенос", "съемка перенести",
+            "съёмка перенос", "съёмка перенести",
+            "перенести съемку", "перенести съёмку",
+        ],
+        patterns=[
+            re.compile(
+                r'\bсъ[её]мк[а-я]*\b.{0,40}\bперенос\b',
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r'\bперенос[а-я]*\b.{0,40}\bсъ[её]мк[а-я]*\b',
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r'\bперенести\b.{0,40}\bсъ[её]мк[а-я]*\b',
+                re.IGNORECASE,
+            ),
+        ],
+        priority=101,
+    ),
+
+    CommandFilter(
+        intent=CommandIntent.SHOOT_CREATE,
+        keywords=[
+            "съемка", "съемку", "съемки", "съёмка", "съёмку", "съёмки",
+            "шут", "шута",
+            "заплан", "запланировать", "запланирована",
+        ],
+        multi_word_phrases=[
+            "запланировать съемку",
+            "новая съемка",
+        ],
+        patterns=[
+            re.compile(r'\bсъ[её]мк[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\bшут[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\bзаплан[а-я]*\b', re.IGNORECASE),
         ],
         priority=100,
     ),
 
-    CommandFilter(
-        intent=CommandIntent.SHOW_ORDERS,
-        keywords=[
-            # Русские варианты
-            "заказы", "заказов", "заказ",
-            # Английские варианты
-            "orders", "order",
-        ],
-        patterns=[
-            re.compile(r'\bзаказ[а-я]*\b', re.IGNORECASE),
-            re.compile(r'\borders?\b', re.IGNORECASE),
-        ],
-        # Исключаем, если есть тип заказа (тогда это CREATE_ORDERS)
-        exclude_with=[
-            "кастом", "custom", "шорт", "short", "колл", "call",
-            "ad request", "ад реквест",
-        ],
-        priority=100,
-    ),
+    # ========== FILES DOMAIN (Priority: 90) ==========
+    # Requires marker ("файлы"/"фото"/"сняла"/"добавить"/"+") + number
 
     CommandFilter(
-        intent=CommandIntent.SHOW_PLANNER,
+        intent=CommandIntent.ADD_FILES,
         keywords=[
-            # Русские варианты
-            "планировщик", "планировщика", "планер",
-            "план", "плана", "планов",
-            "планирование",
-            # Английские варианты
-            "planner", "schedule", "planning",
+            "файл", "файла", "файлов", "файлик", "файлики",
+            "фото", "фотки", "фотография",
+            "file", "files", "photo", "photos",
+            "сняла", "снято",
+        ],
+        multi_word_phrases=[
+            "добавить файлы", "добавить фото",
+            "добавить файлов", "добавить фотки",
         ],
         patterns=[
-            re.compile(r'\bплан[а-я]*\b', re.IGNORECASE),
-            re.compile(r'\bplann?[a-z]*\b', re.IGNORECASE),
-            re.compile(r'\bschedul[a-z]*\b', re.IGNORECASE),
+            re.compile(r'\bфайл[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\bфото[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\bfile[s]?\b', re.IGNORECASE),
+            re.compile(r'\bphoto[s]?\b', re.IGNORECASE),
+            re.compile(r'\bснял[а-я]*\b', re.IGNORECASE),
+            # "+" marker: "мелиса + 30"
+            re.compile(r'\+\s*\d+', re.IGNORECASE),
         ],
-        priority=100,
+        requires_number=True,
+        priority=90,
     ),
 
-    CommandFilter(
-        intent=CommandIntent.SHOW_ACCOUNT,
-        keywords=[
-            # Русские варианты
-            "аккаунт", "аккаунта", "аккаунтов", "акк",
-            "бухгалтерия", "бух",
-            # Английские варианты
-            "account", "accounts", "accounting",
-        ],
-        patterns=[
-            re.compile(r'\bакк[а-я]*\b', re.IGNORECASE),
-            re.compile(r'\bбух[а-я]*\b', re.IGNORECASE),
-            re.compile(r'\baccount[a-z]*\b', re.IGNORECASE),
-        ],
-        priority=100,
-    ),
-
-    # ========== КОМАНДЫ С ПАРАМЕТРАМИ (Priority: 50) ==========
+    # ========== ORDERS WITH TYPE (Priority: 80) ==========
 
     CommandFilter(
         intent=CommandIntent.CREATE_ORDERS,
@@ -160,56 +219,86 @@ COMMAND_FILTERS = [
             "call", "calls",
         ],
         multi_word_phrases=[
-            # Ad request как цельная фраза
             "ad request", "ad requests",
             "ад реквест", "ад реквеста", "ад реквестов",
             "адреквест",
         ],
         patterns=[
-            # Кастом (с возможными опечатками)
             re.compile(r'\bка?сто?м[а-я]*\b', re.IGNORECASE),
             re.compile(r'\bcustom[s]?\b', re.IGNORECASE),
-            # Шорт
             re.compile(r'\bшорт[а-я]*\b', re.IGNORECASE),
             re.compile(r'\bshort[s]?\b', re.IGNORECASE),
-            # Колл
             re.compile(r'\bколл?[а-я]*\b', re.IGNORECASE),
             re.compile(r'\bcall[s]?\b', re.IGNORECASE),
-            # Ad request (с пробелом или без)
             re.compile(r'\b(ad\s*request|ад\s*реквест)[а-я]*\b', re.IGNORECASE),
         ],
-        priority=50,
+        exclude_with=[
+            "закрыт", "закрыта", "закрыть",
+            "готов", "готова", "выполнен", "выполнена",
+        ],
+        priority=80,
     ),
+
+    # ========== ORDERS GENERAL (Priority: 70) ==========
 
     CommandFilter(
-        intent=CommandIntent.ADD_FILES,
+        intent=CommandIntent.CREATE_ORDERS_GENERAL,
         keywords=[
-            # Русские варианты
-            "файл", "файла", "файлов", "файлик", "файлики",
-            "фото", "фотки", "фотография",
-            # Английские варианты
-            "file", "files", "photo", "photos",
+            "запрос", "запроса",
+        ],
+        multi_word_phrases=[
+            "новый заказ", "новый запрос",
+            "создать заказ", "создать запрос",
         ],
         patterns=[
-            re.compile(r'\bфайл[а-я]*\b', re.IGNORECASE),
-            re.compile(r'\bфото[а-я]*\b', re.IGNORECASE),
-            re.compile(r'\bfile[s]?\b', re.IGNORECASE),
-            re.compile(r'\bphoto[s]?\b', re.IGNORECASE),
+            re.compile(r'\bзапрос[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\bновый\s+заказ\b', re.IGNORECASE),
         ],
-        requires_number=True,  # ОБЯЗАТЕЛЬНО должно быть число
-        priority=50,
+        priority=70,
     ),
 
-    # ========== КОМАНДЫ БЕЗ ПАРАМЕТРОВ (Priority: 10) ==========
+    # ========== ORDERS CLOSE (Priority: 60) ==========
+
+    CommandFilter(
+        intent=CommandIntent.CLOSE_ORDERS,
+        keywords=[
+            "закрыт", "закрыта", "закрыть", "закрытие",
+        ],
+        multi_word_phrases=[
+            "заказ закрыт", "заказ готов",
+            "кастом закрыт", "шорт закрыт", "колл закрыт",
+        ],
+        patterns=[
+            re.compile(r'\bзакрыт[а-я]*\b', re.IGNORECASE),
+        ],
+        priority=60,
+    ),
+
+    # ========== COMMENT (Priority: 55) ==========
+
+    CommandFilter(
+        intent=CommandIntent.ADD_COMMENT,
+        keywords=[],
+        multi_word_phrases=[
+            "коммент:", "комментарий:",
+            "comment:",
+        ],
+        patterns=[
+            re.compile(r'\bкоммент\s*:', re.IGNORECASE),
+            re.compile(r'\bкомментарий\s*:', re.IGNORECASE),
+            re.compile(r'\bcomment\s*:', re.IGNORECASE),
+        ],
+        priority=55,
+    ),
+
+    # ========== MODEL ACTIONS (Priority: 50) ==========
 
     CommandFilter(
         intent=CommandIntent.GET_REPORT,
         keywords=[
-            # Русские варианты
             "репорт", "репорта", "репортов",
             "отчет", "отчета", "отчетов",
             "статистика", "статистику", "стат", "стата",
-            # Английские варианты
             "report", "reports", "stats", "statistics",
         ],
         patterns=[
@@ -219,7 +308,114 @@ COMMAND_FILTERS = [
             re.compile(r'\bstats?\b', re.IGNORECASE),
             re.compile(r'\bstatistics?\b', re.IGNORECASE),
         ],
-        priority=10,
+        priority=50,
+    ),
+
+    CommandFilter(
+        intent=CommandIntent.SHOW_MODEL_ORDERS,
+        keywords=[
+            "заказы", "заказов",
+            "orders",
+        ],
+        patterns=[
+            re.compile(r'\bзаказ[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\borders?\b', re.IGNORECASE),
+        ],
+        exclude_with=[
+            "кастом", "custom", "шорт", "short", "колл", "call",
+            "ad request", "ад реквест",
+            "закрыт", "закрыта", "закрыть",
+            "запрос", "новый",
+        ],
+        priority=50,
+    ),
+
+    # ========== MENU COMMANDS (Priority: 40) ==========
+
+    CommandFilter(
+        intent=CommandIntent.SHOW_SUMMARY,
+        keywords=[
+            "сводка", "сводку", "сводки",
+            "summary",
+            "сводк",
+        ],
+        patterns=[
+            re.compile(r'\bсводк[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\bsummary\b', re.IGNORECASE),
+        ],
+        priority=40,
+    ),
+
+    CommandFilter(
+        intent=CommandIntent.SHOW_ORDERS,
+        keywords=[
+            "заказы", "заказов", "заказ",
+            "orders", "order",
+        ],
+        patterns=[
+            re.compile(r'\bзаказ[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\borders?\b', re.IGNORECASE),
+        ],
+        exclude_with=[
+            "кастом", "custom", "шорт", "short", "колл", "call",
+            "ad request", "ад реквест",
+            "закрыт", "закрыта", "закрыть",
+            "запрос", "новый",
+        ],
+        priority=40,
+    ),
+
+    CommandFilter(
+        intent=CommandIntent.SHOW_PLANNER,
+        keywords=[
+            "планировщик", "планировщика", "планер",
+            "план", "плана", "планов",
+            "планирование",
+            "planner", "schedule", "planning",
+        ],
+        patterns=[
+            re.compile(r'\bплан[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\bplann?[a-z]*\b', re.IGNORECASE),
+            re.compile(r'\bschedul[a-z]*\b', re.IGNORECASE),
+        ],
+        exclude_with=[
+            "съемка", "съёмка", "шут",
+        ],
+        priority=40,
+    ),
+
+    CommandFilter(
+        intent=CommandIntent.SHOW_ACCOUNT,
+        keywords=[
+            "аккаунт", "аккаунта", "аккаунтов", "акк",
+            "бухгалтерия", "бух",
+            "account", "accounts", "accounting",
+        ],
+        patterns=[
+            re.compile(r'\bакк[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\bбух[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\baccount[a-z]*\b', re.IGNORECASE),
+        ],
+        priority=40,
+    ),
+
+    # ========== FILES STATS (Priority: 35) ==========
+
+    CommandFilter(
+        intent=CommandIntent.FILES_STATS,
+        keywords=[
+            "файл", "файла", "файлов", "файлик", "файлы",
+            "фото", "фотки",
+            "file", "files", "photo", "photos",
+        ],
+        patterns=[
+            re.compile(r'\bфайл[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\bфото[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\bfile[s]?\b', re.IGNORECASE),
+            re.compile(r'\bphoto[s]?\b', re.IGNORECASE),
+        ],
+        requires_number=False,
+        priority=35,
     ),
 ]
 
@@ -236,8 +432,9 @@ IGNORE_KEYWORDS = {
     "ад", "ad", "реквест", "request",
 
     # Файлы
-    "файл", "файла", "файлов", "файлик", "файлики", "file", "files",
+    "файл", "файла", "файлов", "файлик", "файлики", "файлы", "file", "files",
     "фото", "фотки", "photo", "photos",
+    "сняла", "снято",
 
     # Отчеты
     "репорт", "репорта", "репортов", "report", "reports",
@@ -249,6 +446,25 @@ IGNORE_KEYWORDS = {
     "заказы", "заказов", "заказ", "orders", "order",
     "планировщик", "планер", "план", "planner", "schedule", "planning",
     "аккаунт", "аккаунта", "акк", "account", "accounting", "бухгалтерия", "бух",
+
+    # Shoot keywords
+    "съемка", "съемку", "съемки", "съёмка", "съёмку", "съёмки",
+    "шут", "шута",
+    "заплан", "запланировать", "запланирована",
+
+    # Close/done keywords
+    "закрыт", "закрыта", "закрыть", "закрытие",
+    "готов", "готова", "выполнен", "выполнена", "done",
+    "перенос", "перенести",
+
+    # Comment keywords
+    "коммент", "комментарий", "comment",
+
+    # General order keywords
+    "запрос", "запроса",
+
+    # Action verbs
+    "добавить", "добавь",
 
     # Числительные (русские)
     "один", "одна", "одно", "одного", "одной",
@@ -267,7 +483,8 @@ IGNORE_KEYWORDS = {
     "six", "seven", "eight", "nine", "ten",
 
     # Временные слова
-    "сегодня", "вчера", "завтра", "today", "yesterday", "tomorrow",
+    "сегодня", "вчера", "завтра", "послезавтра",
+    "today", "yesterday", "tomorrow",
     "неделя", "месяц", "год", "week", "month", "year",
 
     # Глаголы команд (русские)
@@ -276,8 +493,9 @@ IGNORE_KEYWORDS = {
     "сделай", "сделать", "сделал", "сделала", "сделаю",
     "покажи", "показать", "показал", "покажу", "покази",
     "дай", "давай", "дать",
-    "открой", "открыть", "открой",
+    "открой", "открыть",
     "посмотри", "посмотреть",
+    "новый", "новая", "новое", "новые",
 
     # Глаголы команд (английские)
     "add", "create", "make", "show", "give", "open", "view", "see",
@@ -292,6 +510,13 @@ IGNORE_KEYWORDS = {
     "мне", "мой", "моя", "мое", "мои", "меня",
     "я", "ты", "он", "она", "оно", "мы", "вы", "они",
     "me", "my", "mine", "i", "you", "he", "she", "it", "we", "they",
+
+    # Date-like words
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+
+    # Misc
+    "штук", "штуки", "штука",
 }
 
 
@@ -392,50 +617,27 @@ WORD_TO_NUMBER = {
 
 
 def word2num(word: str) -> Optional[int]:
-    """
-    Convert word-number to integer.
-
-    Examples:
-        "три" -> 3
-        "пять" -> 5
-        "one" -> 1
-        "мусор" -> None
-    """
+    """Convert word-number to integer."""
     return WORD_TO_NUMBER.get(word.lower())
 
 
 def contains_number(text: str) -> bool:
     """Check if text contains at least one number (digit or word)."""
-    # Check for digit numbers
     if re.search(r'\b\d+\b', text):
         return True
-
-    # Check for word numbers
     words = text.lower().split()
     return any(word in WORD_TO_NUMBER for word in words)
 
 
 def extract_numbers(text: str) -> List[int]:
-    """
-    Extract all numbers from text (both digits and word-numbers).
-
-    Examples:
-        "три кастома мелиса" -> [3]
-        "50 файлов софи" -> [50]
-        "два шорта мелиса 30 кастомов" -> [2, 30]
-    """
+    """Extract all numbers from text (both digits and word-numbers)."""
     numbers = []
-
-    # Extract digit numbers
     numbers.extend(int(n) for n in re.findall(r'\b\d+\b', text))
-
-    # Extract word numbers
     words = text.lower().split()
     for word in words:
         num = word2num(word)
         if num is not None:
             numbers.append(num)
-
     return numbers
 
 

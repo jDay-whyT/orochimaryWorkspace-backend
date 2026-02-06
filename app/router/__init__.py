@@ -8,6 +8,8 @@ from app.router.entities import Entities, extract_entities
 from app.router.intent_v2 import classify_intent_v2, get_intent_description
 from app.router.entities_v2 import extract_entities_v2, EntitiesV2
 from app.router.command_filters import CommandIntent
+from app.router.prefilter import prefilter_message
+from app.router.model_resolver import resolve_model
 
 
 def _lazy_import_route_message():
@@ -34,6 +36,10 @@ __all__ = [
     "get_intent_description",
     "EntitiesV2",
     "extract_entities_v2",
+    # Pre-filter
+    "prefilter_message",
+    # Model resolver
+    "resolve_model",
     # Dispatcher
     "route_message",
 ]
