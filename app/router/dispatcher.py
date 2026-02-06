@@ -83,6 +83,10 @@ async def route_message(
                 await _handle_custom_date_input(message, text, user_state, config, notion, memory_state)
                 return
 
+            if current_flow == "nlp_files" and current_step == "awaiting_count":
+                await _handle_custom_files_input(message, text, user_state, config, notion, memory_state)
+                return
+
             # nlp_* flows expect button presses, not free text.
             # Respond with a prompt instead of silently swallowing the message.
             LOGGER.info("ROUTE_MESSAGE SKIP: user=%s in nlp flow=%s, prompting for button", user_id, current_flow)
@@ -331,8 +335,9 @@ async def _execute_handler(
 
     if intent == CommandIntent.SEARCH_MODEL:
         if model:
-            # CRM UX: show action card instead of text examples
-            from app.keyboards.inline import nlp_model_actions_keyboard
+            # CRM UX: show universal model card with live data
+            from app.keyboards.inline import model_card_keyboard
+            from app.services.model_card import build_model_card_text
             k = generate_token()
             memory_state.set(message.from_user.id, {
                 "flow": "nlp_actions",
@@ -340,9 +345,12 @@ async def _execute_handler(
                 "model_name": model["name"],
                 "k": k,
             })
+            card_text = await build_model_card_text(
+                model["id"], model["name"], config, notion,
+            )
             await message.answer(
-                f"✅ <b>{html.escape(model['name'])}</b>\n\nЧто сделать?",
-                reply_markup=nlp_model_actions_keyboard(k),
+                card_text,
+                reply_markup=model_card_keyboard(k),
                 parse_mode="HTML",
             )
         else:
@@ -958,6 +966,64 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             memory_state.clear(user_id)
     else:
         await message.answer("❌ Неожиданное состояние. Попробуйте заново.")
+        memory_state.clear(user_id)
+
+
+async def _handle_custom_files_input(message, text, user_state, config, notion, memory_state):
+    """Handle free-text number input for nlp_files flow (awaiting_count)."""
+    import re
+    from app.roles import is_editor
+
+    user_id = message.from_user.id
+
+    if not is_editor(user_id, config):
+        await message.answer("❌ Нет прав.")
+        memory_state.clear(user_id)
+        return
+
+    # Parse number
+    m = re.match(r'^[+]?\s*(\d{1,4})$', text.strip())
+    if not m:
+        await message.answer("❌ Введите число (например: 25)")
+        return
+
+    count = int(m.group(1))
+    if count <= 0:
+        await message.answer("❌ Число должно быть > 0")
+        return
+
+    model_id = user_state.get("model_id", "")
+    model_name = user_state.get("model_name", "")
+
+    try:
+        now = datetime.now(tz=config.timezone)
+        month_str = now.strftime("%B")
+
+        record = await notion.get_accounting_record(config.db_accounting, model_id, month_str)
+
+        if not record:
+            await notion.create_accounting_record(
+                config.db_accounting, model_id, count, month_str, config.files_per_month
+            )
+            new_amount = count
+        else:
+            current_amount = record.amount or 0
+            new_amount = current_amount + count
+            new_percent = new_amount / float(config.files_per_month)
+            await notion.update_accounting_files(record.page_id, new_amount, new_percent)
+
+        percent = int((new_amount / config.files_per_month) * 100)
+        memory_state.clear(user_id)
+
+        await message.answer(
+            f"✅ +{count} файлов ({new_amount} всего)\n\n"
+            f"<b>{html.escape(model_name)}</b> · {month_str}\n"
+            f"Файлов: {new_amount} ({percent}%)",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        LOGGER.exception("Failed to add files: %s", e)
+        await message.answer("❌ Ошибка при добавлении файлов.")
         memory_state.clear(user_id)
 
 

@@ -438,8 +438,9 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             )
 
     else:
-        # Default: show CRM action card
-        from app.keyboards.inline import nlp_model_actions_keyboard
+        # Default: show universal model card with live data
+        from app.keyboards.inline import model_card_keyboard
+        from app.services.model_card import build_model_card_text
         k = generate_token()
         memory_state.set(user_id, {
             "flow": "nlp_actions",
@@ -447,9 +448,12 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             "model_name": model_data.title,
             "k": k,
         })
+        card_text = await build_model_card_text(
+            model_id, model_data.title, config, notion,
+        )
         await query.message.edit_text(
-            f"✅ <b>{html.escape(model_data.title)}</b>\n\nЧто сделать?",
-            reply_markup=nlp_model_actions_keyboard(k),
+            card_text,
+            reply_markup=model_card_keyboard(k),
             parse_mode="HTML",
         )
 
@@ -1288,12 +1292,33 @@ async def _handle_report_accounting(query, config, notion, memory_state):
 # ============================================================================
 
 async def _handle_add_files(query, parts, config, notion, memory_state, recent_models):
-    """Handle add files from CRM card. Callback: nlp:af:{count}[:{k}]"""
+    """Handle add files from CRM card. Callback: nlp:af:{count|custom}[:{k}]"""
     if len(parts) < 3:
         return
 
-    count = int(parts[2])
+    value = parts[2]
     user_id = query.from_user.id
+
+    # Custom input: switch to awaiting_count step for free-text entry
+    if value == "custom":
+        k = generate_token()
+        state = memory_state.get(user_id)
+        model_id = state.get("model_id", "") if state else ""
+        model_name = state.get("model_name", "") if state else ""
+        memory_state.set(user_id, {
+            "flow": "nlp_files",
+            "step": "awaiting_count",
+            "model_id": model_id,
+            "model_name": model_name,
+            "k": k,
+        })
+        await query.message.edit_text(
+            "Введите количество файлов:",
+            parse_mode="HTML",
+        )
+        return
+
+    count = int(value)
 
     if not is_editor(user_id, config):
         await query.message.edit_text("❌ Нет прав.")
