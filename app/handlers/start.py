@@ -58,7 +58,11 @@ async def handle_nlp_message(
     recent_models: RecentModels,
 ) -> None:
     """Handle NLP text messages (router-based)."""
-    if not is_authorized(message.from_user.id, config):
+    user_id = message.from_user.id
+    LOGGER.info("TEXT_HANDLER HIT user=%s text=%r", user_id, message.text[:80])
+
+    if not is_authorized(user_id, config):
+        LOGGER.warning("TEXT_HANDLER BLOCKED by is_authorized user=%s", user_id)
         return
 
     # Import router

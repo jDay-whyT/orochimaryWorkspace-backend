@@ -56,6 +56,7 @@ async def route_message(
     """
     text = message.text.strip()
     user_id = message.from_user.id
+    LOGGER.info("ROUTE_MESSAGE HIT user=%s text=%r", user_id, text[:80])
 
     # ===== Step 1: State Check =====
     # Only skip NLP for flows that have FlowFilter-equipped handlers.
@@ -71,13 +72,13 @@ async def route_message(
         current_flow = user_state["flow"]
 
         if current_flow in _FLOW_FILTER_FLOWS:
-            LOGGER.debug("User %s has active flow=%s, skipping NLP", user_id, current_flow)
+            LOGGER.info("ROUTE_MESSAGE SKIP: user=%s active flow=%s, deferring to FlowFilter", user_id, current_flow)
             return  # Let FlowFilter-based handlers pick this up
 
         if current_flow.startswith("nlp_"):
             # nlp_* flows expect button presses, not free text.
             # Respond with a prompt instead of silently swallowing the message.
-            LOGGER.debug("User %s in nlp flow=%s, prompting for button", user_id, current_flow)
+            LOGGER.info("ROUTE_MESSAGE SKIP: user=%s in nlp flow=%s, prompting for button", user_id, current_flow)
             from app.keyboards.inline import nlp_flow_waiting_keyboard
             await message.answer(
                 "⏳ Жду нажатия кнопки или сбросьте состояние.",
@@ -93,6 +94,7 @@ async def route_message(
     # ===== Step 2: Pre-filter =====
     passed, error_msg = prefilter_message(text)
     if not passed:
+        LOGGER.info("ROUTE_MESSAGE PREFILTER_REJECT user=%s error=%r text=%r", user_id, error_msg, text[:60])
         if error_msg:
             await message.answer(error_msg)
         return
