@@ -775,6 +775,24 @@ def nlp_comment_order_select_keyboard(orders: list) -> InlineKeyboardMarkup:
 
 # ==================== NLP Not Found Keyboard ====================
 
+def nlp_flow_waiting_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard shown when user sends text while in an nlp_* flow (expects buttons)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="\U0001f3e0 Меню",
+                    callback_data="nlp:cancel:menu",
+                ),
+                InlineKeyboardButton(
+                    text="♻️ Сбросить",
+                    callback_data="nlp:cancel:cancel",
+                ),
+            ],
+        ]
+    )
+
+
 def nlp_not_found_keyboard(
     recent: list[tuple[str, str]],
     intent: str,

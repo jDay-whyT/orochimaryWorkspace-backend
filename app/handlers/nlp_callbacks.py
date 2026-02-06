@@ -60,7 +60,13 @@ async def handle_nlp_callback(
         # ===== Cancel =====
         if action == "cancel":
             memory_state.clear(user_id)
-            await query.message.edit_text("Otmeneno.")
+            if len(parts) >= 3 and parts[2] == "menu":
+                await query.message.edit_text(
+                    "👋 Главное меню. Напишите запрос текстом или /start",
+                    parse_mode="HTML",
+                )
+            else:
+                await query.message.edit_text("Отменено.")
             await query.answer()
             return
 
