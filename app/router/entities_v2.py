@@ -377,5 +377,6 @@ def get_order_type_display_name(order_type: Optional[str]) -> str:
         "short": "Шорт",
         "call": "Колл",
         "ad request": "Ad Request",
+        "ad_request": "Ad Request",
     }
     return display_names.get(order_type, "Неизвестный тип")

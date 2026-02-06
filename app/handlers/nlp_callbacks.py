@@ -12,6 +12,13 @@ Callback prefix mapping:
   ct  = comment_target  cmo = comment_order    df  = disambig_files
   do  = disambig_orders ro  = report_orders    ra  = report_accounting
   af  = add_files
+
+Anti-stale token: last segment of callback_data (4-char base36 string).
+Verified against memory_state["k"] to reject presses on outdated keyboards.
+
+Flow/step validation: each action checks that the current memory_state
+flow and step match what the action expects.  On mismatch the user sees
+"Сессия устарела" with [Меню][Сброс] buttons.
 """
 
 import html
@@ -24,15 +31,98 @@ from aiogram.types import CallbackQuery
 from app.config import Config
 from app.roles import is_authorized, is_editor
 from app.services import NotionClient
-from app.state import MemoryState, RecentModels
+from app.state import MemoryState, RecentModels, generate_token
 from app.router.command_filters import CommandIntent
+from app.keyboards.inline import ORDER_TYPE_CB_MAP
 
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
 
 SESSION_EXPIRED_MSG = "Сессия истекла. Повторите запрос."
+STALE_MSG = "Сессия устарела, начните заново"
 
+# Actions that do NOT require token verification (always safe)
+_NO_TOKEN_ACTIONS = {"x"}
+
+
+# ============================================================================
+#                        VALIDATION HELPERS
+# ============================================================================
+
+def _validate_token(state: dict | None, parts: list[str], action: str) -> bool:
+    """Check anti-stale token.  Returns True if valid (or action exempt)."""
+    if action in _NO_TOKEN_ACTIONS:
+        return True
+    if not state:
+        return False
+    state_k = state.get("k", "")
+    if not state_k:
+        # Legacy state without token — allow
+        return True
+    # Token is always the last segment.  Determine its position based on
+    # whether the segment looks like a 4-char base36 token.
+    cb_k = parts[-1] if parts else ""
+    return cb_k == state_k
+
+
+# Flow/step rules per action prefix.
+# Value: (required_flow, allowed_steps | None).
+# None for steps means "any step within that flow".
+_FLOW_STEP_RULES: dict[str, tuple[str, set[str] | None]] = {
+    "ot": ("nlp_order", {"awaiting_type"}),
+    "oq": ("nlp_order", {"awaiting_count"}),
+    "od": ("nlp_order", {"awaiting_date"}),
+    "oc": ("nlp_order", {"awaiting_date"}),
+    "sd": ("nlp_shoot", {"awaiting_date", "awaiting_new_date", "awaiting_custom_date"}),
+    "cd": ("nlp_close", None),
+    "act": ("nlp_actions", None),
+}
+
+
+def _validate_flow_step(state: dict | None, action: str) -> bool:
+    """Check that current flow/step allows this action.  Returns True if OK."""
+    rule = _FLOW_STEP_RULES.get(action)
+    if rule is None:
+        # No strict rule for this action — allow
+        return True
+    if not state:
+        return False
+    req_flow, allowed_steps = rule
+    current_flow = state.get("flow", "")
+    if current_flow != req_flow:
+        return False
+    if action == "act" and not state.get("model_id"):
+        return False
+    if allowed_steps is not None:
+        current_step = state.get("step", "")
+        if current_step not in allowed_steps:
+            return False
+    return True
+
+
+async def _reject_stale(query: CallbackQuery, reason: str, memory_state: MemoryState) -> None:
+    """Reject a callback with a stale/invalid message."""
+    user_id = query.from_user.id
+    LOGGER.info(
+        "NLP callback REJECTED: user=%s reason=%s data=%s",
+        user_id, reason, query.data,
+    )
+    memory_state.clear(user_id)
+    from app.keyboards.inline import nlp_stale_keyboard
+    try:
+        await query.message.edit_text(
+            STALE_MSG,
+            reply_markup=nlp_stale_keyboard(),
+        )
+    except Exception:
+        pass
+    await query.answer(STALE_MSG, show_alert=True)
+
+
+# ============================================================================
+#                          MAIN ROUTER
+# ============================================================================
 
 @router.callback_query(F.data.startswith("nlp:"))
 async def handle_nlp_callback(
@@ -54,11 +144,19 @@ async def handle_nlp_callback(
 
     action = parts[1]
     user_id = query.from_user.id
+    state = memory_state.get(user_id)
 
-    LOGGER.info("NLP callback: action=%s, data=%s, user=%s", action, query.data, user_id)
+    LOGGER.info(
+        "NLP callback: user=%s action=%s data=%s flow=%s step=%s model_id=%s order_type=%s",
+        user_id, action, query.data,
+        state.get("flow") if state else None,
+        state.get("step") if state else None,
+        state.get("model_id") if state else None,
+        state.get("order_type") if state else None,
+    )
 
     try:
-        # ===== Cancel =====
+        # ===== Cancel (always allowed) =====
         if action == "x":
             memory_state.clear(user_id)
             sub = parts[2] if len(parts) >= 3 else "c"
@@ -70,6 +168,16 @@ async def handle_nlp_callback(
             else:
                 await query.message.edit_text("Отменено.")
             await query.answer()
+            return
+
+        # ===== Token validation =====
+        if not _validate_token(state, parts, action):
+            await _reject_stale(query, "stale_token", memory_state)
+            return
+
+        # ===== Flow/step validation =====
+        if not _validate_flow_step(state, action):
+            await _reject_stale(query, f"flow_step_mismatch(action={action})", memory_state)
             return
 
         # ===== Model Selection =====
@@ -144,7 +252,7 @@ async def handle_nlp_callback(
 async def _handle_select_model(query, parts, config, notion, memory_state, recent_models):
     """
     Handle model selection from disambiguation or fuzzy confirmation.
-    Callback: nlp:sm:{model_id}
+    Callback: nlp:sm:{model_id}[:{k}]
     Intent is read from memory_state (set by dispatcher before showing keyboard).
     """
     if len(parts) < 3:
@@ -183,9 +291,12 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
     if intent == CommandIntent.CREATE_ORDERS and entities and entities.order_type:
         # Order with known type: proceed to date selection
         count = entities.first_number or 1
-        from app.keyboards.inline import nlp_order_confirm_keyboard
+        from app.keyboards.inline import nlp_order_confirm_keyboard, ORDER_TYPE_CB_REVERSE
         from app.router.entities_v2 import get_order_type_display_name
         type_label = get_order_type_display_name(entities.order_type)
+        k = generate_token()
+        # Map internal order_type to callback-safe value for storage
+        cb_order_type = ORDER_TYPE_CB_REVERSE.get(entities.order_type, entities.order_type)
         memory_state.set(user_id, {
             "flow": "nlp_order",
             "step": "awaiting_date",
@@ -193,25 +304,28 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             "model_name": model_data.title,
             "order_type": entities.order_type,
             "count": count,
+            "k": k,
         })
         await query.message.edit_text(
             f"<b>{html.escape(model_data.title)}</b> · {count}x {type_label}\n\nДата:",
-            reply_markup=nlp_order_confirm_keyboard(),
+            reply_markup=nlp_order_confirm_keyboard(k),
             parse_mode="HTML",
         )
 
     elif intent in (CommandIntent.CREATE_ORDERS, CommandIntent.CREATE_ORDERS_GENERAL):
         # Order without type: ask for type
         from app.keyboards.inline import nlp_order_type_keyboard
+        k = generate_token()
         memory_state.set(user_id, {
             "flow": "nlp_order",
             "step": "awaiting_type",
             "model_id": model_id,
             "model_name": model_data.title,
+            "k": k,
         })
         await query.message.edit_text(
             f"📦 <b>{html.escape(model_data.title)}</b> · Тип заказа:",
-            reply_markup=nlp_order_type_keyboard(),
+            reply_markup=nlp_order_type_keyboard(k),
             parse_mode="HTML",
         )
 
@@ -241,15 +355,17 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
         else:
             # No date: ask for date
             from app.keyboards.inline import nlp_shoot_date_keyboard
+            k = generate_token()
             memory_state.set(user_id, {
                 "flow": "nlp_shoot",
                 "step": "awaiting_date",
                 "model_id": model_id,
                 "model_name": model_data.title,
+                "k": k,
             })
             await query.message.edit_text(
                 f"📅 <b>{html.escape(model_data.title)}</b> · Дата съемки:",
-                reply_markup=nlp_shoot_date_keyboard(),
+                reply_markup=nlp_shoot_date_keyboard(k),
                 parse_mode="HTML",
             )
 
@@ -296,36 +412,44 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
                 parse_mode="HTML",
             )
             return
+        k = generate_token()
         if len(orders) == 1:
             from app.keyboards.inline import nlp_close_order_date_keyboard
             memory_state.set(user_id, {
                 "flow": "nlp_close",
                 "order_id": orders[0].page_id,
+                "k": k,
             })
             await query.message.edit_text(
                 f"Закрыть {orders[0].order_type or '?'}?\n\nДата закрытия:",
-                reply_markup=nlp_close_order_date_keyboard(),
+                reply_markup=nlp_close_order_date_keyboard(k),
                 parse_mode="HTML",
             )
         else:
             from app.keyboards.inline import nlp_close_order_select_keyboard
+            memory_state.set(user_id, {
+                "flow": "nlp_close",
+                "k": k,
+            })
             await query.message.edit_text(
                 f"📦 <b>{html.escape(model_data.title)}</b> · Какой заказ закрыть?",
-                reply_markup=nlp_close_order_select_keyboard(orders),
+                reply_markup=nlp_close_order_select_keyboard(orders, k),
                 parse_mode="HTML",
             )
 
     else:
         # Default: show CRM action card
         from app.keyboards.inline import nlp_model_actions_keyboard
+        k = generate_token()
         memory_state.set(user_id, {
             "flow": "nlp_actions",
             "model_id": model_id,
             "model_name": model_data.title,
+            "k": k,
         })
         await query.message.edit_text(
             f"✅ <b>{html.escape(model_data.title)}</b>\n\nЧто сделать?",
-            reply_markup=nlp_model_actions_keyboard(),
+            reply_markup=nlp_model_actions_keyboard(k),
             parse_mode="HTML",
         )
 
@@ -337,7 +461,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
 async def _handle_model_action(query, parts, config, notion, memory_state, recent_models):
     """
     Handle CRM action card button press.
-    Callback: nlp:act:{action}
+    Callback: nlp:act:{action}[:{k}]
     model_id/model_name read from memory_state.
     """
     if len(parts) < 3:
@@ -356,55 +480,63 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
     if action == "order":
         # Show order type selection
         from app.keyboards.inline import nlp_order_type_keyboard
+        k = generate_token()
         memory_state.set(user_id, {
             "flow": "nlp_order",
             "step": "awaiting_type",
             "model_id": model_id,
             "model_name": model_name,
+            "k": k,
         })
         await query.message.edit_text(
             f"📦 <b>{html.escape(model_name)}</b> · Тип заказа:",
-            reply_markup=nlp_order_type_keyboard(),
+            reply_markup=nlp_order_type_keyboard(k),
             parse_mode="HTML",
         )
 
     elif action == "files":
         # Show file count selection
         from app.keyboards.inline import nlp_files_qty_keyboard
+        k = generate_token()
         memory_state.set(user_id, {
             "flow": "nlp_files",
             "model_id": model_id,
             "model_name": model_name,
+            "k": k,
         })
         await query.message.edit_text(
             f"📁 <b>{html.escape(model_name)}</b> · Сколько файлов?",
-            reply_markup=nlp_files_qty_keyboard(),
+            reply_markup=nlp_files_qty_keyboard(k),
             parse_mode="HTML",
         )
 
     elif action == "shoot":
         # Show shoot date selection
         from app.keyboards.inline import nlp_shoot_date_keyboard
+        k = generate_token()
         memory_state.set(user_id, {
             "flow": "nlp_shoot",
             "step": "awaiting_date",
             "model_id": model_id,
             "model_name": model_name,
+            "k": k,
         })
         await query.message.edit_text(
             f"📅 <b>{html.escape(model_name)}</b> · Дата съемки:",
-            reply_markup=nlp_shoot_date_keyboard(),
+            reply_markup=nlp_shoot_date_keyboard(k),
             parse_mode="HTML",
         )
 
     elif action == "report":
         # Show report inline
+        k = generate_token()
         memory_state.set(user_id, {
             "flow": "nlp_report",
             "model_id": model_id,
             "model_name": model_name,
+            "k": k,
         })
-        await _show_report(query, model_id, model_name, config, notion)
+        await _show_report(query, model_id, model_name, config, notion, k)
 
     elif action == "orders":
         # Show open orders list
@@ -437,25 +569,32 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
                 parse_mode="HTML",
             )
             return
+        k = generate_token()
         if len(orders) == 1:
             from app.keyboards.inline import nlp_close_order_date_keyboard
             memory_state.set(user_id, {
                 "flow": "nlp_close",
                 "order_id": orders[0].page_id,
+                "k": k,
             })
             days = _calc_days_open(orders[0].in_date)
             label = f"{orders[0].order_type or '?'} · {_format_date_short(orders[0].in_date)} ({days}d)"
             await query.message.edit_text(
                 f"Закрыть '{label}'?\n\nДата закрытия:",
-                reply_markup=nlp_close_order_date_keyboard(),
+                reply_markup=nlp_close_order_date_keyboard(k),
                 parse_mode="HTML",
             )
         else:
             from app.keyboards.inline import nlp_close_order_select_keyboard
-            memory_state.clear(user_id)
+            memory_state.set(user_id, {
+                "flow": "nlp_close",
+                "model_id": model_id,
+                "model_name": model_name,
+                "k": k,
+            })
             await query.message.edit_text(
                 f"📦 <b>{html.escape(model_name)}</b> · Какой заказ закрыть?",
-                reply_markup=nlp_close_order_select_keyboard(orders),
+                reply_markup=nlp_close_order_select_keyboard(orders, k),
                 parse_mode="HTML",
             )
 
@@ -465,7 +604,7 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
 # ============================================================================
 
 async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_models):
-    """Handle shoot date selection. Callback: nlp:sd:{choice}"""
+    """Handle shoot date selection. Callback: nlp:sd:{choice}[:{k}]"""
     if len(parts) < 3:
         return
 
@@ -538,7 +677,7 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
 
 
 async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state):
-    """Handle shoot done confirmation. Callback: nlp:sdc:{shoot_id}"""
+    """Handle shoot done confirmation. Callback: nlp:sdc:{shoot_id}[:{k}]"""
     if len(parts) < 3:
         return
 
@@ -559,7 +698,7 @@ async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state)
 
 
 async def _handle_shoot_select(query, parts, config, notion, memory_state):
-    """Handle shoot selection. Callback: nlp:ss:{action}:{shoot_id}"""
+    """Handle shoot selection. Callback: nlp:ss:{action}:{shoot_id}[:{k}]"""
     if len(parts) < 4:
         return
 
@@ -581,6 +720,7 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
         model_name = shoot.model_title if shoot else ""
         from app.keyboards.inline import nlp_shoot_date_keyboard
         model_id = shoot.model_id if shoot else ""
+        k = generate_token()
         memory_state.set(user_id, {
             "flow": "nlp_shoot",
             "step": "awaiting_new_date",
@@ -588,11 +728,12 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
             "model_id": model_id,
             "model_name": model_name,
             "old_date": shoot.date if shoot else None,
+            "k": k,
         })
         date_str = shoot.date[:10] if shoot and shoot.date else "?"
         await query.message.edit_text(
             f"📅 Перенос съемки {date_str}\n\nНовая дата:",
-            reply_markup=nlp_shoot_date_keyboard(),
+            reply_markup=nlp_shoot_date_keyboard(k),
             parse_mode="HTML",
         )
 
@@ -619,11 +760,11 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
 # ============================================================================
 
 async def _handle_order_type(query, parts, config, memory_state):
-    """Handle order type selection. Callback: nlp:ot:{type}"""
+    """Handle order type selection. Callback: nlp:ot:{type}[:{k}]"""
     if len(parts) < 3:
         return
 
-    order_type = parts[2]
+    cb_order_type = parts[2]
     user_id = query.from_user.id
 
     state = memory_state.get(user_id)
@@ -631,20 +772,29 @@ async def _handle_order_type(query, parts, config, memory_state):
         await query.message.edit_text(SESSION_EXPIRED_MSG)
         return
 
+    # Map callback value to internal value (e.g. "ad_request" -> "ad request")
+    order_type = ORDER_TYPE_CB_MAP.get(cb_order_type, cb_order_type)
+
+    LOGGER.info(
+        "NLP oq/ot: user=%s cb_type=%s -> order_type=%s model=%s",
+        user_id, cb_order_type, order_type, state.get("model_name"),
+    )
+
     from app.keyboards.inline import nlp_order_qty_keyboard
-    memory_state.update(user_id, step="awaiting_count", order_type=order_type)
+    k = generate_token()
+    memory_state.update(user_id, step="awaiting_count", order_type=order_type, k=k)
     model_name = state.get("model_name", "")
     from app.router.entities_v2 import get_order_type_display_name
     type_label = get_order_type_display_name(order_type)
     await query.message.edit_text(
         f"📦 <b>{html.escape(model_name)}</b> · {type_label}\n\nСколько?",
-        reply_markup=nlp_order_qty_keyboard(),
+        reply_markup=nlp_order_qty_keyboard(k),
         parse_mode="HTML",
     )
 
 
 async def _handle_order_qty(query, parts, config, notion, memory_state):
-    """Handle order qty selection. Callback: nlp:oq:{count}"""
+    """Handle order qty selection. Callback: nlp:oq:{count}[:{k}]"""
     if len(parts) < 3:
         return
 
@@ -659,19 +809,26 @@ async def _handle_order_qty(query, parts, config, notion, memory_state):
     model_name = state.get("model_name", "")
     order_type = state.get("order_type", "")
 
+    LOGGER.info(
+        "NLP oq: user=%s count=%s order_type=%s model=%s flow=%s step=%s",
+        user_id, count, order_type, model_name,
+        state.get("flow"), state.get("step"),
+    )
+
     from app.keyboards.inline import nlp_order_confirm_keyboard
     from app.router.entities_v2 import get_order_type_display_name
     type_label = get_order_type_display_name(order_type)
-    memory_state.update(user_id, step="awaiting_date", count=count)
+    k = generate_token()
+    memory_state.update(user_id, step="awaiting_date", count=count, k=k)
     await query.message.edit_text(
         f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\nДата заказа:",
-        reply_markup=nlp_order_confirm_keyboard(),
+        reply_markup=nlp_order_confirm_keyboard(k),
         parse_mode="HTML",
     )
 
 
 async def _handle_order_date(query, parts, config, notion, memory_state):
-    """Handle order date selection. Callback: nlp:od:{date}"""
+    """Handle order date selection. Callback: nlp:od:{date}[:{k}]"""
     if len(parts) < 3:
         return
 
@@ -729,7 +886,7 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
 
 
 async def _handle_order_confirm(query, parts, config, notion, memory_state, recent_models):
-    """Handle order confirm (create with default date=today). Callback: nlp:oc"""
+    """Handle order confirm (create with default date=today). Callback: nlp:oc[:{k}]"""
     user_id = query.from_user.id
 
     state = memory_state.get(user_id)
@@ -783,7 +940,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
 # ============================================================================
 
 async def _handle_close_order_select(query, parts, config, memory_state):
-    """Handle close order selection. Callback: nlp:co:{order_id}"""
+    """Handle close order selection. Callback: nlp:co:{order_id}[:{k}]"""
     if len(parts) < 3:
         return
 
@@ -791,19 +948,21 @@ async def _handle_close_order_select(query, parts, config, memory_state):
 
     # Store order_id in memory for the date step
     from app.keyboards.inline import nlp_close_order_date_keyboard
+    k = generate_token()
     memory_state.set(query.from_user.id, {
         "flow": "nlp_close",
         "order_id": order_id,
+        "k": k,
     })
     await query.message.edit_text(
         "Дата закрытия:",
-        reply_markup=nlp_close_order_date_keyboard(),
+        reply_markup=nlp_close_order_date_keyboard(k),
         parse_mode="HTML",
     )
 
 
 async def _handle_close_date(query, parts, config, notion, memory_state):
-    """Handle close date selection. Callback: nlp:cd:{choice}"""
+    """Handle close date selection. Callback: nlp:cd:{choice}[:{k}]"""
     if len(parts) < 3:
         return
 
@@ -850,7 +1009,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
 # ============================================================================
 
 async def _handle_comment_target(query, parts, config, notion, memory_state):
-    """Handle comment target selection. Callback: nlp:ct:{target}"""
+    """Handle comment target selection. Callback: nlp:ct:{target}[:{k}]"""
     if len(parts) < 3:
         return
 
@@ -883,10 +1042,11 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             await query.message.edit_text("✅ Комментарий добавлен")
         else:
             from app.keyboards.inline import nlp_comment_order_select_keyboard
-            memory_state.update(user_id, step="awaiting_order_selection")
+            k = generate_token()
+            memory_state.update(user_id, step="awaiting_order_selection", k=k)
             await query.message.edit_text(
                 "Выберите заказ:",
-                reply_markup=nlp_comment_order_select_keyboard(orders),
+                reply_markup=nlp_comment_order_select_keyboard(orders, k),
                 parse_mode="HTML",
             )
 
@@ -904,10 +1064,11 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             await query.message.edit_text("✅ Комментарий добавлен")
         else:
             from app.keyboards.inline import nlp_shoot_select_keyboard
-            memory_state.update(user_id, step="awaiting_shoot_selection")
+            k = generate_token()
+            memory_state.update(user_id, step="awaiting_shoot_selection", k=k)
             await query.message.edit_text(
                 "Выберите съемку:",
-                reply_markup=nlp_shoot_select_keyboard(shoots, "comment"),
+                reply_markup=nlp_shoot_select_keyboard(shoots, "comment", k),
                 parse_mode="HTML",
             )
 
@@ -917,7 +1078,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
 
 
 async def _handle_comment_order(query, parts, config, notion, memory_state):
-    """Handle comment order selection. Callback: nlp:cmo:{order_id}"""
+    """Handle comment order selection. Callback: nlp:cmo:{order_id}[:{k}]"""
     if len(parts) < 3:
         return
 
@@ -956,7 +1117,7 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
 # ============================================================================
 
 async def _handle_disambig_files(query, parts, config, notion, memory_state, recent_models):
-    """Handle disambiguation → files. Callback: nlp:df:{number}"""
+    """Handle disambiguation -> files. Callback: nlp:df:{number}[:{k}]"""
     if len(parts) < 3:
         return
 
@@ -1014,7 +1175,7 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
 
 
 async def _handle_disambig_orders(query, parts, config, notion, memory_state):
-    """Handle disambiguation → orders. Callback: nlp:do:{number}"""
+    """Handle disambiguation -> orders. Callback: nlp:do:{number}[:{k}]"""
     if len(parts) < 3:
         return
 
@@ -1031,17 +1192,19 @@ async def _handle_disambig_orders(query, parts, config, notion, memory_state):
     model_name = model_data.title if model_data else ""
 
     from app.keyboards.inline import nlp_order_type_keyboard
+    k = generate_token()
     memory_state.set(user_id, {
         "flow": "nlp_order",
         "step": "awaiting_type",
         "model_id": model_id,
         "model_name": model_name,
         "count": count,
+        "k": k,
     })
 
     await query.message.edit_text(
         f"📦 {count}x — Тип заказа:",
-        reply_markup=nlp_order_type_keyboard(),
+        reply_markup=nlp_order_type_keyboard(k),
         parse_mode="HTML",
     )
 
@@ -1051,7 +1214,7 @@ async def _handle_disambig_orders(query, parts, config, notion, memory_state):
 # ============================================================================
 
 async def _handle_report_orders(query, config, notion, memory_state):
-    """Handle report orders detail. Callback: nlp:ro"""
+    """Handle report orders detail. Callback: nlp:ro[:{k}]"""
     user_id = query.from_user.id
     state = memory_state.get(user_id)
     model_id = state.get("model_id") if state else None
@@ -1074,17 +1237,19 @@ async def _handle_report_orders(query, config, notion, memory_state):
     if len(orders) > 10:
         orders_text += f"\n\n...и ещё {len(orders) - 10}"
 
+    k = generate_token()
+    memory_state.update(user_id, k=k)
     from app.keyboards.inline import nlp_report_keyboard
     if query.message:
         await query.message.edit_text(
             f"📦 <b>Открытые заказы: {html.escape(model_name)}</b>\n\n{orders_text}",
-            reply_markup=nlp_report_keyboard(),
+            reply_markup=nlp_report_keyboard(k),
             parse_mode="HTML",
         )
 
 
 async def _handle_report_accounting(query, config, notion, memory_state):
-    """Handle report accounting detail. Callback: nlp:ra"""
+    """Handle report accounting detail. Callback: nlp:ra[:{k}]"""
     user_id = query.from_user.id
     state = memory_state.get(user_id)
     model_id = state.get("model_id") if state else None
@@ -1105,11 +1270,13 @@ async def _handle_report_accounting(query, config, notion, memory_state):
         for rec in records[:5]
     )
 
+    k = generate_token()
+    memory_state.update(user_id, k=k)
     from app.keyboards.inline import nlp_report_keyboard
     if query.message:
         await query.message.edit_text(
             f"📁 <b>Учет файлов: {html.escape(model_name)}</b>\n\n{accounting_text}",
-            reply_markup=nlp_report_keyboard(),
+            reply_markup=nlp_report_keyboard(k),
             parse_mode="HTML",
         )
 
@@ -1119,7 +1286,7 @@ async def _handle_report_accounting(query, config, notion, memory_state):
 # ============================================================================
 
 async def _handle_add_files(query, parts, config, notion, memory_state, recent_models):
-    """Handle add files from CRM card. Callback: nlp:af:{count}"""
+    """Handle add files from CRM card. Callback: nlp:af:{count}[:{k}]"""
     if len(parts) < 3:
         return
 
@@ -1174,7 +1341,7 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
 #                              HELPERS
 # ============================================================================
 
-async def _show_report(query, model_id, model_name, config, notion):
+async def _show_report(query, model_id, model_name, config, notion, k=""):
     """Show inline report for model."""
     from app.keyboards.inline import nlp_report_keyboard
     from app.utils import escape_html
@@ -1211,7 +1378,7 @@ async def _show_report(query, model_id, model_name, config, notion):
         f"📊 <b>{escape_html(model_name)}</b> · {month_str}\n\n"
         f"📁 Файлов: {files_str}\n"
         f"📦 Заказов: {orders_str}\n",
-        reply_markup=nlp_report_keyboard(),
+        reply_markup=nlp_report_keyboard(k),
         parse_mode="HTML",
     )
 
