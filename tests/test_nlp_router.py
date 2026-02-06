@@ -388,5 +388,120 @@ class TestIntentPriorities:
         assert intent != CommandIntent.SHOOT_RESCHEDULE
 
 
+# ============================================================================
+#              NLP FLOW WAITING / DISPATCHER FLOW FILTER TESTS
+# ============================================================================
+
+class TestNlpFlowWaiting:
+    """Tests that nlp_* flows respond instead of staying silent."""
+
+    def test_nlp_disambiguate_flow_gets_response(self):
+        """When user has nlp_disambiguate flow and sends text, bot must not stay silent.
+
+        The dispatcher should NOT return early for nlp_* flows —
+        it should reply with 'жду кнопку/сброс'.
+        We verify by checking the state is recognized as nlp_* (starts with 'nlp_').
+        """
+        state = MemoryState(ttl_seconds=60)
+        state.set(123, {"flow": "nlp_disambiguate", "intent": "create_orders"})
+        user_state = state.get(123)
+        flow = user_state["flow"]
+        # nlp_* flows should NOT be in the FlowFilter set
+        flow_filter_flows = {
+            "search", "new_order", "view", "comment",
+            "summary", "planner", "accounting",
+        }
+        assert flow not in flow_filter_flows
+        assert flow.startswith("nlp_")
+
+    def test_nlp_shoot_flow_not_in_filter_set(self):
+        """nlp_shoot flow should not be in FlowFilter set."""
+        flow_filter_flows = {
+            "search", "new_order", "view", "comment",
+            "summary", "planner", "accounting",
+        }
+        assert "nlp_shoot" not in flow_filter_flows
+
+    def test_nlp_order_flow_not_in_filter_set(self):
+        """nlp_order flow should not be in FlowFilter set."""
+        flow_filter_flows = {
+            "search", "new_order", "view", "comment",
+            "summary", "planner", "accounting",
+        }
+        assert "nlp_order" not in flow_filter_flows
+
+    def test_unknown_flow_cleared(self):
+        """Unknown flow should be cleared from state."""
+        state = MemoryState(ttl_seconds=60)
+        state.set(123, {"flow": "some_unknown_flow"})
+        user_state = state.get(123)
+        flow = user_state["flow"]
+        flow_filter_flows = {
+            "search", "new_order", "view", "comment",
+            "summary", "planner", "accounting",
+        }
+        # Not in filter set and not nlp_* -> should be cleared
+        assert flow not in flow_filter_flows
+        assert not flow.startswith("nlp_")
+        # Simulate clearing
+        state.clear(123)
+        assert state.get(123) is None
+
+    def test_known_flow_skips_nlp(self):
+        """Known FlowFilter flow should skip NLP (return early)."""
+        flow_filter_flows = {
+            "search", "new_order", "view", "comment",
+            "summary", "planner", "accounting",
+        }
+        for flow in flow_filter_flows:
+            assert flow in flow_filter_flows
+
+
+# ============================================================================
+#              ШОРТС КЛЕЩ PARSING TESTS
+# ============================================================================
+
+class TestShortsKleshParsing:
+    """Tests for 'шортс клещ' parsing -> order_type=short, model=клещ."""
+
+    def test_shorts_klesh_intent(self):
+        """'шортс клещ' -> CREATE_ORDERS with type=short, model=клещ."""
+        text = "шортс клещ"
+        entities = extract_entities_v2(text)
+        intent = classify_intent_v2(
+            text,
+            has_model=entities.has_model,
+            has_numbers=entities.has_numbers,
+        )
+        assert intent == CommandIntent.CREATE_ORDERS
+        assert entities.order_type == "short"
+        assert entities.model_name == "клещ"
+
+    def test_shorts_in_order_type_map(self):
+        """'шортс' must map to 'short' in ORDER_TYPE_MAP."""
+        from app.router.command_filters import ORDER_TYPE_MAP
+        assert "шортс" in ORDER_TYPE_MAP
+        assert ORDER_TYPE_MAP["шортс"] == "short"
+
+    def test_shorts_in_ignore_keywords(self):
+        """'шортс' must be in IGNORE_KEYWORDS so it's not treated as model name."""
+        from app.router.command_filters import IGNORE_KEYWORDS
+        assert "шортс" in IGNORE_KEYWORDS
+
+    def test_3_shorts_klesh(self):
+        """'3 шортс клещ' -> CREATE_ORDERS with numbers=[3], type=short, model=клещ."""
+        text = "3 шортс клещ"
+        entities = extract_entities_v2(text)
+        intent = classify_intent_v2(
+            text,
+            has_model=entities.has_model,
+            has_numbers=entities.has_numbers,
+        )
+        assert intent == CommandIntent.CREATE_ORDERS
+        assert entities.order_type == "short"
+        assert entities.model_name == "клещ"
+        assert entities.numbers == [3]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

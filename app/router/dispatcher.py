@@ -58,10 +58,37 @@ async def route_message(
     user_id = message.from_user.id
 
     # ===== Step 1: State Check =====
+    # Only skip NLP for flows that have FlowFilter-equipped handlers.
+    # nlp_* flows are handled via callbacks (buttons), not text —
+    # if user sends text while in nlp_* flow, we must respond, not stay silent.
+    _FLOW_FILTER_FLOWS = {
+        "search", "new_order", "view", "comment",
+        "summary", "planner", "accounting",
+    }
+
     user_state = memory_state.get(user_id)
     if user_state and user_state.get("flow"):
-        LOGGER.debug("User %s has active flow=%s, skipping NLP", user_id, user_state.get("flow"))
-        return  # Let FlowFilter-based handlers pick this up
+        current_flow = user_state["flow"]
+
+        if current_flow in _FLOW_FILTER_FLOWS:
+            LOGGER.debug("User %s has active flow=%s, skipping NLP", user_id, current_flow)
+            return  # Let FlowFilter-based handlers pick this up
+
+        if current_flow.startswith("nlp_"):
+            # nlp_* flows expect button presses, not free text.
+            # Respond with a prompt instead of silently swallowing the message.
+            LOGGER.debug("User %s in nlp flow=%s, prompting for button", user_id, current_flow)
+            from app.keyboards.inline import nlp_flow_waiting_keyboard
+            await message.answer(
+                "⏳ Жду нажатия кнопки или сбросьте состояние.",
+                reply_markup=nlp_flow_waiting_keyboard(),
+                parse_mode="HTML",
+            )
+            return
+
+        # Unknown flow — clear stale state and continue through NLP pipeline
+        LOGGER.warning("User %s has unknown flow=%s, clearing state", user_id, current_flow)
+        memory_state.clear(user_id)
 
     # ===== Step 2: Pre-filter =====
     passed, error_msg = prefilter_message(text)
