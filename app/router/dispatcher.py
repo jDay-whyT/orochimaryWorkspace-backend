@@ -337,7 +337,7 @@ async def _execute_handler(
         if model:
             # CRM UX: show universal model card with live data
             from app.keyboards.inline import model_card_keyboard
-            from app.services.model_card import build_model_card_text
+            from app.services.model_card import build_model_card
             k = generate_token()
             memory_state.set(message.from_user.id, {
                 "flow": "nlp_actions",
@@ -345,12 +345,13 @@ async def _execute_handler(
                 "model_name": model["name"],
                 "k": k,
             })
-            card_text = await build_model_card_text(
+            card_text, open_orders = await build_model_card(
                 model["id"], model["name"], config, notion,
             )
+            oo = open_orders if open_orders >= 0 else None
             await message.answer(
                 card_text,
-                reply_markup=model_card_keyboard(k),
+                reply_markup=model_card_keyboard(k, open_orders=oo),
                 parse_mode="HTML",
             )
         else:
@@ -969,6 +970,9 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
         memory_state.clear(user_id)
 
 
+MAX_FILES_INPUT = 500  # configurable upper limit for manual file count
+
+
 async def _handle_custom_files_input(message, text, user_state, config, notion, memory_state):
     """Handle free-text number input for nlp_files flow (awaiting_count)."""
     import re
@@ -981,15 +985,10 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
         memory_state.clear(user_id)
         return
 
-    # Parse number
-    m = re.match(r'^[+]?\s*(\d{1,4})$', text.strip())
-    if not m:
-        await message.answer("❌ Введите число (например: 25)")
-        return
-
-    count = int(m.group(1))
-    if count <= 0:
-        await message.answer("❌ Число должно быть > 0")
+    # Parse number: "30", "+30", "30 файлов", "30ф", "файлы 30"
+    count = _parse_files_count(text.strip())
+    if count is None:
+        await message.answer(f"❌ Введите число (1–{MAX_FILES_INPUT})")
         return
 
     model_id = user_state.get("model_id", "")
@@ -1025,6 +1024,36 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
         LOGGER.exception("Failed to add files: %s", e)
         await message.answer("❌ Ошибка при добавлении файлов.")
         memory_state.clear(user_id)
+
+
+def _parse_files_count(text: str) -> int | None:
+    """
+    Parse a positive integer file count from free-text input.
+
+    Accepted: "30", "+30", "30 файлов", "30ф", "файлы 30"
+    Rejected: "0", "-5", "99999", text without number
+    Returns: int 1..MAX_FILES_INPUT or None on invalid input.
+    """
+    import re
+    t = text.strip().lower()
+
+    # Pattern 1: optional '+', digits, optional suffix (ф/файл*)
+    m = re.match(r'^[+]?\s*(\d+)\s*(?:ф[а-я]*)?\s*$', t)
+    if m:
+        n = int(m.group(1))
+        if 1 <= n <= MAX_FILES_INPUT:
+            return n
+        return None
+
+    # Pattern 2: "файлы 30", "файлов 30"
+    m = re.match(r'^(?:файл[а-я]*)\s+[+]?\s*(\d+)\s*$', t)
+    if m:
+        n = int(m.group(1))
+        if 1 <= n <= MAX_FILES_INPUT:
+            return n
+        return None
+
+    return None
 
 
 async def _show_help_message(message: Message) -> None:

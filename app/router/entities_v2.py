@@ -21,6 +21,7 @@ from app.router.command_filters import (
     normalize_text,
     extract_numbers,
 )
+from app.router.prefilter import STOP_WORDS
 
 
 LOGGER = logging.getLogger(__name__)
@@ -295,6 +296,10 @@ def extract_entities_v2(text: str) -> EntitiesV2:
         if word in IGNORE_KEYWORDS:
             continue
 
+        # Skip stop-words (greetings, short responses)
+        if word in STOP_WORDS:
+            continue
+
         # Skip date words
         if word in date_words:
             continue
@@ -366,6 +371,10 @@ def validate_model_name(model_name: Optional[str]) -> bool:
     if re.match(r'^\d+$', model_name):
         return False
     if model_name.lower() in IGNORE_KEYWORDS:
+        return False
+    # Reject stop-words that should never be model names
+    from app.router.prefilter import STOP_WORDS
+    if model_name.lower() in STOP_WORDS:
         return False
     return True
 
