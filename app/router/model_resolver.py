@@ -6,6 +6,9 @@ Resolution order:
 2. Notion Query — search by title + aliases
 3. Fuzzy match on results >= 80%
 4. Disambiguation UI if multiple matches
+
+Safety: fuzzy matching only applied for queries >= 4 chars.
+Fuzzy-only single matches return "confirm" status (require user confirmation).
 """
 
 import logging
@@ -20,6 +23,7 @@ LOGGER = logging.getLogger(__name__)
 FUZZY_THRESHOLD_RECENT = 0.85
 FUZZY_THRESHOLD_GENERAL = 0.80
 MIN_QUERY_LENGTH = 3
+FUZZY_MIN_QUERY_LENGTH = 4
 MAX_DISAMBIGUATION_BUTTONS = 5
 
 
@@ -61,7 +65,7 @@ def match_recent_models(
         recent: [(model_id, title), ...] from RecentModels
 
     Returns:
-        List of matches: [{"id": str, "name": str, "score": float}, ...]
+        List of matches: [{"id": str, "name": str, "score": float, "match_type": str}, ...]
     """
     if not query or not recent:
         return []
@@ -74,19 +78,19 @@ def match_recent_models(
 
         # 1. Exact match
         if query_norm == title_norm:
-            matches.append({"id": model_id, "name": title, "score": 1.0})
+            matches.append({"id": model_id, "name": title, "score": 1.0, "match_type": "exact"})
             continue
 
         # 2. Substring (query in name)
         if query_norm in title_norm:
-            matches.append({"id": model_id, "name": title, "score": 0.95})
+            matches.append({"id": model_id, "name": title, "score": 0.95, "match_type": "substring"})
             continue
 
-        # 3. Fuzzy match >= 85%
-        if len(query_norm) >= MIN_QUERY_LENGTH:
+        # 3. Fuzzy match >= 85% (only for queries >= FUZZY_MIN_QUERY_LENGTH)
+        if len(query_norm) >= FUZZY_MIN_QUERY_LENGTH:
             score = fuzzy_score(query, title)
             if score >= FUZZY_THRESHOLD_RECENT:
-                matches.append({"id": model_id, "name": title, "score": score})
+                matches.append({"id": model_id, "name": title, "score": score, "match_type": "fuzzy"})
 
     # Sort by score descending
     matches.sort(key=lambda m: m["score"], reverse=True)
@@ -105,7 +109,7 @@ def match_notion_results(
         models: [{"id": str, "name": str, "aliases": list[str]}, ...]
 
     Returns:
-        Sorted list with scores: [{"id": str, "name": str, "score": float}, ...]
+        Sorted list with scores: [{"id": str, "name": str, "score": float, "match_type": str}, ...]
     """
     if not query or not models:
         return models
@@ -118,7 +122,7 @@ def match_notion_results(
 
         # Exact match on title
         if query_norm == name_norm:
-            scored.append({**model, "score": 1.0})
+            scored.append({**model, "score": 1.0, "match_type": "exact"})
             continue
 
         # Check aliases for exact match
@@ -127,7 +131,11 @@ def match_notion_results(
             query_norm == normalize_model_name(alias) for alias in aliases
         )
         if alias_exact:
-            scored.append({**model, "score": 0.98})
+            scored.append({**model, "score": 0.98, "match_type": "alias"})
+            continue
+
+        # Fuzzy match only for queries >= FUZZY_MIN_QUERY_LENGTH
+        if len(query_norm) < FUZZY_MIN_QUERY_LENGTH:
             continue
 
         # Fuzzy match on title
@@ -142,7 +150,7 @@ def match_notion_results(
         best_score = max(title_score, alias_score)
 
         if best_score >= FUZZY_THRESHOLD_GENERAL:
-            scored.append({**model, "score": best_score})
+            scored.append({**model, "score": best_score, "match_type": "fuzzy"})
 
     # Sort by score descending
     scored.sort(key=lambda m: m["score"], reverse=True)
@@ -161,10 +169,12 @@ async def resolve_model(
 
     Returns:
         {
-            "status": "found" | "multiple" | "not_found",
+            "status": "found" | "confirm" | "multiple" | "not_found",
             "model": {...} or None,           # Single match
             "models": [...] or [],             # Multiple matches
         }
+
+    "confirm" status: fuzzy-only match that needs user confirmation.
     """
     if not query or len(query) < MIN_QUERY_LENGTH:
         return {"status": "not_found", "model": None, "models": []}
@@ -175,11 +185,14 @@ async def resolve_model(
         recent_matches = match_recent_models(query, recent)
         if len(recent_matches) == 1:
             m = recent_matches[0]
-            LOGGER.info("Model resolved from recent: %s (score=%.2f)", m["name"], m["score"])
+            LOGGER.info("Model resolved from recent: %s (score=%.2f, type=%s)", m["name"], m["score"], m["match_type"])
+            # Fuzzy-only single match → require confirmation
+            if m["match_type"] == "fuzzy":
+                return {"status": "confirm", "model": m, "models": []}
             return {"status": "found", "model": m, "models": []}
         if len(recent_matches) > 1:
-            # Check if top match is clearly better
-            if recent_matches[0]["score"] >= 0.98:
+            # Check if top match is clearly better (exact or alias)
+            if recent_matches[0]["score"] >= 0.98 and recent_matches[0]["match_type"] != "fuzzy":
                 m = recent_matches[0]
                 return {"status": "found", "model": m, "models": []}
             return {
@@ -211,10 +224,14 @@ async def resolve_model(
         return {"status": "not_found", "model": None, "models": []}
 
     if len(scored) == 1:
-        return {"status": "found", "model": scored[0], "models": []}
+        m = scored[0]
+        # Fuzzy-only single match → require confirmation
+        if m.get("match_type") == "fuzzy":
+            return {"status": "confirm", "model": m, "models": []}
+        return {"status": "found", "model": m, "models": []}
 
-    # Multiple matches — check if top match is clearly best
-    if scored[0]["score"] >= 0.98:
+    # Multiple matches — check if top match is clearly best (exact or alias)
+    if scored[0]["score"] >= 0.98 and scored[0].get("match_type") != "fuzzy":
         return {"status": "found", "model": scored[0], "models": []}
 
     return {

@@ -436,6 +436,25 @@ def nlp_model_selection_keyboard(
     return builder.as_markup()
 
 
+def nlp_confirm_model_keyboard(
+    model_id: str,
+    model_name: str,
+    intent: str,
+) -> InlineKeyboardMarkup:
+    """Confirm fuzzy-matched model before executing intent."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"Da, {model_name}",
+                    callback_data=f"nlp:select_model:{model_id}:{intent}",
+                ),
+            ],
+            [InlineKeyboardButton(text="Net", callback_data="nlp:cancel:cancel")],
+        ]
+    )
+
+
 def nlp_order_confirm_keyboard(
     model_id: str, order_type: str, count: int, date_iso: str
 ) -> InlineKeyboardMarkup:

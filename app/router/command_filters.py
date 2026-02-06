@@ -114,17 +114,18 @@ COMMAND_FILTERS = [
         intent=CommandIntent.SHOOT_DONE,
         keywords=[],
         multi_word_phrases=[
-            "съемка выполнена", "съемка готова", "съемка done",
-            "съёмка выполнена", "съёмка готова", "съёмка done",
+            "съемка выполнена", "съемка готова", "съемка готово", "съемка done",
+            "съёмка выполнена", "съёмка готова", "съёмка готово", "съёмка done",
+            "съемка выполнено", "съёмка выполнено",
             "шут выполнен", "шут готов", "шут done",
         ],
         patterns=[
             re.compile(
-                r'\bсъ[её]мк[а-я]*\b.{0,40}\b(выполнен|готов|done)\b',
+                r'\bсъ[её]мк[а-я]*\b.{0,40}\b(выполнен[а-я]*|готов[а-я]*|done)\b',
                 re.IGNORECASE,
             ),
             re.compile(
-                r'\b(выполнен|готов|done)\b.{0,40}\bсъ[её]мк[а-я]*\b',
+                r'\b(выполнен[а-я]*|готов[а-я]*|done)\b.{0,40}\bсъ[её]мк[а-я]*\b',
                 re.IGNORECASE,
             ),
         ],
@@ -133,7 +134,7 @@ COMMAND_FILTERS = [
 
     CommandFilter(
         intent=CommandIntent.SHOOT_RESCHEDULE,
-        keywords=[],
+        keywords=["перенос", "перенести"],
         multi_word_phrases=[
             "съемка перенос", "съемка перенести",
             "съёмка перенос", "съёмка перенести",
@@ -152,6 +153,12 @@ COMMAND_FILTERS = [
                 r'\bперенести\b.{0,40}\bсъ[её]мк[а-я]*\b',
                 re.IGNORECASE,
             ),
+            re.compile(r'\bперенос[а-я]*\b', re.IGNORECASE),
+            re.compile(r'\bперенести\b', re.IGNORECASE),
+        ],
+        exclude_with=[
+            "кастом", "custom", "шорт", "short", "колл", "call",
+            "заказ", "order", "файл", "file",
         ],
         priority=101,
     ),
