@@ -7,7 +7,7 @@ Scenarios:
 3. Flow/step mismatch: pressing oq when step is awaiting_type → rejected
 4. Custom date: "05.02" when today=06.02 → same year, not next year
 5. Custom date: "10.01" when today=06.02 → same year (within 90 days)
-6. Token generation produces 4-char base36 strings
+6. Token generation produces 6-char base36 strings
 7. ORDER_TYPE_CB_MAP mapping correctness
 8. Keyboard functions include token in callback_data
 """
@@ -52,27 +52,27 @@ class TestTokenGeneration:
     """Tests for anti-stale token generation."""
 
     def test_token_length(self):
-        """Token should be 4 characters by default."""
+        """Token should be 6 characters by default."""
         token = generate_token()
-        assert len(token) == 4
+        assert len(token) == 6
 
     def test_token_is_base36(self):
         """Token characters should be lowercase letters and digits."""
         for _ in range(50):
             token = generate_token()
-            assert re.match(r'^[a-z0-9]{4}$', token), f"Invalid token: {token}"
+            assert re.match(r'^[a-z0-9]{6}$', token), f"Invalid token: {token}"
 
     def test_tokens_are_unique(self):
         """Tokens should be different (with very high probability)."""
         tokens = {generate_token() for _ in range(100)}
-        # With 36^4 ≈ 1.7M possibilities, 100 tokens should all be unique
+        # With 36^6 ≈ 2.2B possibilities, 100 tokens should all be unique
         assert len(tokens) == 100
 
     def test_custom_length(self):
         """Token length can be customized."""
-        token = generate_token(length=6)
-        assert len(token) == 6
-        assert re.match(r'^[a-z0-9]{6}$', token)
+        token = generate_token(length=8)
+        assert len(token) == 8
+        assert re.match(r'^[a-z0-9]{8}$', token)
 
 
 # ============================================================================
@@ -213,16 +213,29 @@ class TestFlowStepValidation:
         state2 = {"flow": "nlp_order", "step": "awaiting_date"}
         assert _validate_flow_step(state2, "sd") is False
 
-    def test_cd_requires_nlp_close(self):
-        """cd action requires flow=nlp_close (any step)."""
-        state = {"flow": "nlp_close"}
+    def test_cd_requires_nlp_close_with_correct_step(self):
+        """cd action requires flow=nlp_close and step in {awaiting_date, awaiting_custom_date}."""
+        state = {"flow": "nlp_close", "step": "awaiting_date"}
         assert _validate_flow_step(state, "cd") is True
 
         state2 = {"flow": "nlp_close", "step": "awaiting_custom_date"}
         assert _validate_flow_step(state2, "cd") is True
 
-        state3 = {"flow": "nlp_order"}
+        # Wrong flow
+        state3 = {"flow": "nlp_order", "step": "awaiting_date"}
         assert _validate_flow_step(state3, "cd") is False
+
+    def test_cd_rejected_without_step(self):
+        """cd should be rejected when flow=nlp_close but no step is set."""
+        state = {"flow": "nlp_close"}
+        assert _validate_flow_step(state, "cd") is False
+
+    def test_cd_rejected_wrong_step(self):
+        """cd should be rejected when step is not awaiting_date/awaiting_custom_date."""
+        for bad_step in ("awaiting_type", "awaiting_count", "awaiting_order_select", "done"):
+            state = {"flow": "nlp_close", "step": bad_step}
+            assert _validate_flow_step(state, "cd") is False, \
+                f"cd should be rejected at step={bad_step}"
 
     def test_act_requires_nlp_actions_with_model_id(self):
         """act action requires flow=nlp_actions and model_id present."""
@@ -308,7 +321,7 @@ class TestKeyboardTokenEmbedding:
 
     def test_callback_data_under_64_bytes(self):
         """All callback_data should be under 64 bytes."""
-        long_token = "zzzz"
+        long_token = "zzzzzz"
         keyboards = [
             nlp_order_type_keyboard(long_token),
             nlp_order_qty_keyboard(long_token),

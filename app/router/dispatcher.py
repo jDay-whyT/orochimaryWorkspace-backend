@@ -602,6 +602,7 @@ async def _handle_close_orders(message, model, entities, config, notion, memory_
             k = generate_token()
             memory_state.set(message.from_user.id, {
                 "flow": "nlp_close",
+                "step": "awaiting_date",
                 "order_id": order.page_id,
                 "k": k,
             })

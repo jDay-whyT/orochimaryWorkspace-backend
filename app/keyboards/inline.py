@@ -426,7 +426,7 @@ def summary_card_keyboard(model_id: str) -> InlineKeyboardMarkup:
 #   ra  = report_account   af  = add_files        act = model_action
 #   x   = cancel (c=cancel, m=menu) — no token needed
 #
-# Anti-stale token (k): a 4-char base36 string appended as the last segment.
+# Anti-stale token (k): a 6-char base36 string appended as the last segment.
 # Generated fresh each time a keyboard is sent; stored in memory_state.
 # The handler verifies the token to reject presses on stale keyboards.
 
