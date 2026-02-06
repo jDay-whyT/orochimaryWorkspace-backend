@@ -13,13 +13,13 @@ Routing pipeline:
 
 import html
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from aiogram.types import Message
 
 from app.config import Config
 from app.services import NotionClient
-from app.state import MemoryState, RecentModels
+from app.state import MemoryState, RecentModels, generate_token
 
 from app.router.prefilter import prefilter_message
 from app.router.intent_v2 import classify_intent_v2
@@ -143,15 +143,17 @@ async def route_message(
             from app.keyboards.inline import nlp_confirm_model_keyboard
 
             m = resolution["model"]
+            k = generate_token()
             # Store intent in memory (keyboard only carries model_id)
             memory_state.set(user_id, {
                 "flow": "nlp_disambiguate",
                 "intent": intent.value,
                 "entities_raw": text,
+                "k": k,
             })
             await message.answer(
                 f"🔍 Вы имели в виду <b>{html.escape(m['name'])}</b>?",
-                reply_markup=nlp_confirm_model_keyboard(m["id"], m["name"]),
+                reply_markup=nlp_confirm_model_keyboard(m["id"], m["name"], k),
                 parse_mode="HTML",
             )
             return
@@ -160,15 +162,17 @@ async def route_message(
             # Show disambiguation keyboard
             from app.keyboards.inline import nlp_model_selection_keyboard
 
+            k = generate_token()
             # Store intent in memory (keyboard only carries model_id)
             memory_state.set(user_id, {
                 "flow": "nlp_disambiguate",
                 "intent": intent.value,
                 "entities_raw": text,
+                "k": k,
             })
             await message.answer(
                 f"🔍 Уточните модель '{html.escape(entities.model_name)}':",
-                reply_markup=nlp_model_selection_keyboard(resolution["models"]),
+                reply_markup=nlp_model_selection_keyboard(resolution["models"], k),
                 parse_mode="HTML",
             )
             return
@@ -178,16 +182,18 @@ async def route_message(
                 recent = recent_models.get(user_id)
                 if recent:
                     from app.keyboards.inline import nlp_not_found_keyboard
+                    k = generate_token()
                     # Store intent in memory for when user picks a recent model
                     memory_state.set(user_id, {
                         "flow": "nlp_disambiguate",
                         "intent": intent.value,
                         "entities_raw": text,
+                        "k": k,
                     })
                     await message.answer(
                         f"❌ Модель '{html.escape(entities.model_name)}' не найдена.\n\n"
                         "Последние модели:",
-                        reply_markup=nlp_not_found_keyboard(recent),
+                        reply_markup=nlp_not_found_keyboard(recent, k),
                         parse_mode="HTML",
                     )
                 else:
@@ -327,14 +333,16 @@ async def _execute_handler(
         if model:
             # CRM UX: show action card instead of text examples
             from app.keyboards.inline import nlp_model_actions_keyboard
+            k = generate_token()
             memory_state.set(message.from_user.id, {
                 "flow": "nlp_actions",
                 "model_id": model["id"],
                 "model_name": model["name"],
+                "k": k,
             })
             await message.answer(
                 f"✅ <b>{html.escape(model['name'])}</b>\n\nЧто сделать?",
-                reply_markup=nlp_model_actions_keyboard(),
+                reply_markup=nlp_model_actions_keyboard(k),
                 parse_mode="HTML",
             )
         else:
@@ -404,15 +412,17 @@ async def _handle_shoot_create(message, model, entities, config, notion, memory_
     else:
         # No date — ask for date
         from app.keyboards.inline import nlp_shoot_date_keyboard
+        k = generate_token()
         memory_state.set(message.from_user.id, {
             "flow": "nlp_shoot",
             "step": "awaiting_date",
             "model_id": model_id,
             "model_name": model_name,
+            "k": k,
         })
         await message.answer(
             f"📅 <b>{html.escape(model_name)}</b> · Дата съемки:",
-            reply_markup=nlp_shoot_date_keyboard(),
+            reply_markup=nlp_shoot_date_keyboard(k),
             parse_mode="HTML",
         )
 
@@ -500,6 +510,7 @@ async def _handle_shoot_reschedule(message, model, entities, config, notion, mem
         if len(shoots) == 1:
             shoot = shoots[0]
             from app.keyboards.inline import nlp_shoot_date_keyboard
+            k = generate_token()
             memory_state.set(message.from_user.id, {
                 "flow": "nlp_shoot",
                 "step": "awaiting_new_date",
@@ -507,11 +518,12 @@ async def _handle_shoot_reschedule(message, model, entities, config, notion, mem
                 "model_id": model_id,
                 "model_name": model_name,
                 "old_date": shoot.date,
+                "k": k,
             })
             date_str = shoot.date[:10] if shoot.date else "?"
             await message.answer(
                 f"📅 Перенос съемки {date_str}\n\nНовая дата:",
-                reply_markup=nlp_shoot_date_keyboard(),
+                reply_markup=nlp_shoot_date_keyboard(k),
                 parse_mode="HTML",
             )
         else:
@@ -539,15 +551,17 @@ async def _handle_create_orders_general(message, model, entities, config, memory
         return
 
     from app.keyboards.inline import nlp_order_type_keyboard
+    k = generate_token()
     memory_state.set(message.from_user.id, {
         "flow": "nlp_order",
         "step": "awaiting_type",
         "model_id": model["id"],
         "model_name": model["name"],
+        "k": k,
     })
     await message.answer(
         f"📦 <b>{html.escape(model['name'])}</b> · Тип заказа:",
-        reply_markup=nlp_order_type_keyboard(),
+        reply_markup=nlp_order_type_keyboard(k),
         parse_mode="HTML",
     )
 
@@ -585,23 +599,32 @@ async def _handle_close_orders(message, model, entities, config, notion, memory_
             # Single order — ask for close date
             order = orders[0]
             from app.keyboards.inline import nlp_close_order_date_keyboard
+            k = generate_token()
             memory_state.set(message.from_user.id, {
                 "flow": "nlp_close",
                 "order_id": order.page_id,
+                "k": k,
             })
             days = _calc_days_open(order.in_date)
             label = f"{order.order_type or '?'} · {_format_date_short(order.in_date)} ({days}d)"
             await message.answer(
                 f"Закрыть '{label}'?\n\nДата закрытия:",
-                reply_markup=nlp_close_order_date_keyboard(),
+                reply_markup=nlp_close_order_date_keyboard(k),
                 parse_mode="HTML",
             )
         else:
             # Multiple orders — show selection
             from app.keyboards.inline import nlp_close_order_select_keyboard
+            k2 = generate_token()
+            memory_state.set(message.from_user.id, {
+                "flow": "nlp_close",
+                "model_id": model_id,
+                "model_name": model_name,
+                "k": k2,
+            })
             await message.answer(
                 f"📦 <b>{html.escape(model_name)}</b> · Выберите заказ:",
-                reply_markup=nlp_close_order_select_keyboard(orders),
+                reply_markup=nlp_close_order_select_keyboard(orders, k2),
                 parse_mode="HTML",
             )
 
@@ -631,16 +654,18 @@ async def _handle_add_comment(message, model, entities, config, notion, memory_s
     else:
         # Target unknown — ask
         from app.keyboards.inline import nlp_comment_target_keyboard
+        k = generate_token()
         memory_state.set(message.from_user.id, {
             "flow": "nlp_comment",
             "step": "awaiting_target",
             "model_id": model["id"],
             "model_name": model["name"],
             "comment_text": entities.comment_text,
+            "k": k,
         })
         await message.answer(
             "Что комментировать?",
-            reply_markup=nlp_comment_target_keyboard(),
+            reply_markup=nlp_comment_target_keyboard(k),
             parse_mode="HTML",
         )
 
@@ -661,15 +686,17 @@ async def _add_comment_to_order(message, model, entities, config, notion, memory
             await message.answer("✅ Комментарий добавлен")
         else:
             from app.keyboards.inline import nlp_comment_order_select_keyboard
+            k = generate_token()
             memory_state.set(message.from_user.id, {
                 "flow": "nlp_comment",
                 "step": "awaiting_order_selection",
                 "model_id": model["id"],
                 "comment_text": entities.comment_text,
+                "k": k,
             })
             await message.answer(
                 "Выберите заказ:",
-                reply_markup=nlp_comment_order_select_keyboard(orders),
+                reply_markup=nlp_comment_order_select_keyboard(orders, k),
                 parse_mode="HTML",
             )
     except Exception as e:
@@ -693,15 +720,17 @@ async def _add_comment_to_shoot(message, model, entities, config, notion, memory
             await message.answer("✅ Комментарий добавлен")
         else:
             from app.keyboards.inline import nlp_shoot_select_keyboard
+            k = generate_token()
             memory_state.set(message.from_user.id, {
                 "flow": "nlp_comment",
                 "step": "awaiting_shoot_selection",
                 "model_id": model["id"],
                 "comment_text": entities.comment_text,
+                "k": k,
             })
             await message.answer(
                 "Выберите съемку:",
-                reply_markup=nlp_shoot_select_keyboard(shoots, "comment"),
+                reply_markup=nlp_shoot_select_keyboard(shoots, "comment", k),
                 parse_mode="HTML",
             )
     except Exception as e:
@@ -758,16 +787,18 @@ async def _handle_ambiguous(message, model, entities, config, memory_state):
     number = entities.first_number
     from app.keyboards.inline import nlp_disambiguate_keyboard
 
+    k = generate_token()
     # Store model_id in memory for disambiguation callbacks
     memory_state.set(message.from_user.id, {
         "flow": "nlp_disambiguate",
         "model_id": model["id"],
         "model_name": model["name"],
+        "k": k,
     })
 
     await message.answer(
         f"Что сделать с {number}?",
-        reply_markup=nlp_disambiguate_keyboard(number),
+        reply_markup=nlp_disambiguate_keyboard(number, k),
         parse_mode="HTML",
     )
 
@@ -846,10 +877,12 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
 
     day, month = int(m.group(1)), int(m.group(2))
     try:
-        year = date.today().year
+        today = date.today()
+        year = today.year
         parsed_date = date(year, month, day)
-        # If date is far in the past, maybe next year
-        if parsed_date < date.today() - datetime.resolution * 90:
+        # Only bump to next year if the date is more than 90 days in the past.
+        # This prevents e.g. "10.01" from jumping to next year when today is 06.02.
+        if parsed_date < today - timedelta(days=90):
             parsed_date = date(year + 1, month, day)
     except ValueError:
         await message.answer("❌ Неверная дата")
