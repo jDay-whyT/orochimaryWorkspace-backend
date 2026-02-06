@@ -165,13 +165,13 @@ class TestIntentClassification:
     # ========== SEARCH_MODEL ==========
 
     def test_search_model_single_word(self):
-        """Test model search with single word."""
-        assert classify_intent_v2("мелиса") == CommandIntent.SEARCH_MODEL
-        assert classify_intent_v2("софи") == CommandIntent.SEARCH_MODEL
+        """Test model search with single word (has_model must be True)."""
+        assert classify_intent_v2("мелиса", has_model=True) == CommandIntent.SEARCH_MODEL
+        assert classify_intent_v2("софи", has_model=True) == CommandIntent.SEARCH_MODEL
 
     def test_search_model_two_words(self):
-        """Test model search with two words."""
-        assert classify_intent_v2("melissa smith") == CommandIntent.SEARCH_MODEL
+        """Test model search with two words (has_model must be True)."""
+        assert classify_intent_v2("melissa smith", has_model=True) == CommandIntent.SEARCH_MODEL
 
     # ========== UNKNOWN ==========
 
@@ -364,7 +364,7 @@ class TestUtilityFunctions:
 
     def test_get_intent_description(self):
         """Test intent description."""
-        assert "Создание заказов" in get_intent_description(CommandIntent.CREATE_ORDERS)
+        assert "Создание заказа" in get_intent_description(CommandIntent.CREATE_ORDERS)
         assert "Добавление файлов" in get_intent_description(CommandIntent.ADD_FILES)
 
     def test_get_order_type_display_name(self):

@@ -2,12 +2,15 @@
 NLP callback handlers for inline keyboard interactions.
 
 Handles callback_data starting with "nlp:" for:
-- Model selection (disambiguation)
+- Model selection (disambiguation) — continues original intent after selection
 - Shoot date selection, done confirm, reschedule
 - Order type/qty selection, close date
 - Comment target selection
 - Ambiguous disambiguation (files vs orders)
 - Cancel
+
+All callbacks receive their "decision" from callback_data and execute directly.
+No re-classification of intent happens in callbacks.
 """
 
 import html
@@ -21,10 +24,13 @@ from app.config import Config
 from app.roles import is_authorized, is_editor
 from app.services import NotionClient
 from app.state import MemoryState, RecentModels
+from app.router.command_filters import CommandIntent
 
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
+
+SESSION_EXPIRED_MSG = "Сессия истекла. Повторите запрос."
 
 
 @router.callback_query(F.data.startswith("nlp:"))
@@ -54,7 +60,7 @@ async def handle_nlp_callback(
         # ===== Cancel =====
         if action == "cancel":
             memory_state.clear(user_id)
-            await query.message.edit_text("❌ Отменено.")
+            await query.message.edit_text("Otmeneno.")
             await query.answer()
             return
 
@@ -114,32 +120,162 @@ async def handle_nlp_callback(
 # ============================================================================
 
 async def _handle_select_model(query, parts, config, notion, memory_state, recent_models):
-    """Handle model selection from disambiguation."""
+    """
+    Handle model selection from disambiguation or fuzzy confirmation.
+
+    After the user selects/confirms a model, continue executing the original intent
+    instead of just showing "selected" and stopping.
+    """
     # nlp:select_model:{model_id}:{intent}
     if len(parts) < 4:
         return
 
     model_id = parts[2]
-    intent = parts[3]
+    intent_value = parts[3]
     user_id = query.from_user.id
 
     # Get model info
     model_data = await notion.get_model(model_id)
     if not model_data:
-        await query.message.edit_text("❌ Модель не найдена.")
+        await query.message.edit_text("Model ne najdena.")
         return
 
     model = {"id": model_id, "name": model_data.title}
     recent_models.add(user_id, model_id, model_data.title)
 
-    # Get original text from memory state
+    # Get original text from memory state for entity re-extraction
     state = memory_state.get(user_id)
+    original_text = state.get("entities_raw", "") if state else ""
     memory_state.clear(user_id)
 
-    await query.message.edit_text(
-        f"✅ Выбрана: <b>{html.escape(model_data.title)}</b>",
-        parse_mode="HTML",
-    )
+    # Parse intent
+    try:
+        intent = CommandIntent(intent_value)
+    except ValueError:
+        intent = None
+
+    # Re-extract entities from the original text
+    from app.router.entities_v2 import extract_entities_v2
+    entities = extract_entities_v2(original_text) if original_text else None
+
+    # ---- Route to intent-specific follow-up ----
+
+    if intent == CommandIntent.CREATE_ORDERS and entities and entities.order_type:
+        # Order with known type: proceed to date selection
+        count = entities.first_number or 1
+        from app.keyboards.inline import nlp_order_confirm_keyboard
+        from app.router.entities_v2 import get_order_type_display_name
+        type_label = get_order_type_display_name(entities.order_type)
+        memory_state.set(user_id, {
+            "flow": "nlp_order",
+            "step": "awaiting_date",
+            "model_id": model_id,
+            "model_name": model_data.title,
+            "order_type": entities.order_type,
+            "count": count,
+        })
+        await query.message.edit_text(
+            f"<b>{html.escape(model_data.title)}</b> | {count}x {type_label}\n\nData:",
+            reply_markup=nlp_order_confirm_keyboard(model_id, entities.order_type, count, "today"),
+            parse_mode="HTML",
+        )
+
+    elif intent in (CommandIntent.CREATE_ORDERS, CommandIntent.CREATE_ORDERS_GENERAL):
+        # Order without type: ask for type
+        from app.keyboards.inline import nlp_order_type_keyboard
+        memory_state.set(user_id, {
+            "flow": "nlp_order",
+            "step": "awaiting_type",
+            "model_id": model_id,
+            "model_name": model_data.title,
+        })
+        await query.message.edit_text(
+            f"<b>{html.escape(model_data.title)}</b> | Tip zakaza:",
+            reply_markup=nlp_order_type_keyboard(model_id),
+            parse_mode="HTML",
+        )
+
+    elif intent == CommandIntent.SHOOT_CREATE:
+        if entities and entities.date:
+            # Date known: create shoot directly
+            if not is_editor(user_id, config):
+                await query.message.edit_text("Net prav.")
+                return
+            title = f"{model_data.title} | {entities.date.strftime('%d.%m')}"
+            try:
+                await notion.create_shoot(
+                    database_id=config.db_planner,
+                    model_page_id=model_id,
+                    shoot_date=entities.date,
+                    content=[],
+                    location="home",
+                    title=title,
+                )
+                await query.message.edit_text(
+                    f"Semka sozdana na {entities.date.strftime('%d.%m')}",
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                LOGGER.exception("Failed to create shoot: %s", e)
+                await query.message.edit_text("Oshibka pri sozdanii semki.")
+        else:
+            # No date: ask for date
+            from app.keyboards.inline import nlp_shoot_date_keyboard
+            memory_state.set(user_id, {
+                "flow": "nlp_shoot",
+                "step": "awaiting_date",
+                "model_id": model_id,
+                "model_name": model_data.title,
+            })
+            await query.message.edit_text(
+                f"<b>{html.escape(model_data.title)}</b> | Data semki:",
+                reply_markup=nlp_shoot_date_keyboard(model_id),
+                parse_mode="HTML",
+            )
+
+    elif intent == CommandIntent.ADD_FILES and entities and entities.numbers:
+        # Add files directly
+        count = entities.first_number
+        if not is_editor(user_id, config):
+            await query.message.edit_text("Net prav.")
+            return
+        try:
+            from datetime import datetime
+            now = datetime.now(tz=config.timezone)
+            month_str = now.strftime("%B")
+            record = await notion.get_accounting_record(config.db_accounting, model_id, month_str)
+            if not record:
+                await notion.create_accounting_record(
+                    config.db_accounting, model_id, count, month_str, config.files_per_month
+                )
+                new_amount = count
+            else:
+                current_amount = record.amount or 0
+                new_amount = current_amount + count
+                new_percent = new_amount / float(config.files_per_month)
+                await notion.update_accounting_files(record.page_id, new_amount, new_percent)
+            percent = int((new_amount / config.files_per_month) * 100)
+            await query.message.edit_text(
+                f"Dobavleno {count} fajlov ({new_amount} vsego)\n\n"
+                f"<b>{html.escape(model_data.title)}</b> | {month_str}\n"
+                f"Fajlov: {new_amount} ({percent}%)",
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            LOGGER.exception("Failed to add files: %s", e)
+            await query.message.edit_text("Oshibka pri dobavlenii fajlov.")
+
+    else:
+        # Default: show model card with examples
+        await query.message.edit_text(
+            f"<b>{html.escape(model_data.title)}</b>\n\n"
+            f"Primery:\n"
+            f"| {model_data.title} kastom\n"
+            f"| {model_data.title} 30 fajlov\n"
+            f"| {model_data.title} semka na 13.02\n"
+            f"| report {model_data.title}",
+            parse_mode="HTML",
+        )
 
 
 # ============================================================================
@@ -156,7 +292,11 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
     date_choice = parts[3]
     user_id = query.from_user.id
 
-    state = memory_state.get(user_id) or {}
+    state = memory_state.get(user_id)
+    if not state:
+        await query.message.edit_text(SESSION_EXPIRED_MSG)
+        return
+
     model_name = state.get("model_name", "")
     step = state.get("step", "")
 
@@ -169,7 +309,7 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
         # Ask user to type a date
         memory_state.update(user_id, step="awaiting_custom_date")
         await query.message.edit_text(
-            "📅 Введите дату (DD.MM):",
+            "Vvedite datu (DD.MM):",
             parse_mode="HTML",
         )
         return
@@ -185,17 +325,17 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
             old_label = old_date[:10] if old_date else "?"
             memory_state.clear(user_id)
             await query.message.edit_text(
-                f"✅ Съемка перенесена с {old_label} на {shoot_date.strftime('%d.%m')}",
+                f"Semka perenesena s {old_label} na {shoot_date.strftime('%d.%m')}",
                 parse_mode="HTML",
             )
     else:
         # Create shoot
         if not is_editor(user_id, config):
-            await query.message.edit_text("❌ Нет прав.")
+            await query.message.edit_text("Net prav.")
             memory_state.clear(user_id)
             return
 
-        title = f"{model_name} · {shoot_date.strftime('%d.%m')}"
+        title = f"{model_name} | {shoot_date.strftime('%d.%m')}"
         try:
             await notion.create_shoot(
                 database_id=config.db_planner,
@@ -208,12 +348,12 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
             memory_state.clear(user_id)
             recent_models.add(user_id, model_id, model_name)
             await query.message.edit_text(
-                f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}",
+                f"Semka sozdana na {shoot_date.strftime('%d.%m')}",
                 parse_mode="HTML",
             )
         except Exception as e:
             LOGGER.exception("Failed to create shoot: %s", e)
-            await query.message.edit_text("❌ Ошибка при создании съемки.")
+            await query.message.edit_text("Oshibka pri sozdanii semki.")
             memory_state.clear(user_id)
 
 
@@ -227,16 +367,16 @@ async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state)
     user_id = query.from_user.id
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.message.edit_text("Net prav.")
         return
 
     try:
         await notion.update_shoot_status(shoot_id, "done")
         memory_state.clear(user_id)
-        await query.message.edit_text("✅ Съемка выполнена")
+        await query.message.edit_text("Semka vypolnena")
     except Exception as e:
         LOGGER.exception("Failed to mark shoot as done: %s", e)
-        await query.message.edit_text("❌ Ошибка.")
+        await query.message.edit_text("Oshibka.")
 
 
 async def _handle_shoot_select(query, parts, config, notion, memory_state):
@@ -250,13 +390,13 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
     user_id = query.from_user.id
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.message.edit_text("Net prav.")
         return
 
     if action == "done":
         await notion.update_shoot_status(shoot_id, "done")
         memory_state.clear(user_id)
-        await query.message.edit_text("✅ Съемка выполнена")
+        await query.message.edit_text("Semka vypolnena")
 
     elif action == "reschedule":
         shoot = await notion.get_shoot(shoot_id)
@@ -273,13 +413,16 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
         })
         date_str = shoot.date[:10] if shoot and shoot.date else "?"
         await query.message.edit_text(
-            f"📅 Перенос съемки {date_str}\n\nНовая дата:",
+            f"Perenos semki {date_str}\n\nNovaja data:",
             reply_markup=nlp_shoot_date_keyboard(model_id),
             parse_mode="HTML",
         )
 
     elif action == "comment":
-        state = memory_state.get(user_id) or {}
+        state = memory_state.get(user_id)
+        if not state:
+            await query.message.edit_text(SESSION_EXPIRED_MSG)
+            return
         comment_text = state.get("comment_text")
         if comment_text:
             shoot = await notion.get_shoot(shoot_id)
@@ -287,9 +430,9 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
             new_comment = f"{existing}\n{comment_text}".strip() if existing else comment_text
             await notion.update_shoot_comment(shoot_id, new_comment)
             memory_state.clear(user_id)
-            await query.message.edit_text("✅ Комментарий добавлен")
+            await query.message.edit_text("Kommentarij dobavlen")
         else:
-            await query.message.edit_text("❌ Текст комментария не найден.")
+            await query.message.edit_text("Tekst kommentarija ne najden.")
             memory_state.clear(user_id)
 
 
@@ -307,10 +450,15 @@ async def _handle_order_type(query, parts, config, memory_state):
     order_type = parts[3]
     user_id = query.from_user.id
 
+    state = memory_state.get(user_id)
+    if not state:
+        await query.message.edit_text(SESSION_EXPIRED_MSG)
+        return
+
     from app.keyboards.inline import nlp_order_qty_keyboard
     memory_state.update(user_id, step="awaiting_count", order_type=order_type)
     await query.message.edit_text(
-        f"📦 Сколько?",
+        f"Skolko?",
         reply_markup=nlp_order_qty_keyboard(model_id, order_type),
         parse_mode="HTML",
     )
@@ -330,7 +478,7 @@ async def _handle_order_qty(query, parts, config, notion, memory_state):
     from app.keyboards.inline import nlp_order_confirm_keyboard
     memory_state.update(user_id, step="awaiting_date", count=count)
     await query.message.edit_text(
-        f"📦 {count}x {order_type}\n\nДата заказа:",
+        f"{count}x {order_type}\n\nData zakaza:",
         reply_markup=nlp_order_confirm_keyboard(model_id, order_type, count, "today"),
         parse_mode="HTML",
     )
@@ -349,7 +497,7 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
     user_id = query.from_user.id
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.message.edit_text("Net prav.")
         memory_state.clear(user_id)
         return
 
@@ -366,7 +514,7 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
 
     try:
         for _ in range(count):
-            title = f"{model_name} · {order_type}"
+            title = f"{model_name} | {order_type}"
             await notion.create_order(
                 database_id=config.db_orders,
                 model_page_id=model_id,
@@ -379,13 +527,13 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
         memory_state.clear(user_id)
 
         if count == 1:
-            await query.message.edit_text(f"✅ Создан 1 {order_type}")
+            await query.message.edit_text(f"Sozdan 1 {order_type}")
         else:
-            await query.message.edit_text(f"✅ Создано {count} {order_type}")
+            await query.message.edit_text(f"Sozdano {count} {order_type}")
 
     except Exception as e:
         LOGGER.exception("Failed to create orders: %s", e)
-        await query.message.edit_text("❌ Ошибка при создании заказов.")
+        await query.message.edit_text("Oshibka pri sozdanii zakazov.")
         memory_state.clear(user_id)
 
 
@@ -402,7 +550,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
     user_id = query.from_user.id
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.message.edit_text("Net prav.")
         memory_state.clear(user_id)
         return
 
@@ -416,7 +564,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
 
     try:
         for _ in range(count):
-            title = f"{model_name} · {order_type}"
+            title = f"{model_name} | {order_type}"
             await notion.create_order(
                 database_id=config.db_orders,
                 model_page_id=model_id,
@@ -430,13 +578,13 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
         memory_state.clear(user_id)
 
         if count == 1:
-            await query.message.edit_text(f"✅ Создан 1 {order_type}")
+            await query.message.edit_text(f"Sozdan 1 {order_type}")
         else:
-            await query.message.edit_text(f"✅ Создано {count} {order_type}")
+            await query.message.edit_text(f"Sozdano {count} {order_type}")
 
     except Exception as e:
         LOGGER.exception("Failed to create orders: %s", e)
-        await query.message.edit_text("❌ Ошибка при создании заказов.")
+        await query.message.edit_text("Oshibka pri sozdanii zakazov.")
         memory_state.clear(user_id)
 
 
@@ -454,7 +602,7 @@ async def _handle_close_order_select(query, parts, config, memory_state):
 
     from app.keyboards.inline import nlp_close_order_date_keyboard
     await query.message.edit_text(
-        "Дата закрытия:",
+        "Data zakrytija:",
         reply_markup=nlp_close_order_date_keyboard(order_id),
         parse_mode="HTML",
     )
@@ -471,7 +619,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
     user_id = query.from_user.id
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.message.edit_text("Net prav.")
         return
 
     today = date.today()
@@ -485,7 +633,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
             "step": "awaiting_custom_date",
             "order_id": order_id,
         })
-        await query.message.edit_text("📅 Введите дату закрытия (DD.MM):")
+        await query.message.edit_text("Vvedite datu zakrytija (DD.MM):")
         return
     else:
         out_date = today
@@ -494,12 +642,12 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         await notion.close_order(order_id, out_date)
         memory_state.clear(user_id)
         await query.message.edit_text(
-            f"✅ Заказ закрыт",
+            f"Zakaz zakryt",
             parse_mode="HTML",
         )
     except Exception as e:
         LOGGER.exception("Failed to close order: %s", e)
-        await query.message.edit_text("❌ Ошибка при закрытии заказа.")
+        await query.message.edit_text("Oshibka pri zakrytii zakaza.")
 
 
 # ============================================================================
@@ -516,18 +664,21 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
     target = parts[3]
     user_id = query.from_user.id
 
-    state = memory_state.get(user_id) or {}
-    comment_text = state.get("comment_text")
+    state = memory_state.get(user_id)
+    if not state:
+        await query.message.edit_text(SESSION_EXPIRED_MSG)
+        return
 
+    comment_text = state.get("comment_text")
     if not comment_text:
-        await query.message.edit_text("❌ Текст комментария не найден.")
+        await query.message.edit_text("Tekst kommentarija ne najden.")
         memory_state.clear(user_id)
         return
 
     if target == "order":
         orders = await notion.query_open_orders(config.db_orders, model_page_id=model_id)
         if not orders:
-            await query.message.edit_text("❌ Нет открытых заказов.")
+            await query.message.edit_text("Net otkrytyh zakazov.")
             memory_state.clear(user_id)
             return
         if len(orders) == 1:
@@ -535,12 +686,12 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             new_comment = f"{existing}\n{comment_text}".strip() if existing else comment_text
             await notion.update_order_comment(orders[0].page_id, new_comment)
             memory_state.clear(user_id)
-            await query.message.edit_text("✅ Комментарий добавлен")
+            await query.message.edit_text("Kommentarij dobavlen")
         else:
             from app.keyboards.inline import nlp_comment_order_select_keyboard
             memory_state.update(user_id, step="awaiting_order_selection")
             await query.message.edit_text(
-                "Выберите заказ:",
+                "Vyberite zakaz:",
                 reply_markup=nlp_comment_order_select_keyboard(orders),
                 parse_mode="HTML",
             )
@@ -548,7 +699,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
     elif target == "shoot":
         shoots = await notion.query_upcoming_shoots(config.db_planner, model_page_id=model_id)
         if not shoots:
-            await query.message.edit_text("❌ Нет запланированных съемок.")
+            await query.message.edit_text("Net zaplanirovannyh semok.")
             memory_state.clear(user_id)
             return
         if len(shoots) == 1:
@@ -556,18 +707,18 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             new_comment = f"{existing}\n{comment_text}".strip() if existing else comment_text
             await notion.update_shoot_comment(shoots[0].page_id, new_comment)
             memory_state.clear(user_id)
-            await query.message.edit_text("✅ Комментарий добавлен")
+            await query.message.edit_text("Kommentarij dobavlen")
         else:
             from app.keyboards.inline import nlp_shoot_select_keyboard
             memory_state.update(user_id, step="awaiting_shoot_selection")
             await query.message.edit_text(
-                "Выберите съемку:",
+                "Vyberite semku:",
                 reply_markup=nlp_shoot_select_keyboard(shoots, "comment"),
                 parse_mode="HTML",
             )
 
     elif target == "account":
-        await query.message.edit_text("❌ Комментарии к учету пока не поддержаны.")
+        await query.message.edit_text("Kommentarii k uchetu poka ne podderzhany.")
         memory_state.clear(user_id)
 
 
@@ -579,11 +730,15 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
 
     order_id = parts[2]
     user_id = query.from_user.id
-    state = memory_state.get(user_id) or {}
-    comment_text = state.get("comment_text")
 
+    state = memory_state.get(user_id)
+    if not state:
+        await query.message.edit_text(SESSION_EXPIRED_MSG)
+        return
+
+    comment_text = state.get("comment_text")
     if not comment_text:
-        await query.message.edit_text("❌ Текст комментария не найден.")
+        await query.message.edit_text("Tekst kommentarija ne najden.")
         memory_state.clear(user_id)
         return
 
@@ -597,10 +752,10 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
         new_comment = f"{existing}\n{comment_text}".strip() if existing else comment_text
         await notion.update_order_comment(order_id, new_comment)
         memory_state.clear(user_id)
-        await query.message.edit_text("✅ Комментарий добавлен")
+        await query.message.edit_text("Kommentarij dobavlen")
     except Exception as e:
         LOGGER.exception("Failed to add comment: %s", e)
-        await query.message.edit_text("❌ Ошибка.")
+        await query.message.edit_text("Oshibka.")
         memory_state.clear(user_id)
 
 
@@ -619,12 +774,12 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
     user_id = query.from_user.id
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.message.edit_text("Net prav.")
         return
 
     model_data = await notion.get_model(model_id)
     if not model_data:
-        await query.message.edit_text("❌ Модель не найдена.")
+        await query.message.edit_text("Model ne najdena.")
         return
 
     model_name = model_data.title
@@ -652,14 +807,14 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
         memory_state.clear(user_id)
 
         await query.message.edit_text(
-            f"✅ Добавлено {count} файлов ({new_amount} всего)\n\n"
+            f"Dobavleno {count} fajlov ({new_amount} vsego)\n\n"
             f"<b>{html.escape(model_name)}</b> | {month_str}\n"
-            f"Файлов: {new_amount} ({percent}%)",
+            f"Fajlov: {new_amount} ({percent}%)",
             parse_mode="HTML",
         )
     except Exception as e:
         LOGGER.exception("Failed to add files: %s", e)
-        await query.message.edit_text("❌ Ошибка при добавлении файлов.")
+        await query.message.edit_text("Oshibka pri dobavlenii fajlov.")
 
 
 async def _handle_disambig_orders(query, parts, config, notion, memory_state):
@@ -686,7 +841,7 @@ async def _handle_disambig_orders(query, parts, config, notion, memory_state):
     })
 
     await query.message.edit_text(
-        f"📦 {count}x — Тип заказа:",
+        f"{count}x -- Tip zakaza:",
         reply_markup=nlp_order_type_keyboard(model_id),
         parse_mode="HTML",
     )

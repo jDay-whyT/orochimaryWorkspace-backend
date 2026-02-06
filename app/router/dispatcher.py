@@ -102,6 +102,23 @@ async def route_message(
             model = resolution["model"]
             recent_models.add(user_id, model["id"], model["name"])
 
+        elif resolution["status"] == "confirm":
+            # Fuzzy-only match — ask user to confirm before executing
+            from app.keyboards.inline import nlp_confirm_model_keyboard
+
+            m = resolution["model"]
+            await message.answer(
+                f"🔍 Вы имели в виду <b>{html.escape(m['name'])}</b>?",
+                reply_markup=nlp_confirm_model_keyboard(m["id"], m["name"], intent.value),
+                parse_mode="HTML",
+            )
+            memory_state.set(user_id, {
+                "flow": "nlp_disambiguate",
+                "intent": intent.value,
+                "entities_raw": text,
+            })
+            return
+
         elif resolution["status"] == "multiple":
             # Show disambiguation keyboard
             from app.keyboards.inline import nlp_model_selection_keyboard

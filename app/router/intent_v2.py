@@ -96,6 +96,11 @@ def classify_intent_v2(
         if matched_intent == CommandIntent.SHOW_ORDERS and has_model:
             matched_intent = CommandIntent.SHOW_MODEL_ORDERS
 
+        # Downgrade SHOW_MODEL_ORDERS to SHOW_ORDERS when no model detected
+        # Prevents "заказы" (without model) from requiring a model name
+        if matched_intent == CommandIntent.SHOW_MODEL_ORDERS and not has_model:
+            matched_intent = CommandIntent.SHOW_ORDERS
+
         return matched_intent
 
     # No filter matched — check for AMBIGUOUS
