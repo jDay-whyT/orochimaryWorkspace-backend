@@ -440,7 +440,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
     else:
         # Default: show universal model card with live data
         from app.keyboards.inline import model_card_keyboard
-        from app.services.model_card import build_model_card_text
+        from app.services.model_card import build_model_card
         k = generate_token()
         memory_state.set(user_id, {
             "flow": "nlp_actions",
@@ -448,12 +448,13 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             "model_name": model_data.title,
             "k": k,
         })
-        card_text = await build_model_card_text(
+        card_text, open_orders = await build_model_card(
             model_id, model_data.title, config, notion,
         )
+        oo = open_orders if open_orders >= 0 else None
         await query.message.edit_text(
             card_text,
-            reply_markup=model_card_keyboard(k),
+            reply_markup=model_card_keyboard(k, open_orders=oo),
             parse_mode="HTML",
         )
 

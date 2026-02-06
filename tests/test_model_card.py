@@ -225,6 +225,13 @@ class TestFilesQtyKeyboard:
 class TestBuildModelCardText:
     """Tests for build_model_card_text with mocked Notion."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        from app.services.model_card import clear_card_cache
+        clear_card_cache()
+        yield
+        clear_card_cache()
+
     @pytest.mark.asyncio
     async def test_card_text_with_data(self):
         """Card text contains 📌, model name, orders, shoot, files."""

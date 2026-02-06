@@ -481,26 +481,31 @@ def nlp_model_actions_keyboard(k: str = "") -> InlineKeyboardMarkup:
     return model_card_keyboard(k)
 
 
-def model_card_keyboard(k: str = "") -> InlineKeyboardMarkup:
+def model_card_keyboard(k: str = "", open_orders: int | None = None) -> InlineKeyboardMarkup:
     """
     Universal model card keyboard (CRM main scenario).
 
     Row 1: ➕ Заказ | 📅 Съёмка | 📁 Файлы
-    Row 2: 📋 Заказы | ✓ Закрыть | 📊 Репорт
+    Row 2: 📋 Заказы | (✓ Закрыть if open_orders > 0) | 📊 Репорт
     Row 3: 🏠 Меню | ♻️ Сброс
+
+    If open_orders == 0, the "✓ Закрыть" button is hidden.
+    If open_orders is None (unknown), the button is shown (safe default).
     """
     s = f":{k}" if k else ""
+    row2 = [
+        InlineKeyboardButton(text="📋 Заказы", callback_data=f"nlp:act:orders{s}"),
+    ]
+    if open_orders is None or open_orders > 0:
+        row2.append(InlineKeyboardButton(text="✓ Закрыть", callback_data=f"nlp:act:close{s}"))
+    row2.append(InlineKeyboardButton(text="📊 Репорт", callback_data=f"nlp:act:report{s}"))
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="➕ Заказ", callback_data=f"nlp:act:order{s}"),
             InlineKeyboardButton(text="📅 Съёмка", callback_data=f"nlp:act:shoot{s}"),
             InlineKeyboardButton(text="📁 Файлы", callback_data=f"nlp:act:files{s}"),
         ],
-        [
-            InlineKeyboardButton(text="📋 Заказы", callback_data=f"nlp:act:orders{s}"),
-            InlineKeyboardButton(text="✓ Закрыть", callback_data=f"nlp:act:close{s}"),
-            InlineKeyboardButton(text="📊 Репорт", callback_data=f"nlp:act:report{s}"),
-        ],
+        row2,
         [
             InlineKeyboardButton(text="\U0001f3e0 Меню", callback_data="nlp:x:m"),
             InlineKeyboardButton(text="♻️ Сброс", callback_data="nlp:x:c"),
