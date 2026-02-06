@@ -478,21 +478,33 @@ def nlp_confirm_model_keyboard(model_id: str, model_name: str, k: str = "") -> I
 
 def nlp_model_actions_keyboard(k: str = "") -> InlineKeyboardMarkup:
     """CRM action card shown after model context is set. model_id in memory."""
+    return model_card_keyboard(k)
+
+
+def model_card_keyboard(k: str = "") -> InlineKeyboardMarkup:
+    """
+    Universal model card keyboard (CRM main scenario).
+
+    Row 1: ➕ Заказ | 📅 Съёмка | 📁 Файлы
+    Row 2: 📋 Заказы | ✓ Закрыть | 📊 Репорт
+    Row 3: 🏠 Меню | ♻️ Сброс
+    """
     s = f":{k}" if k else ""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📦 Заказ", callback_data=f"nlp:act:order{s}"),
+            InlineKeyboardButton(text="➕ Заказ", callback_data=f"nlp:act:order{s}"),
+            InlineKeyboardButton(text="📅 Съёмка", callback_data=f"nlp:act:shoot{s}"),
             InlineKeyboardButton(text="📁 Файлы", callback_data=f"nlp:act:files{s}"),
-        ],
-        [
-            InlineKeyboardButton(text="📅 Съемка", callback_data=f"nlp:act:shoot{s}"),
-            InlineKeyboardButton(text="📊 Репорт", callback_data=f"nlp:act:report{s}"),
         ],
         [
             InlineKeyboardButton(text="📋 Заказы", callback_data=f"nlp:act:orders{s}"),
             InlineKeyboardButton(text="✓ Закрыть", callback_data=f"nlp:act:close{s}"),
+            InlineKeyboardButton(text="📊 Репорт", callback_data=f"nlp:act:report{s}"),
         ],
-        [_NLP_CANCEL_BTN],
+        [
+            InlineKeyboardButton(text="\U0001f3e0 Меню", callback_data="nlp:x:m"),
+            InlineKeyboardButton(text="♻️ Сброс", callback_data="nlp:x:c"),
+        ],
     ])
 
 
@@ -705,11 +717,10 @@ def nlp_files_qty_keyboard(k: str = "") -> InlineKeyboardMarkup:
     s = f":{k}" if k else ""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="5", callback_data=f"nlp:af:5{s}"),
-            InlineKeyboardButton(text="10", callback_data=f"nlp:af:10{s}"),
-            InlineKeyboardButton(text="15", callback_data=f"nlp:af:15{s}"),
-            InlineKeyboardButton(text="20", callback_data=f"nlp:af:20{s}"),
-            InlineKeyboardButton(text="30", callback_data=f"nlp:af:30{s}"),
+            InlineKeyboardButton(text="+15", callback_data=f"nlp:af:15{s}"),
+            InlineKeyboardButton(text="+30", callback_data=f"nlp:af:30{s}"),
+            InlineKeyboardButton(text="+50", callback_data=f"nlp:af:50{s}"),
+            InlineKeyboardButton(text="Ввод", callback_data=f"nlp:af:custom{s}"),
         ],
         [_NLP_CANCEL_BTN],
     ])
