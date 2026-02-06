@@ -38,6 +38,15 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, Me
     dp["memory_state"] = memory_state
     dp["recent_models"] = recent_models
     
-    LOGGER.info("Bot dispatcher created")
-    
+    router_names = [r.name or r.__class__.__name__ for r in dp.sub_routers]
+    LOGGER.info("Bot dispatcher created, routers=%s", router_names)
+
+    # Log message handler count in the fallback (start) router
+    msg_handlers = start.router.message.handlers
+    LOGGER.info(
+        "start.router message handlers: %d entries = %s",
+        len(msg_handlers),
+        [type(h.callback).__name__ if hasattr(h, 'callback') else str(h) for h in msg_handlers],
+    )
+
     return bot, dp, notion, memory_state, recent_models

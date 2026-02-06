@@ -13,6 +13,8 @@ logging.basicConfig(
 )
 LOGGER = logging.getLogger(__name__)
 
+GIT_SHA = os.environ.get("GIT_SHA", "unknown")
+
 
 async def create_app() -> web.Application:
     """Create aiohttp application."""
@@ -45,7 +47,20 @@ async def create_app() -> web.Application:
         return web.Response(text="ok")
 
     async def telegram_webhook(request: web.Request) -> web.StreamResponse:
-        LOGGER.info("Webhook request received")
+        try:
+            body = await request.json()
+            update_type = (
+                "message" if "message" in body
+                else "callback_query" if "callback_query" in body
+                else "edited_message" if "edited_message" in body
+                else f"other({list(body.keys())})"
+            )
+            LOGGER.info(
+                "Webhook request received: update_id=%s type=%s",
+                body.get("update_id"), update_type,
+            )
+        except Exception:
+            LOGGER.info("Webhook request received (non-JSON body)")
         secret = config.telegram_webhook_secret
         if secret:
             header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
@@ -65,7 +80,7 @@ async def create_app() -> web.Application:
 def main() -> None:
     """Run the server."""
     port = int(os.environ.get("PORT", "8080"))
-    LOGGER.info("Starting server on port %s", port)
+    LOGGER.info("Starting server on port %s  GIT_SHA=%s", port, GIT_SHA)
     web.run_app(create_app(), host="0.0.0.0", port=port)
 
 
