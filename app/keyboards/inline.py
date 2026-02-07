@@ -2,7 +2,7 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.utils.constants import ORDER_TYPES, PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS
+from app.utils.constants import ORDER_TYPES, PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS, NLP_SHOOT_CONTENT_TYPES
 
 
 # ==================== Common ====================
@@ -632,6 +632,46 @@ def nlp_shoot_select_keyboard(shoots: list, action: str, k: str = "") -> InlineK
         ))
     builder.row(_NLP_CANCEL_BTN)
     return builder.as_markup()
+
+
+# ==================== NLP Shoot Content Types ====================
+
+def nlp_shoot_content_keyboard(selected: list[str], k: str = "") -> InlineKeyboardMarkup:
+    """Multi-select content types for shoot creation via NLP.
+    Twitter/Reddit/Main/SFC/Posting/Fansly + ✅ Готово
+    """
+    s = f":{k}" if k else ""
+    builder = InlineKeyboardBuilder()
+    row: list[InlineKeyboardButton] = []
+    for ct in NLP_SHOOT_CONTENT_TYPES:
+        mark = "✓ " if ct in selected else ""
+        row.append(InlineKeyboardButton(
+            text=f"{mark}{ct}",
+            callback_data=f"nlp:sct:{ct}{s}",
+        ))
+        if len(row) == 3:
+            builder.row(*row)
+            row = []
+    if row:
+        builder.row(*row)
+    builder.row(InlineKeyboardButton(text="✅ Готово", callback_data=f"nlp:scd:done{s}"))
+    builder.row(_NLP_CANCEL_BTN)
+    return builder.as_markup()
+
+
+# ==================== NLP Shoot Manage Keyboard ====================
+
+def nlp_shoot_manage_keyboard(shoot_id: str, k: str = "") -> InlineKeyboardMarkup:
+    """Manage nearest shoot: Done / Reschedule / Comment."""
+    s = f":{k}" if k else ""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Done", callback_data=f"nlp:sdc:{shoot_id}{s}"),
+            InlineKeyboardButton(text="↩️ Перенос", callback_data=f"nlp:srs:{shoot_id}{s}"),
+            InlineKeyboardButton(text="💬 Коммент", callback_data=f"nlp:scm:{shoot_id}{s}"),
+        ],
+        [_NLP_CANCEL_BTN],
+    ])
 
 
 # ==================== NLP Close Order Keyboards ====================

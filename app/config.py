@@ -112,7 +112,7 @@ def load_config(validate: bool = True) -> Config:
     timezone_name = os.getenv("TIMEZONE", "Europe/Brussels")  # Default to europe-west1 region
     
     try:
-        files_per_month = int(os.getenv("FILES_PER_MONTH", "180"))
+        files_per_month = int(os.getenv("FILES_PER_MONTH", "200"))
     except ValueError:
         print("ERROR: FILES_PER_MONTH must be an integer", file=sys.stderr)
         sys.exit(1)

@@ -64,5 +64,15 @@ MODEL_STATUS_LOOTED = "looted"
 # Pagination
 PAGE_SIZE = 5
 
-# Files per month (for accounting percentage calculation)
-FILES_PER_MONTH = 180
+# Files per month limit (for accounting percentage calculation)
+FILES_MONTH_LIMIT = 200
+
+# NLP content types for shoots (canonical values for Planner multi-select)
+NLP_SHOOT_CONTENT_TYPES = [
+    "Twitter",
+    "Reddit",
+    "Main",
+    "SFC",
+    "Posting",
+    "Fansly",
+]

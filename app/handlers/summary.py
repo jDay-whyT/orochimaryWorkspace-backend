@@ -15,9 +15,8 @@ from app.keyboards.inline import (
     back_keyboard,
 )
 from app.roles import is_authorized
-from app.services import NotionClient, ModelsService, OrdersService, AccountingService
+from app.services import ModelsService, OrdersService, AccountingService
 from app.state import MemoryState, RecentModels
-from app.utils.formatting import format_percent
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -259,31 +258,34 @@ async def _show_model_summary(
     
     # Get current month stats
     now = datetime.now(config.timezone)
-    month_str = now.strftime("%B")
-    
+    yyyy_mm = now.strftime("%Y-%m")
+    fpm = config.files_per_month
+
     # Get accounting record
     accounting_service = AccountingService(config)
-    record = await accounting_service.get_record_by_model(model_id)
-    
-    files_amount = record["amount"] if record else 0
-    files_percent = record["percent"] if record else 0.0
-    
+    record = await accounting_service.get_monthly_record(model_id)
+
+    total_files = record.files if record else 0
+    pct = min(100, round(total_files / fpm * 100)) if fpm > 0 else 0
+    over = max(0, total_files - fpm)
+
     # Get orders stats
     orders_service = OrdersService(config)
     open_orders = await orders_service.get_open_orders(model_id)
     open_count = len(open_orders)
-    
-    # Count debts (orders without completion)
-    # For simplicity, debts = open orders
     debts_count = open_count
-    
+
     # Build summary text
+    files_line = f"{total_files}/{fpm} ({pct}%)"
+    if over > 0:
+        files_line += f" +{over}"
+
     text = f"📊 <b>{html.escape(model_name)}</b>\n"
     text += f"{html.escape(project)} · {status} · {winrate}\n\n"
-    text += f"📅 {month_str}:\n"
-    text += f"Files: {files_amount} ({format_percent(files_percent)})\n"
+    text += f"📅 {yyyy_mm}:\n"
+    text += f"Files: {files_line}\n"
     text += f"Orders: {open_count} open\n"
-    
+
     if debts_count > 0:
         text += f"Debts: {debts_count} orders\n"
     

@@ -52,16 +52,15 @@ class NotionPlanner:
 
 @dataclass
 class NotionAccounting:
-    """Accounting entity."""
+    """Accounting entity — one record per model per month."""
     page_id: str
     title: str
     model_id: str | None = None
     model_title: str | None = None
-    amount: int | None = None
-    percent: float | None = None
-    content: list[str] | None = None
+    files: int = 0
+    comment: str | None = None
     status: str | None = None
-    comments: str | None = None
+    last_edited: str | None = None
 
 
 class NotionClient:
@@ -418,13 +417,15 @@ class NotionClient:
         location: str,
         title: str,
         comments: str | None = None,
+        status: str | None = None,
     ) -> str:
         """Create a new shoot. Returns page ID."""
+        shoot_status = status or "planned"
         properties: dict[str, Any] = {
             "Title": {"title": [{"text": {"content": title}}]},
             "model": {"relation": [{"id": model_page_id}]},
             "date": {"date": {"start": shoot_date.isoformat()}},
-            "status": {"select": {"name": "planned"}},
+            "status": {"select": {"name": shoot_status}},
             "location": {"select": {"name": location}},
             "content": {"multi_select": [{"name": c} for c in content]},
         }
@@ -469,56 +470,152 @@ class NotionClient:
 
     # ==================== Accounting ====================
 
-    async def query_accounting_current_month(
+    async def query_monthly_records(
         self,
         database_id: str,
-        model_page_id: str | None = None,
-        year: int | None = None,
-        month: int | None = None,
-        limit: int = 100,
+        model_page_id: str,
+        yyyy_mm: str,
     ) -> list[NotionAccounting]:
-        """Query accounting records, optionally for current month."""
+        """
+        Query accounting records for a model in a given month.
+
+        Searches by Title contains "{yyyy_mm}" AND model relation.
+        Returns list sorted by last_edited_time descending.
+        """
         filters: list[dict[str, Any]] = [
-            {"or": [
-                {"property": "status", "status": {"equals": "work"}},
-                {"property": "status", "status": {"equals": "new"}},
-                {"property": "status", "status": {"equals": "inactive"}},
-            ]}
+            {"property": "Title", "title": {"contains": yyyy_mm}},
         ]
-        
+        # Always filter by model relation
         if model_page_id:
-            filters.append({"property": "model", "relation": {"contains": model_page_id}})
-        
+            filters.append(
+                {"property": "model", "relation": {"contains": model_page_id}}
+            )
+
         payload = {
-            "page_size": limit,
-            "filter": {"and": filters} if len(filters) > 1 else filters[0],
-            "sorts": [{"property": "model", "direction": "ascending"}],
+            "page_size": 10,
+            "filter": {"and": filters},
+            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
         }
-        
+
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
         data = await self._request("POST", url, json=payload)
-        
+
         return [_parse_accounting(item) for item in data.get("results", [])]
 
-    async def add_files_to_accounting(
+    async def get_monthly_record(
+        self,
+        database_id: str,
+        model_page_id: str,
+        yyyy_mm: str,
+    ) -> NotionAccounting | None:
+        """
+        Get the single monthly accounting record for a model.
+
+        If >1 records found, returns the most recently edited one.
+        """
+        records = await self.query_monthly_records(
+            database_id, model_page_id, yyyy_mm,
+        )
+        if not records:
+            return None
+        # Already sorted by last_edited_time desc
+        return records[0]
+
+    async def create_accounting_record(
+        self,
+        database_id: str,
+        model_page_id: str,
+        model_name: str,
+        files: int,
+        yyyy_mm: str,
+    ) -> str:
+        """
+        Create new monthly accounting record.
+
+        Title format: "{MODEL_NAME} · accounting {YYYY-MM}"
+        """
+        model = await self.get_model(model_page_id)
+        status = (
+            model.status
+            if model and model.status in ["work", "new", "inactive"]
+            else "work"
+        )
+
+        title = f"{model_name} · accounting {yyyy_mm}"
+
+        properties: dict[str, Any] = {
+            "Title": {"title": [{"text": {"content": title}}]},
+            "model": {"relation": [{"id": model_page_id}]},
+            "Files": {"number": files},
+            "status": {"status": {"name": status}},
+        }
+
+        payload = {
+            "parent": {"database_id": database_id},
+            "properties": properties,
+        }
+
+        LOGGER.info(
+            "Creating accounting record: database_id=%s, title='%s'",
+            database_id, title,
+        )
+
+        url = "https://api.notion.com/v1/pages"
+        response = await self._request("POST", url, json=payload)
+        return response["id"]
+
+    async def update_accounting_files(
         self,
         page_id: str,
-        additional_files: int,
-        current_amount: int,
-        files_per_month: int,
+        files: int,
     ) -> None:
-        """Add files to accounting record and update percentage."""
-        new_amount = current_amount + additional_files
-        new_percent = new_amount / files_per_month if files_per_month > 0 else 0
-        
+        """Update accounting Files number."""
         payload = {
             "properties": {
-                "amount": {"number": new_amount},
-                "%": {"number": new_percent},
+                "Files": {"number": files},
             }
         }
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
+
+    async def update_accounting_comment(self, page_id: str, comment: str) -> None:
+        """Update accounting Comment."""
+        payload = {
+            "properties": {
+                "Comment": {"rich_text": [{"text": {"content": comment}}]},
+            }
+        }
+        url = f"https://api.notion.com/v1/pages/{page_id}"
+        await self._request("PATCH", url, json=payload)
+
+    async def query_accounting_all_month(
+        self,
+        database_id: str,
+        yyyy_mm: str,
+        limit: int = 100,
+    ) -> list[NotionAccounting]:
+        """Query ALL accounting records for a given month (across models)."""
+        filters: list[dict[str, Any]] = [
+            {"property": "Title", "title": {"contains": yyyy_mm}},
+        ]
+
+        payload = {
+            "page_size": limit,
+            "filter": filters[0],
+            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+        }
+
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        data = await self._request("POST", url, json=payload)
+
+        results = []
+        for item in data.get("results", []):
+            accounting = _parse_accounting(item)
+            if accounting.model_id:
+                model = await self.get_model(accounting.model_id)
+                accounting.model_title = model.title if model else None
+            results.append(accounting)
+        return results
 
     async def update_order(self, page_id: str, properties: dict[str, Any]) -> None:
         """Update order properties."""
@@ -531,148 +628,22 @@ class NotionClient:
         try:
             url = f"https://api.notion.com/v1/pages/{page_id}"
             data = await self._request("GET", url)
-            
-            # Also need to fetch model title
+
             model_id = _extract_relation_id(data, "model")
             model_title = None
             if model_id:
                 model = await self.get_model(model_id)
                 model_title = model.title if model else None
-            
+
             shoot = _parse_planner(data)
             shoot.model_title = model_title
             return shoot
-        except Exception as e:
-            LOGGER.exception(f"Failed to get shoot {page_id}")
+        except Exception:
+            LOGGER.exception("Failed to get shoot %s", page_id)
             return None
 
     async def update_shoot_comment(self, page_id: str, comment: str) -> None:
         """Update shoot comment."""
-        payload = {
-            "properties": {
-                "comments": {"rich_text": [{"text": {"content": comment}}]}
-            }
-        }
-        url = f"https://api.notion.com/v1/pages/{page_id}"
-        await self._request("PATCH", url, json=payload)
-
-    async def query_accounting_by_month(
-        self,
-        database_id: str,
-        month_str: str,
-    ) -> list[NotionAccounting]:
-        """Query accounting records filtering by month in title."""
-        # Filter records that contain the month in title
-        filters = [
-            {"property": "Title", "title": {"contains": month_str}},
-            {"or": [
-                {"property": "status", "status": {"equals": "work"}},
-                {"property": "status", "status": {"equals": "new"}},
-                {"property": "status", "status": {"equals": "inactive"}},
-            ]}
-        ]
-
-        payload = {
-            "page_size": 100,
-            "filter": {"and": filters},
-        }
-
-        url = f"https://api.notion.com/v1/databases/{database_id}/query"
-        data = await self._request("POST", url, json=payload)
-
-        results = []
-        for item in data.get("results", []):
-            accounting = _parse_accounting(item)
-            # Fetch model title
-            if accounting.model_id:
-                model = await self.get_model(accounting.model_id)
-                accounting.model_title = model.title if model else None
-            results.append(accounting)
-
-        return results
-
-    async def get_accounting_record(
-        self,
-        database_id: str,
-        model_id: str,
-        month_str: str,
-    ) -> NotionAccounting | None:
-        """Get accounting record for model and month."""
-        records = await self.query_accounting_by_month(database_id, month_str)
-        
-        for record in records:
-            if record.model_id == model_id:
-                return record
-        
-        return None
-
-    async def create_accounting_record(
-        self,
-        database_id: str,
-        model_page_id: str,
-        amount: int,
-        month: str,
-        files_per_month: int = 180,
-    ) -> str:
-        """Create new accounting record."""
-        # Get model to fetch project and status
-        model = await self.get_model(model_page_id)
-        status = model.status if model and model.status in ["work", "new", "inactive"] else "work"
-
-        percent = amount / float(files_per_month)
-
-        title = f"{month}"
-
-        properties: dict[str, Any] = {
-            "Title": {"title": [{"text": {"content": title}}]},
-            "model": {"relation": [{"id": model_page_id}]},
-            "amount": {"number": amount},
-            "%": {"number": percent},
-            "status": {"status": {"name": status}},
-        }
-
-        payload = {
-            "parent": {"database_id": database_id},
-            "properties": properties,
-        }
-
-        LOGGER.info(
-            "Creating accounting record: database_id=%s, title_key='Title', title_value='%s'",
-            database_id, title
-        )
-
-        url = "https://api.notion.com/v1/pages"
-        response = await self._request("POST", url, json=payload)
-        return response["id"]
-
-    async def update_accounting_files(
-        self,
-        page_id: str,
-        amount: int,
-        percent: float,
-    ) -> None:
-        """Update accounting amount and percent."""
-        payload = {
-            "properties": {
-                "amount": {"number": amount},
-                "%": {"number": percent},
-            }
-        }
-        url = f"https://api.notion.com/v1/pages/{page_id}"
-        await self._request("PATCH", url, json=payload)
-
-    async def update_accounting_content(self, page_id: str, content: list[str]) -> None:
-        """Update accounting content."""
-        payload = {
-            "properties": {
-                "content": {"multi_select": [{"name": c} for c in content]}
-            }
-        }
-        url = f"https://api.notion.com/v1/pages/{page_id}"
-        await self._request("PATCH", url, json=payload)
-
-    async def update_accounting_comment(self, page_id: str, comment: str) -> None:
-        """Update accounting comment."""
         payload = {
             "properties": {
                 "comments": {"rich_text": [{"text": {"content": comment}}]}
@@ -821,15 +792,14 @@ def _parse_planner(item: dict[str, Any]) -> NotionPlanner:
 
 def _parse_accounting(item: dict[str, Any]) -> NotionAccounting:
     """Parse accounting entry from Notion API response."""
-    amount = _extract_number(item, "amount")
-    percent = _extract_number(item, "%")
+    files_val = _extract_number(item, "Files")
+    last_edited = item.get("last_edited_time")
     return NotionAccounting(
         page_id=item["id"],
         title=_extract_any_title(item) or "(no title)",
         model_id=_extract_relation_id(item, "model"),
-        amount=int(amount) if amount is not None else None,
-        percent=percent,
-        content=_extract_multi_select(item, "content"),
+        files=int(files_val) if files_val is not None else 0,
+        comment=_extract_rich_text(item, "Comment"),
         status=_extract_status(item, "status"),
-        comments=_extract_rich_text(item, "comments"),
+        last_edited=last_edited,
     )

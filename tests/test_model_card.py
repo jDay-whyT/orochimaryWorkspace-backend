@@ -249,14 +249,14 @@ class TestBuildModelCardText:
             NotionPlanner(page_id="s1", title="test shoot",
                          date="2026-02-15", status="planned"),
         ]
-        mock_notion.get_accounting_record.return_value = NotionAccounting(
-            page_id="a1", title="February", amount=90, percent=0.5,
+        mock_notion.get_monthly_record.return_value = NotionAccounting(
+            page_id="a1", title="МЕЛИСА · accounting 2026-02", files=90,
         )
 
         from zoneinfo import ZoneInfo
         mock_config = MagicMock()
         mock_config.timezone = ZoneInfo("Europe/Brussels")
-        mock_config.files_per_month = 180
+        mock_config.files_per_month = 200
         mock_config.db_orders = "db_orders"
         mock_config.db_planner = "db_planner"
         mock_config.db_accounting = "db_accounting"
@@ -270,8 +270,8 @@ class TestBuildModelCardText:
         assert "open 2" in text  # 2 orders
         assert "15.02" in text  # next shoot date
         assert "planned" in text
-        assert "90/180" in text  # files
-        assert "50%" in text
+        assert "90/200" in text  # files
+        assert "45%" in text  # 90/200 = 45%
         assert "Что делаем?" in text
 
     @pytest.mark.asyncio
@@ -282,12 +282,12 @@ class TestBuildModelCardText:
         mock_notion = AsyncMock()
         mock_notion.query_open_orders.side_effect = RuntimeError("Notion down")
         mock_notion.query_upcoming_shoots.side_effect = RuntimeError("Notion down")
-        mock_notion.get_accounting_record.side_effect = RuntimeError("Notion down")
+        mock_notion.get_monthly_record.side_effect = RuntimeError("Notion down")
 
         from zoneinfo import ZoneInfo
         mock_config = MagicMock()
         mock_config.timezone = ZoneInfo("Europe/Brussels")
-        mock_config.files_per_month = 180
+        mock_config.files_per_month = 200
         mock_config.db_orders = "db_orders"
         mock_config.db_planner = "db_planner"
         mock_config.db_accounting = "db_accounting"
@@ -316,12 +316,12 @@ class TestBuildModelCardText:
         mock_notion = AsyncMock()
         mock_notion.query_open_orders.return_value = []
         mock_notion.query_upcoming_shoots.return_value = []
-        mock_notion.get_accounting_record.return_value = None
+        mock_notion.get_monthly_record.return_value = None
 
         from zoneinfo import ZoneInfo
         mock_config = MagicMock()
         mock_config.timezone = ZoneInfo("Europe/Brussels")
-        mock_config.files_per_month = 180
+        mock_config.files_per_month = 200
         mock_config.db_orders = "db_orders"
         mock_config.db_planner = "db_planner"
         mock_config.db_accounting = "db_accounting"
@@ -332,7 +332,7 @@ class TestBuildModelCardText:
 
         assert "open 0" in text
         assert "нет" in text  # no shoots
-        assert "0/180" in text
+        assert "0/200" in text
 
 
 # ============================================================================

@@ -756,36 +756,36 @@ async def _handle_files_stats(message, model, config, notion):
 
     model_name = model["name"]
     model_id = model["id"]
+    fpm = config.files_per_month
 
     try:
-        now = datetime.now(tz=config.timezone)
-        month_str = now.strftime("%B")
-
-        record = await notion.get_accounting_record(config.db_accounting, model_id, month_str)
+        yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
+        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
 
         if record:
-            current = record.amount or 0
-            target = config.files_per_month
-            percent = int((current / target) * 100) if target > 0 else 0
-            remaining = max(0, target - current)
+            current = record.files
+            pct = min(100, round(current / fpm * 100)) if fpm > 0 else 0
+            over = max(0, current - fpm)
+            remaining = max(0, fpm - current)
+            over_str = f"\nСверх лимита: +{over}" if over > 0 else ""
 
             await message.answer(
-                f"📊 <b>{html.escape(model_name)}</b> | {month_str}\n\n"
-                f"Файлов: {current} ({percent}%)\n"
-                f"До {target}: {remaining} файлов",
+                f"📊 <b>{html.escape(model_name)}</b> | {yyyy_mm}\n\n"
+                f"Файлов: {current}/{fpm} ({pct}%)\n"
+                f"До {fpm}: {remaining} файлов{over_str}",
                 parse_mode="HTML",
             )
         else:
             await message.answer(
-                f"📊 <b>{html.escape(model_name)}</b> | {month_str}\n\n"
-                f"Файлов: 0 (0%)\n"
-                f"До {config.files_per_month}: {config.files_per_month} файлов",
+                f"📊 <b>{html.escape(model_name)}</b> | {yyyy_mm}\n\n"
+                f"Файлов: 0/{fpm} (0%)\n"
+                f"До {fpm}: {fpm} файлов",
                 parse_mode="HTML",
             )
 
     except Exception as e:
         LOGGER.exception("Failed to get files stats: %s", e)
-        await message.answer("❌ Ошибка при загрузке статистики.")
+        await message.answer("❌ Не смог обновить Notion, попробуй позже.")
 
 
 async def _handle_ambiguous(message, model, entities, config, memory_state):
@@ -975,7 +975,6 @@ MAX_FILES_INPUT = 500  # configurable upper limit for manual file count
 
 async def _handle_custom_files_input(message, text, user_state, config, notion, memory_state):
     """Handle free-text number input for nlp_files flow (awaiting_count)."""
-    import re
     from app.roles import is_editor
 
     user_id = message.from_user.id
@@ -985,7 +984,6 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
         memory_state.clear(user_id)
         return
 
-    # Parse number: "30", "+30", "30 файлов", "30ф", "файлы 30"
     count = _parse_files_count(text.strip())
     if count is None:
         await message.answer(f"❌ Введите число (1–{MAX_FILES_INPUT})")
@@ -993,36 +991,35 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
 
     model_id = user_state.get("model_id", "")
     model_name = user_state.get("model_name", "")
+    fpm = config.files_per_month
+    yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
 
     try:
-        now = datetime.now(tz=config.timezone)
-        month_str = now.strftime("%B")
-
-        record = await notion.get_accounting_record(config.db_accounting, model_id, month_str)
+        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
 
         if not record:
             await notion.create_accounting_record(
-                config.db_accounting, model_id, count, month_str, config.files_per_month
+                config.db_accounting, model_id, model_name, count, yyyy_mm,
             )
-            new_amount = count
+            new_files = count
         else:
-            current_amount = record.amount or 0
-            new_amount = current_amount + count
-            new_percent = new_amount / float(config.files_per_month)
-            await notion.update_accounting_files(record.page_id, new_amount, new_percent)
+            new_files = record.files + count
+            await notion.update_accounting_files(record.page_id, new_files)
 
-        percent = int((new_amount / config.files_per_month) * 100)
+        pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
+        over = max(0, new_files - fpm)
+        over_str = f" +{over}" if over > 0 else ""
         memory_state.clear(user_id)
 
         await message.answer(
-            f"✅ +{count} файлов ({new_amount} всего)\n\n"
-            f"<b>{html.escape(model_name)}</b> · {month_str}\n"
-            f"Файлов: {new_amount} ({percent}%)",
+            f"✅ +{count} файлов ({new_files} всего)\n\n"
+            f"<b>{html.escape(model_name)}</b>\n"
+            f"Файлов: {new_files}/{fpm} ({pct}%){over_str}",
             parse_mode="HTML",
         )
     except Exception as e:
         LOGGER.exception("Failed to add files: %s", e)
-        await message.answer("❌ Ошибка при добавлении файлов.")
+        await message.answer("❌ Не смог обновить Notion, попробуй позже.")
         memory_state.clear(user_id)
 
 
