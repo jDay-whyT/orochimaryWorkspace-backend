@@ -6,6 +6,13 @@ from typing import Any
 
 import aiohttp
 
+from app.utils.constants import (
+    ACCOUNTING_COMMENT_PROP,
+    ACCOUNTING_FILES_PROP,
+    ACCOUNTING_MODEL_PROP,
+    ACCOUNTING_TITLE_PROP,
+)
+
 NOTION_VERSION = "2022-06-28"
 LOGGER = logging.getLogger(__name__)
 
@@ -139,14 +146,27 @@ class NotionClient:
                         return await response.json()
                     
                     payload = (await response.text()).strip()
-                    short_payload = payload[:200] if payload else "<empty>"
+                    short_payload = payload[:3000] if payload else "<empty>"
+                    payload_keys = list(json.keys()) if isinstance(json, dict) else []
+                    LOGGER.error(
+                        "Notion API error: method=%s url=%s status=%s payload_keys=%s response=%s",
+                        method,
+                        url,
+                        response.status,
+                        payload_keys,
+                        short_payload,
+                    )
                     
                     if response.status in {429, 500, 502, 503, 504} and attempt < retries:
-                        LOGGER.warning("Notion API retry %s %s: %s", response.status, url, short_payload)
+                        LOGGER.warning(
+                            "Notion API retry: method=%s url=%s status=%s response=%s",
+                            method,
+                            url,
+                            response.status,
+                            short_payload,
+                        )
                         await asyncio.sleep(0.5 * (attempt + 1))
                         continue
-                    
-                    LOGGER.error("Notion API error %s %s: %s", response.status, url, short_payload)
                     raise RuntimeError(f"Notion API error {response.status}")
                     
             except aiohttp.ClientError:
@@ -483,12 +503,12 @@ class NotionClient:
         Returns list sorted by last_edited_time descending.
         """
         filters: list[dict[str, Any]] = [
-            {"property": "Title", "title": {"contains": yyyy_mm}},
+            {"property": ACCOUNTING_TITLE_PROP, "title": {"contains": yyyy_mm}},
         ]
         # Always filter by model relation
         if model_page_id:
             filters.append(
-                {"property": "model", "relation": {"contains": model_page_id}}
+                {"property": ACCOUNTING_MODEL_PROP, "relation": {"contains": model_page_id}}
             )
 
         payload = {
@@ -544,9 +564,9 @@ class NotionClient:
         title = f"{model_name} · accounting {yyyy_mm}"
 
         properties: dict[str, Any] = {
-            "Title": {"title": [{"text": {"content": title}}]},
-            "model": {"relation": [{"id": model_page_id}]},
-            "Files": {"number": files},
+            ACCOUNTING_TITLE_PROP: {"title": [{"text": {"content": title}}]},
+            ACCOUNTING_MODEL_PROP: {"relation": [{"id": model_page_id}]},
+            ACCOUNTING_FILES_PROP: {"number": files},
             "status": {"status": {"name": status}},
         }
 
@@ -572,7 +592,7 @@ class NotionClient:
         """Update accounting Files number."""
         payload = {
             "properties": {
-                "Files": {"number": files},
+                ACCOUNTING_FILES_PROP: {"number": files},
             }
         }
         url = f"https://api.notion.com/v1/pages/{page_id}"
@@ -582,7 +602,7 @@ class NotionClient:
         """Update accounting Comment."""
         payload = {
             "properties": {
-                "Comment": {"rich_text": [{"text": {"content": comment}}]},
+                ACCOUNTING_COMMENT_PROP: {"rich_text": [{"text": {"content": comment}}]},
             }
         }
         url = f"https://api.notion.com/v1/pages/{page_id}"
@@ -596,7 +616,7 @@ class NotionClient:
     ) -> list[NotionAccounting]:
         """Query ALL accounting records for a given month (across models)."""
         filters: list[dict[str, Any]] = [
-            {"property": "Title", "title": {"contains": yyyy_mm}},
+            {"property": ACCOUNTING_TITLE_PROP, "title": {"contains": yyyy_mm}},
         ]
 
         payload = {
@@ -792,14 +812,14 @@ def _parse_planner(item: dict[str, Any]) -> NotionPlanner:
 
 def _parse_accounting(item: dict[str, Any]) -> NotionAccounting:
     """Parse accounting entry from Notion API response."""
-    files_val = _extract_number(item, "Files")
+    files_val = _extract_number(item, ACCOUNTING_FILES_PROP)
     last_edited = item.get("last_edited_time")
     return NotionAccounting(
         page_id=item["id"],
         title=_extract_any_title(item) or "(no title)",
-        model_id=_extract_relation_id(item, "model"),
+        model_id=_extract_relation_id(item, ACCOUNTING_MODEL_PROP),
         files=int(files_val) if files_val is not None else 0,
-        comment=_extract_rich_text(item, "Comment"),
+        comment=_extract_rich_text(item, ACCOUNTING_COMMENT_PROP),
         status=_extract_status(item, "status"),
         last_edited=last_edited,
     )

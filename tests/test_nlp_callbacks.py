@@ -15,7 +15,7 @@ Scenarios:
 import re
 import pytest
 from datetime import date, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.state.memory import MemoryState
 from app.state.token import generate_token
@@ -42,6 +42,49 @@ from app.handlers.nlp_callbacks import (
     _validate_flow_step,
     _FLOW_STEP_RULES,
 )
+
+
+# ============================================================================
+#                 ADD FILES CALLBACK (ACCOUNTING SERVICE)
+# ============================================================================
+
+
+class TestAddFilesCallback:
+    """Ensure add files uses AccountingService and not direct Notion create."""
+
+    @pytest.mark.asyncio
+    async def test_add_files_uses_accounting_service(self):
+        from app.handlers.nlp_callbacks import _handle_add_files
+
+        memory = MemoryState(ttl_seconds=60)
+        user_id = 123
+        memory.set(user_id, {"model_id": "model-1", "model_name": "Test", "k": "tok"})
+
+        query = MagicMock()
+        query.from_user.id = user_id
+        query.message = AsyncMock()
+
+        notion = AsyncMock()
+        notion.create_accounting_record = AsyncMock()
+
+        with patch("app.handlers.nlp_callbacks.is_editor", return_value=True), \
+            patch("app.services.accounting.AccountingService") as svc_cls, \
+            patch("app.services.model_card.build_model_card", return_value=("CARD", 0)), \
+            patch("app.keyboards.inline.model_card_keyboard", return_value=MagicMock()):
+            svc_instance = svc_cls.return_value
+            svc_instance.add_files = AsyncMock()
+
+            await _handle_add_files(
+                query,
+                ["nlp", "af", "5"],
+                MagicMock(),
+                notion,
+                memory,
+                MagicMock(),
+            )
+
+            svc_instance.add_files.assert_called_once_with("model-1", 5)
+            assert notion.create_accounting_record.call_count == 0
 
 
 # ============================================================================
