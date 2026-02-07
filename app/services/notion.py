@@ -361,6 +361,10 @@ class NotionClient:
 
     async def update_order_comment(self, page_id: str, comment: str) -> None:
         """Update order comment."""
+        # Notion rich_text content limit is 2000 chars; truncate as safety net.
+        if len(comment) > 2000:
+            LOGGER.warning("Order comment truncated: page_id=%s len=%d", page_id, len(comment))
+            comment = comment[:2000]
         payload = {
             "properties": {
                 "comments": {"rich_text": [{"text": {"content": comment}}]},
@@ -580,6 +584,10 @@ class NotionClient:
 
     async def update_accounting_comment(self, page_id: str, comment: str) -> None:
         """Update accounting Comment."""
+        # Notion rich_text content limit is 2000 chars; truncate as safety net.
+        if len(comment) > 2000:
+            LOGGER.warning("Accounting comment truncated: page_id=%s len=%d", page_id, len(comment))
+            comment = comment[:2000]
         payload = {
             "properties": {
                 "Comment": {"rich_text": [{"text": {"content": comment}}]},
@@ -644,6 +652,10 @@ class NotionClient:
 
     async def update_shoot_comment(self, page_id: str, comment: str) -> None:
         """Update shoot comment."""
+        # Notion rich_text content limit is 2000 chars; truncate as safety net.
+        if len(comment) > 2000:
+            LOGGER.warning("Shoot comment truncated: page_id=%s len=%d", page_id, len(comment))
+            comment = comment[:2000]
         payload = {
             "properties": {
                 "comments": {"rich_text": [{"text": {"content": comment}}]}

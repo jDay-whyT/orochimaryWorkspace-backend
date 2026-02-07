@@ -102,3 +102,39 @@ def escape_html(text: str | None) -> str:
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
+
+
+# Notion rich_text hard limit is 2000; keep margin for separator/timestamp.
+MAX_COMMENT_LENGTH = 1800
+
+
+def format_appended_comment(
+    existing: str,
+    new_text: str,
+    tz: ZoneInfo | None = None,
+) -> str:
+    """
+    Append *new_text* to *existing* comment with timestamp separator.
+
+    Result format (each entry on its own block):
+        [07.02 14:30] first comment
+        ---
+        [08.02 09:00] second comment
+
+    Truncates to MAX_COMMENT_LENGTH so Notion API never rejects the payload.
+    Race-condition note: two concurrent appends can overwrite each other
+    because Notion has no atomic read-modify-write. The timestamp makes
+    the conflict visible in the UI.
+    """
+    now = datetime.now(tz=tz)
+    ts = now.strftime("%d.%m %H:%M")
+    entry = f"[{ts}] {new_text}"
+
+    if existing:
+        result = f"{existing}\n---\n{entry}"
+    else:
+        result = entry
+
+    if len(result) > MAX_COMMENT_LENGTH:
+        result = result[:MAX_COMMENT_LENGTH]
+    return result

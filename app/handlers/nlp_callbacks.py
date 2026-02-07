@@ -34,6 +34,7 @@ from app.services import NotionClient
 from app.state import MemoryState, RecentModels, generate_token
 from app.router.command_filters import CommandIntent
 from app.keyboards.inline import ORDER_TYPE_CB_MAP
+from app.utils.formatting import format_appended_comment
 
 
 LOGGER = logging.getLogger(__name__)
@@ -802,7 +803,7 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
         if comment_text:
             shoot = await notion.get_shoot(shoot_id)
             existing = shoot.comments if shoot else ""
-            new_comment = f"{existing}\n{comment_text}".strip() if existing else comment_text
+            new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
             await notion.update_shoot_comment(shoot_id, new_comment)
             memory_state.clear(user_id)
             await query.message.edit_text("✅ Комментарий добавлен")
@@ -1093,7 +1094,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             return
         if len(orders) == 1:
             existing = orders[0].comments or ""
-            new_comment = f"{existing}\n{comment_text}".strip() if existing else comment_text
+            new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
             await notion.update_order_comment(orders[0].page_id, new_comment)
             memory_state.clear(user_id)
             await query.message.edit_text("✅ Комментарий добавлен")
@@ -1115,7 +1116,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             return
         if len(shoots) == 1:
             existing = shoots[0].comments or ""
-            new_comment = f"{existing}\n{comment_text}".strip() if existing else comment_text
+            new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
             await notion.update_shoot_comment(shoots[0].page_id, new_comment)
             memory_state.clear(user_id)
             await query.message.edit_text("✅ Комментарий добавлен")
@@ -1159,7 +1160,7 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
         page = await notion._request("GET", url)
         existing = _extract_rich_text(page, "comments") or ""
 
-        new_comment = f"{existing}\n{comment_text}".strip() if existing else comment_text
+        new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
         await notion.update_order_comment(order_id, new_comment)
         memory_state.clear(user_id)
         await query.message.edit_text("✅ Комментарий добавлен")
@@ -1517,12 +1518,19 @@ async def _handle_shoot_comment_cb(query, parts, config, notion, memory_state):
     user_id = query.from_user.id
     state = memory_state.get(user_id)
     model_name = state.get("model_name", "") if state else ""
+    model_id = state.get("model_id", "") if state else ""
+
+    LOGGER.info(
+        "SHOOT_COMMENT_CB user=%s shoot_id=%s model_id=%s",
+        user_id, shoot_id, model_id,
+    )
 
     k = generate_token()
     memory_state.set(user_id, {
         "flow": "nlp_shoot",
         "step": "awaiting_shoot_comment",
         "shoot_id": shoot_id,
+        "model_id": model_id,
         "model_name": model_name,
         "k": k,
     })
