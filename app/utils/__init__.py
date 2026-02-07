@@ -9,6 +9,8 @@ from app.utils.formatting import (
     format_percent,
     calculate_percent,
     escape_html,
+    MAX_COMMENT_LENGTH,
+    format_appended_comment,
 )
 from app.utils.constants import (
     ORDER_TYPES,
@@ -38,4 +40,6 @@ __all__ = [
     "ORDER_STATUS_CANCELED",
     "PAGE_SIZE",
     "safe_edit_message",
+    "MAX_COMMENT_LENGTH",
+    "format_appended_comment",
 ]

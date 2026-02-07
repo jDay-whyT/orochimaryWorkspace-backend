@@ -30,6 +30,7 @@ from app.router.entities_v2 import (
 )
 from app.router.command_filters import CommandIntent
 from app.router.model_resolver import resolve_model
+from app.utils.formatting import format_appended_comment, MAX_COMMENT_LENGTH
 
 
 LOGGER = logging.getLogger(__name__)
@@ -78,17 +79,11 @@ async def route_message(
         if current_flow.startswith("nlp_"):
             current_step = user_state.get("step", "")
 
-            # Allow text input for specific steps
-            if current_step == "awaiting_custom_date":
-                await _handle_custom_date_input(message, text, user_state, config, notion, memory_state)
-                return
-
-            if current_flow == "nlp_files" and current_step == "awaiting_count":
-                await _handle_custom_files_input(message, text, user_state, config, notion, memory_state)
-                return
-
-            if current_step == "awaiting_shoot_comment":
-                await _handle_shoot_comment_input(message, text, user_state, config, notion, memory_state)
+            # Dispatch to step-specific text handler if one exists.
+            # _find_nlp_text_handler is defined at the bottom of this module.
+            handler = _find_nlp_text_handler(current_flow, current_step)
+            if handler:
+                await handler(message, text, user_state, config, notion, memory_state)
                 return
 
             # nlp_* flows expect button presses, not free text.
@@ -695,7 +690,7 @@ async def _add_comment_to_order(message, model, entities, config, notion, memory
         if len(orders) == 1:
             order = orders[0]
             existing = order.comments or ""
-            new_comment = f"{existing}\n{entities.comment_text}".strip() if existing else entities.comment_text
+            new_comment = format_appended_comment(existing, entities.comment_text, tz=config.timezone)
             await notion.update_order_comment(order.page_id, new_comment)
             await message.answer("✅ Комментарий добавлен")
         else:
@@ -729,7 +724,7 @@ async def _add_comment_to_shoot(message, model, entities, config, notion, memory
         if len(shoots) == 1:
             shoot = shoots[0]
             existing = shoot.comments or ""
-            new_comment = f"{existing}\n{entities.comment_text}".strip() if existing else entities.comment_text
+            new_comment = format_appended_comment(existing, entities.comment_text, tz=config.timezone)
             await notion.update_shoot_comment(shoot.page_id, new_comment)
             await message.answer("✅ Комментарий добавлен")
         else:
@@ -758,7 +753,14 @@ async def _handle_shoot_comment_input(message, text, user_state, config, notion,
     shoot_id = user_state.get("shoot_id")
     model_name = user_state.get("model_name", "")
 
+    LOGGER.info(
+        "SHOOT_COMMENT_INPUT user=%s shoot_id=%s flow=%s step=%s",
+        user_id, shoot_id,
+        user_state.get("flow"), user_state.get("step"),
+    )
+
     if not shoot_id:
+        LOGGER.warning("SHOOT_COMMENT_INPUT ABORT: missing shoot_id user=%s", user_id)
         memory_state.clear(user_id)
         await message.answer("❌ Сессия устарела, попробуйте заново.")
         return
@@ -768,18 +770,31 @@ async def _handle_shoot_comment_input(message, text, user_state, config, notion,
         await message.answer("❌ Комментарий не может быть пустым.")
         return
 
+    if len(comment_text) > MAX_COMMENT_LENGTH:
+        await message.answer(
+            f"❌ Комментарий слишком длинный (макс. {MAX_COMMENT_LENGTH} символов)."
+        )
+        return
+
     try:
         shoot = await notion.get_shoot(shoot_id)
-        existing = shoot.comments if shoot else ""
-        new_comment = f"{existing}\n{comment_text}".strip() if existing else comment_text
+        if not shoot:
+            LOGGER.warning("SHOOT_COMMENT_INPUT: shoot not found shoot_id=%s user=%s", shoot_id, user_id)
+            memory_state.clear(user_id)
+            await message.answer("❌ Съемка не найдена. Возможно, она была удалена.")
+            return
+
+        existing = shoot.comments or ""
+        new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
         await notion.update_shoot_comment(shoot_id, new_comment)
         memory_state.clear(user_id)
+        LOGGER.info("SHOOT_COMMENT_INPUT OK user=%s shoot_id=%s", user_id, shoot_id)
         await message.answer(
             f"✅ Комментарий добавлен для <b>{html.escape(model_name)}</b>",
             parse_mode="HTML",
         )
     except Exception as e:
-        LOGGER.exception("Failed to add shoot comment: %s", e)
+        LOGGER.exception("SHOOT_COMMENT_INPUT FAIL user=%s shoot_id=%s: %s", user_id, shoot_id, e)
         memory_state.clear(user_id)
         await message.answer("❌ Ошибка при сохранении комментария.")
 
@@ -1109,3 +1124,32 @@ async def _show_help_message(message: Message) -> None:
         "Или /start",
         parse_mode="HTML",
     )
+
+
+# ============================================================================
+#               NLP TEXT STEP HANDLER MAP
+# ============================================================================
+# Map (flow | None, step) → handler for free-text input in nlp_* flows.
+# None as flow means "match any nlp_* flow".
+# All handlers share the signature:
+#   (message, text, user_state, config, notion, memory_state) → None
+#
+# To add a new text-input step:
+#   1. Define the handler function above.
+#   2. Add an entry here.
+#   3. Done — no need to touch route_message().
+
+_NLP_TEXT_HANDLERS: dict[tuple[str | None, str], object] = {
+    (None, "awaiting_custom_date"): _handle_custom_date_input,
+    ("nlp_files", "awaiting_count"): _handle_custom_files_input,
+    (None, "awaiting_shoot_comment"): _handle_shoot_comment_input,
+}
+
+
+def _find_nlp_text_handler(flow: str, step: str):
+    """Look up handler for free-text input during an nlp_* flow.
+
+    Tries exact (flow, step) first, then wildcard (None, step).
+    Returns the handler callable or None.
+    """
+    return _NLP_TEXT_HANDLERS.get((flow, step)) or _NLP_TEXT_HANDLERS.get((None, step))
