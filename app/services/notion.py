@@ -484,46 +484,67 @@ class NotionClient:
         """
         Query accounting records for a model in a given month.
 
-        Searches by model relation AND Title contains month_ru_lower
-        (derived from yyyy_mm).  Falls back to yyyy_mm substring for
-        backwards compatibility with old-format titles.
+        Three-step search (stops at first hit):
+          1. primary   — model relation + Title contains "{month_ru} {year}"
+          2. fallback1 — model relation + Title contains "{month_ru}"  (old records w/o year)
+          3. fallback2 — model relation + Title contains "{yyyy_mm}"   (very old records)
         Returns list sorted by last_edited_time descending.
         """
         from app.utils.formatting import MONTHS_RU_LOWER
 
-        month_idx = int(yyyy_mm.split("-")[1]) - 1
+        year, month_str = yyyy_mm.split("-")
+        month_idx = int(month_str) - 1
         month_label = MONTHS_RU_LOWER[month_idx]
 
-        filters: list[dict[str, Any]] = [
-            {"property": "model", "relation": {"contains": model_page_id}},
-            {"property": "Title", "title": {"contains": month_label}},
-        ]
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        model_filter = {"property": "model", "relation": {"contains": model_page_id}}
+        sorts = [{"timestamp": "last_edited_time", "direction": "descending"}]
 
+        # Step 1 — primary: "{month_ru} {year}" (e.g. "февраль 2026")
+        primary_label = f"{month_label} {year}"
         payload = {
             "page_size": 10,
-            "filter": {"and": filters},
-            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+            "filter": {"and": [
+                model_filter,
+                {"property": "Title", "title": {"contains": primary_label}},
+            ]},
+            "sorts": sorts,
         }
-
-        url = f"https://api.notion.com/v1/databases/{database_id}/query"
         data = await self._request("POST", url, json=payload)
         results = [_parse_accounting(item) for item in data.get("results", [])]
-
         if results:
+            LOGGER.debug("query_monthly_records: found via primary ('%s')", primary_label)
             return results
 
-        # Fallback: search by old title format (contains yyyy_mm)
-        fallback_filters: list[dict[str, Any]] = [
-            {"property": "model", "relation": {"contains": model_page_id}},
-            {"property": "Title", "title": {"contains": yyyy_mm}},
-        ]
-        payload_fb = {
+        # Step 2 — fallback1: "{month_ru}" only (e.g. "февраль")
+        payload_fb1 = {
             "page_size": 10,
-            "filter": {"and": fallback_filters},
-            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+            "filter": {"and": [
+                model_filter,
+                {"property": "Title", "title": {"contains": month_label}},
+            ]},
+            "sorts": sorts,
         }
-        data_fb = await self._request("POST", url, json=payload_fb)
-        return [_parse_accounting(item) for item in data_fb.get("results", [])]
+        data_fb1 = await self._request("POST", url, json=payload_fb1)
+        results_fb1 = [_parse_accounting(item) for item in data_fb1.get("results", [])]
+        if results_fb1:
+            LOGGER.debug("query_monthly_records: found via fallback1 ('%s')", month_label)
+            return results_fb1
+
+        # Step 3 — fallback2: "{yyyy_mm}" (e.g. "2026-02")
+        payload_fb2 = {
+            "page_size": 10,
+            "filter": {"and": [
+                model_filter,
+                {"property": "Title", "title": {"contains": yyyy_mm}},
+            ]},
+            "sorts": sorts,
+        }
+        data_fb2 = await self._request("POST", url, json=payload_fb2)
+        results_fb2 = [_parse_accounting(item) for item in data_fb2.get("results", [])]
+        if results_fb2:
+            LOGGER.debug("query_monthly_records: found via fallback2 ('%s')", yyyy_mm)
+        return results_fb2
 
     async def get_monthly_record(
         self,
@@ -555,7 +576,7 @@ class NotionClient:
         """
         Create new monthly accounting record.
 
-        Title format: "{MODEL_NAME} {месяц_ru_lower}" e.g. "КЛЕЩ февраль"
+        Title format: "{MODEL_NAME} {месяц_ru_lower} {year}" e.g. "КЛЕЩ февраль 2026"
         """
         from app.utils.formatting import MONTHS_RU_LOWER
 
@@ -566,9 +587,10 @@ class NotionClient:
             else "work"
         )
 
-        month_idx = int(yyyy_mm.split("-")[1]) - 1
+        year, month_str = yyyy_mm.split("-")
+        month_idx = int(month_str) - 1
         month_label = MONTHS_RU_LOWER[month_idx]
-        title = f"{model_name} {month_label}"
+        title = f"{model_name} {month_label} {year}"
 
         properties: dict[str, Any] = {
             "Title": {"title": [{"text": {"content": title}}]},
@@ -639,33 +661,36 @@ class NotionClient:
         yyyy_mm: str,
         limit: int = 100,
     ) -> list[NotionAccounting]:
-        """Query ALL accounting records for a given month (across models)."""
+        """Query ALL accounting records for a given month (across models).
+
+        Searches three title formats and merges results (dedup by page id):
+          1. "{month_ru} {year}" — new format
+          2. "{month_ru}"        — old format without year
+          3. "{yyyy_mm}"         — very old format
+        """
         from app.utils.formatting import MONTHS_RU_LOWER
 
-        month_idx = int(yyyy_mm.split("-")[1]) - 1
+        year, month_str = yyyy_mm.split("-")
+        month_idx = int(month_str) - 1
         month_label = MONTHS_RU_LOWER[month_idx]
+        primary_label = f"{month_label} {year}"
 
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        sorts = [{"timestamp": "last_edited_time", "direction": "descending"}]
 
-        # Primary: search by new title format (month_ru_lower)
-        payload = {
-            "page_size": limit,
-            "filter": {"property": "Title", "title": {"contains": month_label}},
-            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
-        }
-        data = await self._request("POST", url, json=payload)
-
-        # Also search by old format (yyyy_mm) and merge
-        payload_fb = {
-            "page_size": limit,
-            "filter": {"property": "Title", "title": {"contains": yyyy_mm}},
-            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
-        }
-        data_fb = await self._request("POST", url, json=payload_fb)
+        all_items: list[dict[str, Any]] = []
+        for search_term in (primary_label, month_label, yyyy_mm):
+            payload = {
+                "page_size": limit,
+                "filter": {"property": "Title", "title": {"contains": search_term}},
+                "sorts": sorts,
+            }
+            data = await self._request("POST", url, json=payload)
+            all_items.extend(data.get("results", []))
 
         seen_ids: set[str] = set()
         results = []
-        for item in list(data.get("results", [])) + list(data_fb.get("results", [])):
+        for item in all_items:
             if item["id"] in seen_ids:
                 continue
             seen_ids.add(item["id"])

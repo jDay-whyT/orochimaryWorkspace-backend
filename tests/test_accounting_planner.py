@@ -139,6 +139,100 @@ class TestAccountingMultipleRecords:
         assert result.files == 100
 
 
+class TestAccountingSearchFallbacks:
+    """query_monthly_records uses 3-step search: primary → fallback1 → fallback2."""
+
+    @pytest.mark.asyncio
+    async def test_primary_finds_new_format(self):
+        """Step 1 (primary): finds record with '{month_ru} {year}' in title."""
+        from app.services.notion import NotionClient
+
+        client = NotionClient("test-token-fb-primary")
+        hit = {"id": "p1", "properties": {
+            "Title": {"title": [{"plain_text": "КЛЕЩ февраль 2026"}]},
+            "model": {"relation": [{"id": "m1"}]},
+            "Files": {"number": 10},
+            "Comment": {"rich_text": []},
+            "status": {"status": {"name": "work"}},
+            "Content": {"multi_select": []},
+        }, "last_edited_time": "2026-02-05T00:00:00Z"}
+
+        # primary returns hit, other steps should not be called
+        client._request = AsyncMock(return_value={"results": [hit]})
+
+        records = await client.query_monthly_records("db-acc", "m1", "2026-02")
+
+        assert len(records) == 1
+        assert records[0].page_id == "p1"
+        # Only 1 API call (primary step)
+        assert client._request.call_count == 1
+        payload = client._request.call_args[1].get("json") or client._request.call_args[0][2]
+        title_filter = payload["filter"]["and"][1]
+        assert title_filter["property"] == "Title"
+        assert "февраль 2026" in title_filter["title"]["contains"]
+
+        NotionClient._instances.pop("test-token-fb-primary", None)
+
+    @pytest.mark.asyncio
+    async def test_fallback1_finds_old_format_without_year(self):
+        """Step 2 (fallback1): finds record with '{month_ru}' only (no year)."""
+        from app.services.notion import NotionClient
+
+        client = NotionClient("test-token-fb1")
+        hit = {"id": "p2", "properties": {
+            "Title": {"title": [{"plain_text": "КЛЕЩ февраль"}]},
+            "model": {"relation": [{"id": "m1"}]},
+            "Files": {"number": 20},
+            "Comment": {"rich_text": []},
+            "status": {"status": {"name": "work"}},
+            "Content": {"multi_select": []},
+        }, "last_edited_time": "2026-02-03T00:00:00Z"}
+
+        # primary returns empty, fallback1 returns hit
+        client._request = AsyncMock(side_effect=[
+            {"results": []},   # primary — empty
+            {"results": [hit]},  # fallback1 — hit
+        ])
+
+        records = await client.query_monthly_records("db-acc", "m1", "2026-02")
+
+        assert len(records) == 1
+        assert records[0].page_id == "p2"
+        assert client._request.call_count == 2
+
+        NotionClient._instances.pop("test-token-fb1", None)
+
+    @pytest.mark.asyncio
+    async def test_fallback2_finds_yyyy_mm_format(self):
+        """Step 3 (fallback2): finds record with '{yyyy_mm}' in title."""
+        from app.services.notion import NotionClient
+
+        client = NotionClient("test-token-fb2")
+        hit = {"id": "p3", "properties": {
+            "Title": {"title": [{"plain_text": "КЛЕЩ · accounting 2026-02"}]},
+            "model": {"relation": [{"id": "m1"}]},
+            "Files": {"number": 5},
+            "Comment": {"rich_text": []},
+            "status": {"status": {"name": "work"}},
+            "Content": {"multi_select": []},
+        }, "last_edited_time": "2026-02-01T00:00:00Z"}
+
+        # primary and fallback1 return empty, fallback2 returns hit
+        client._request = AsyncMock(side_effect=[
+            {"results": []},   # primary — empty
+            {"results": []},   # fallback1 — empty
+            {"results": [hit]},  # fallback2 — hit
+        ])
+
+        records = await client.query_monthly_records("db-acc", "m1", "2026-02")
+
+        assert len(records) == 1
+        assert records[0].page_id == "p3"
+        assert client._request.call_count == 3
+
+        NotionClient._instances.pop("test-token-fb2", None)
+
+
 # ===========================================================================
 #  Model card shows X/200, percent, over
 # ===========================================================================
@@ -304,7 +398,7 @@ class TestFilesMonthLimit:
 
 
 class TestAccountingTitleFormat:
-    """Title should be '{MODEL_NAME} · accounting {YYYY-MM}'."""
+    """Title should be '{MODEL_NAME} {month_ru} {year}'."""
 
     @pytest.mark.asyncio
     async def test_title_format_on_create(self):
@@ -329,7 +423,7 @@ class TestAccountingTitleFormat:
         call_args = client._request.call_args
         payload = call_args[1].get("json") or call_args[0][2]
         title_content = payload["properties"]["Title"]["title"][0]["text"]["content"]
-        assert title_content == "МЕЛИСА февраль"
+        assert title_content == "МЕЛИСА февраль 2026"
         assert payload["properties"]["Files"]["number"] == 30
 
         # Cleanup singleton
