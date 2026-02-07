@@ -69,12 +69,12 @@ FILES_MONTH_LIMIT = 200
 
 # NLP content types for shoots (canonical values for Planner multi-select)
 NLP_SHOOT_CONTENT_TYPES = [
-    "Twitter",
-    "Reddit",
-    "Main",
-    "SFC",
-    "Posting",
-    "Fansly",
+    "twitter",
+    "reddit",
+    "main",
+    "SFS",
+    "posting",
+    "fansly",
 ]
 
 # NLP content types for accounting (canonical values for Content multi-select)
