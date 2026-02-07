@@ -7,6 +7,8 @@ Tests the v2 classification and entity extraction without aiogram dependencies.
 import sys
 from pathlib import Path
 
+import pytest
+
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -14,6 +16,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from app.router.command_filters import CommandIntent
 from app.router.intent_v2 import classify_intent_v2, get_intent_description
 from app.router.entities_v2 import extract_entities_v2
+
+pytestmark = pytest.mark.integration
 
 
 def test_case(text: str, expected_intent: CommandIntent = None):
