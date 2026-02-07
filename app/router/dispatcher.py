@@ -280,7 +280,7 @@ async def _execute_handler(
 
     if intent == CommandIntent.ADD_FILES:
         from app.handlers.accounting import handle_add_files_nlp
-        await handle_add_files_nlp(message, model, entities, config, notion, recent_models)
+        await handle_add_files_nlp(message, model, entities, config, notion, memory_state, recent_models)
         return
 
     # ===== ORDERS WITH TYPE (priority 80) =====
@@ -660,7 +660,14 @@ async def _handle_add_comment(message, model, entities, config, notion, memory_s
         elif entities.comment_target == "shoot":
             await _add_comment_to_shoot(message, model, entities, config, notion, memory_state)
         else:
-            await message.answer("❌ Комментарии к учету пока не поддержаны.")
+            try:
+                from app.services.accounting import AccountingService
+                svc = AccountingService(config)
+                await svc.update_comment(model["id"], entities.comment_text)
+                await message.answer("✅ Комментарий добавлен")
+            except Exception as e:
+                LOGGER.exception("Failed to add accounting comment: %s", e)
+                await message.answer("❌ Ошибка.")
     else:
         # Target unknown — ask
         from app.keyboards.inline import nlp_comment_target_keyboard
@@ -976,6 +983,9 @@ MAX_FILES_INPUT = 500  # configurable upper limit for manual file count
 async def _handle_custom_files_input(message, text, user_state, config, notion, memory_state):
     """Handle free-text number input for nlp_files flow (awaiting_count)."""
     from app.roles import is_editor
+    from app.services.accounting import AccountingService
+    from app.keyboards.inline import model_card_keyboard
+    from app.services.model_card import build_model_card
 
     user_id = message.from_user.id
 
@@ -991,30 +1001,24 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
 
     model_id = user_state.get("model_id", "")
     model_name = user_state.get("model_name", "")
-    fpm = config.files_per_month
-    yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
 
     try:
-        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
-
-        if not record:
-            await notion.create_accounting_record(
-                config.db_accounting, model_id, model_name, count, yyyy_mm,
-            )
-            new_files = count
-        else:
-            new_files = record.files + count
-            await notion.update_accounting_files(record.page_id, new_files)
-
-        pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
-        over = max(0, new_files - fpm)
-        over_str = f" +{over}" if over > 0 else ""
-        memory_state.clear(user_id)
-
+        svc = AccountingService(config)
+        await svc.add_files(model_id, count)
+        k = generate_token()
+        memory_state.set(user_id, {
+            "flow": "nlp_actions",
+            "model_id": model_id,
+            "model_name": model_name,
+            "k": k,
+        })
+        card_text, open_orders = await build_model_card(
+            model_id, model_name, config, notion,
+        )
+        oo = open_orders if open_orders >= 0 else None
         await message.answer(
-            f"✅ +{count} файлов ({new_files} всего)\n\n"
-            f"<b>{html.escape(model_name)}</b>\n"
-            f"Файлов: {new_files}/{fpm} ({pct}%){over_str}",
+            card_text,
+            reply_markup=model_card_keyboard(k, open_orders=oo),
             parse_mode="HTML",
         )
     except Exception as e:

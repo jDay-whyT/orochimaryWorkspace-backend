@@ -23,7 +23,7 @@ from app.keyboards.inline import (
 from app.roles import is_authorized, is_editor
 from app.services import AccountingService, ModelsService
 from app.services.notion import NotionClient
-from app.state import MemoryState, RecentModels
+from app.state import MemoryState, RecentModels, generate_token
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -276,12 +276,13 @@ async def _add_files_to_record(query: CallbackQuery, config: Config, memory_stat
         model_name = data.get("model_name", "Unknown")
 
         svc = AccountingService(config)
-        result = await svc.add_files(model_id, model_name, count)
+        result = await svc.add_files(model_id, count)
         fpm = config.files_per_month
+        display_name = result["model_name"] if result["model_name"] != "Unknown" else model_name
 
         await query.message.edit_text(
             f"✅ <b>Files added!</b>\n\n"
-            f"<b>{html.escape(model_name)}</b>\n"
+            f"<b>{html.escape(display_name)}</b>\n"
             f"Total: {_files_display(result['files'], fpm)}\n"
             f"Added: +{count}",
             reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
@@ -317,13 +318,14 @@ async def _process_custom_files(message: Message, config: Config, memory_state: 
 
     try:
         svc = AccountingService(config)
-        result = await svc.add_files(model_id, model_name, count)
+        result = await svc.add_files(model_id, count)
         fpm = config.files_per_month
+        display_name = result["model_name"] if result["model_name"] != "Unknown" else model_name
 
         if chat_id and msg_id:
             await message.bot.edit_message_text(
                 f"✅ <b>Files added!</b>\n\n"
-                f"<b>{html.escape(model_name)}</b>\n"
+                f"<b>{html.escape(display_name)}</b>\n"
                 f"Total: {_files_display(result['files'], fpm)}\n"
                 f"Added: +{count}",
                 chat_id=chat_id, message_id=msg_id,
@@ -347,7 +349,7 @@ async def _process_comment(message: Message, config: Config, memory_state: Memor
         return
 
     svc = AccountingService(config)
-    await svc.update_comment(record_id, comment_text)
+    await svc.update_comment(None, comment_text, page_id=record_id)
 
     chat_id = data.get("screen_chat_id")
     msg_id = data.get("screen_message_id")
@@ -388,6 +390,7 @@ async def handle_add_files_nlp(
     entities: Any,
     config: Config,
     notion: NotionClient,
+    memory_state: MemoryState,
     recent_models: RecentModels,
 ) -> None:
     """Handle adding files from NLP message."""
@@ -406,26 +409,26 @@ async def handle_add_files_nlp(
 
     model_id = model["id"]
     model_name = model["name"]
-    fpm = config.files_per_month
-    yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
-
     try:
-        record = await notion.get_monthly_record(
-            config.db_accounting, model_id, yyyy_mm,
-        )
-        if not record:
-            await notion.create_accounting_record(
-                config.db_accounting, model_id, model_name, count, yyyy_mm,
-            )
-            new_files = count
-        else:
-            new_files = record.files + count
-            await notion.update_accounting_files(record.page_id, new_files)
+        from app.keyboards.inline import model_card_keyboard
+        from app.services.model_card import build_model_card
 
+        svc = AccountingService(config)
+        await svc.add_files(model_id, count)
+        k = generate_token()
+        memory_state.set(message.from_user.id, {
+            "flow": "nlp_actions",
+            "model_id": model_id,
+            "model_name": model_name,
+            "k": k,
+        })
+        card_text, open_orders = await build_model_card(
+            model_id, model_name, config, notion,
+        )
+        oo = open_orders if open_orders >= 0 else None
         await message.answer(
-            f"✅ +{count} файлов\n\n"
-            f"<b>{html.escape(model_name)}</b>\n"
-            f"Файлов: {_files_display(new_files, fpm)}",
+            card_text,
+            reply_markup=model_card_keyboard(k, open_orders=oo),
             parse_mode="HTML",
         )
         recent_models.add(message.from_user.id, model_id, model_name)
