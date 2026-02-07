@@ -87,6 +87,10 @@ async def route_message(
                 await _handle_custom_files_input(message, text, user_state, config, notion, memory_state)
                 return
 
+            if current_step == "awaiting_shoot_comment":
+                await _handle_shoot_comment_input(message, text, user_state, config, notion, memory_state)
+                return
+
             # nlp_* flows expect button presses, not free text.
             # Respond with a prompt instead of silently swallowing the message.
             LOGGER.info("ROUTE_MESSAGE SKIP: user=%s in nlp flow=%s, prompting for button", user_id, current_flow)
@@ -746,6 +750,38 @@ async def _add_comment_to_shoot(message, model, entities, config, notion, memory
     except Exception as e:
         LOGGER.exception("Failed to add comment to shoot: %s", e)
         await message.answer("❌ Ошибка.")
+
+
+async def _handle_shoot_comment_input(message, text, user_state, config, notion, memory_state):
+    """Handle free-text comment input for a shoot (step: awaiting_shoot_comment)."""
+    user_id = message.from_user.id
+    shoot_id = user_state.get("shoot_id")
+    model_name = user_state.get("model_name", "")
+
+    if not shoot_id:
+        memory_state.clear(user_id)
+        await message.answer("❌ Сессия устарела, попробуйте заново.")
+        return
+
+    comment_text = text.strip()
+    if not comment_text:
+        await message.answer("❌ Комментарий не может быть пустым.")
+        return
+
+    try:
+        shoot = await notion.get_shoot(shoot_id)
+        existing = shoot.comments if shoot else ""
+        new_comment = f"{existing}\n{comment_text}".strip() if existing else comment_text
+        await notion.update_shoot_comment(shoot_id, new_comment)
+        memory_state.clear(user_id)
+        await message.answer(
+            f"✅ Комментарий добавлен для <b>{html.escape(model_name)}</b>",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        LOGGER.exception("Failed to add shoot comment: %s", e)
+        memory_state.clear(user_id)
+        await message.answer("❌ Ошибка при сохранении комментария.")
 
 
 async def _handle_files_stats(message, model, config, notion):
