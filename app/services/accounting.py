@@ -1,7 +1,7 @@
 """Accounting service — one record per model per month.
 
-Title format: "{MODEL_NAME} · accounting {YYYY-MM}"
-Fields used: Title, model (relation), Files (number), Comment (rich_text).
+Title format: "{MODEL_NAME} {месяц_ru_lower}" e.g. "КЛЕЩ февраль"
+Fields used: Title, model (relation), Files (number), Comment (rich_text), Content (multi_select).
 """
 import logging
 from datetime import datetime

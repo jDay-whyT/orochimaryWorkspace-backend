@@ -2,7 +2,7 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.utils.constants import ORDER_TYPES, PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS, NLP_SHOOT_CONTENT_TYPES
+from app.utils.constants import ORDER_TYPES, PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS, NLP_SHOOT_CONTENT_TYPES, NLP_ACCOUNTING_CONTENT_TYPES
 
 
 # ==================== Common ====================
@@ -370,6 +370,29 @@ def accounting_quick_files_keyboard(page_id: str, current: int) -> InlineKeyboar
     ])
 
 
+def nlp_accounting_content_keyboard(selected: list[str], k: str = "") -> InlineKeyboardMarkup:
+    """Multi-select content types for accounting Content property.
+    Toggle ✅/⬜ for each option, plus Save and Back.
+    """
+    s = f":{k}" if k else ""
+    builder = InlineKeyboardBuilder()
+    row: list[InlineKeyboardButton] = []
+    for ct in NLP_ACCOUNTING_CONTENT_TYPES:
+        mark = "✅ " if ct in selected else "⬜ "
+        row.append(InlineKeyboardButton(
+            text=f"{mark}{ct}",
+            callback_data=f"nlp:acct:{ct}{s}",
+        ))
+        if len(row) == 2:
+            builder.row(*row)
+            row = []
+    if row:
+        builder.row(*row)
+    builder.row(InlineKeyboardButton(text="✅ Save", callback_data=f"nlp:accs:save{s}"))
+    builder.row(InlineKeyboardButton(text="⬅ Back", callback_data="nlp:x:c"))
+    return builder.as_markup()
+
+
 # ==================== Summary ====================
 
 def summary_menu_keyboard(recent: list[tuple[str, str]]) -> InlineKeyboardMarkup:
@@ -487,7 +510,8 @@ def model_card_keyboard(k: str = "", open_orders: int | None = None) -> InlineKe
 
     Row 1: ➕ Заказ | 📅 Съёмка | 📁 Файлы
     Row 2: 📋 Заказы | (✓ Закрыть if open_orders > 0) | 📊 Репорт
-    Row 3: 🏠 Меню | ♻️ Сброс
+    Row 3: 🗂 Content
+    Row 4: 🏠 Меню | ♻️ Сброс
 
     If open_orders == 0, the "✓ Закрыть" button is hidden.
     If open_orders is None (unknown), the button is shown (safe default).
@@ -506,6 +530,7 @@ def model_card_keyboard(k: str = "", open_orders: int | None = None) -> InlineKe
             InlineKeyboardButton(text="📁 Файлы", callback_data=f"nlp:act:files{s}"),
         ],
         row2,
+        [InlineKeyboardButton(text="🗂 Content", callback_data=f"nlp:act:content{s}")],
         [
             InlineKeyboardButton(text="\U0001f3e0 Меню", callback_data="nlp:x:m"),
             InlineKeyboardButton(text="♻️ Сброс", callback_data="nlp:x:c"),

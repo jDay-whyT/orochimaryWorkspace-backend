@@ -329,7 +329,7 @@ class TestAccountingTitleFormat:
         call_args = client._request.call_args
         payload = call_args[1].get("json") or call_args[0][2]
         title_content = payload["properties"]["Title"]["title"][0]["text"]["content"]
-        assert title_content == "МЕЛИСА · accounting 2026-02"
+        assert title_content == "МЕЛИСА февраль"
         assert payload["properties"]["Files"]["number"] == 30
 
         # Cleanup singleton
@@ -346,8 +346,8 @@ class TestNoOldAccountingFields:
         field_names = {f.name for f in dataclasses.fields(NotionAccounting)}
         assert "amount" not in field_names
         assert "percent" not in field_names
-        assert "content" not in field_names
         assert "comments" not in field_names  # now it's 'comment' singular
         # New fields present:
         assert "files" in field_names
         assert "comment" in field_names
+        assert "content" in field_names

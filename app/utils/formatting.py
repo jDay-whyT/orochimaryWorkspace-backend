@@ -12,6 +12,8 @@ MONTHS_RU = [
     "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"
 ]
 
+MONTHS_RU_LOWER = [m.lower() for m in MONTHS_RU]
+
 
 def format_date_short(d: date | str | None) -> str:
     """Format date as '15 Jan'."""
@@ -114,26 +116,19 @@ def format_appended_comment(
     tz: ZoneInfo | None = None,
 ) -> str:
     """
-    Append *new_text* to *existing* comment with timestamp separator.
+    Append *new_text* to *existing* comment with separator.
 
-    Result format (each entry on its own block):
-        [07.02 14:30] first comment
+    Result format:
+        first comment
         ---
-        [08.02 09:00] second comment
+        second comment
 
     Truncates to MAX_COMMENT_LENGTH so Notion API never rejects the payload.
-    Race-condition note: two concurrent appends can overwrite each other
-    because Notion has no atomic read-modify-write. The timestamp makes
-    the conflict visible in the UI.
     """
-    now = datetime.now(tz=tz)
-    ts = now.strftime("%d.%m %H:%M")
-    entry = f"[{ts}] {new_text}"
-
     if existing:
-        result = f"{existing}\n---\n{entry}"
+        result = f"{existing}\n---\n{new_text}"
     else:
-        result = entry
+        result = new_text
 
     if len(result) > MAX_COMMENT_LENGTH:
         result = result[:MAX_COMMENT_LENGTH]

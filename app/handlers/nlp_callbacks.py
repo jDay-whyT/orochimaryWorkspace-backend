@@ -11,7 +11,7 @@ Callback prefix mapping:
   ss  = shoot_select    co  = close_order      cd  = close_date
   ct  = comment_target  cmo = comment_order    df  = disambig_files
   do  = disambig_orders ro  = report_orders    ra  = report_accounting
-  af  = add_files
+  af  = add_files       acct = acc_content_toggle  accs = acc_content_save
 
 Anti-stale token: last segment of callback_data (6-char base36 string).
 Verified against memory_state["k"] to reject presses on outdated keyboards.
@@ -79,6 +79,8 @@ _FLOW_STEP_RULES: dict[str, tuple[str, set[str] | None]] = {
     "scd": ("nlp_shoot", {"awaiting_content"}),
     "srs": ("nlp_actions", None),
     "scm": ("nlp_actions", None),
+    "acct": ("nlp_acc_content", {"selecting"}),
+    "accs": ("nlp_acc_content", {"selecting"}),
     "cd": ("nlp_close", {"awaiting_date", "awaiting_custom_date"}),
     "act": ("nlp_actions", None),
 }
@@ -243,6 +245,12 @@ async def handle_nlp_callback(
             await _handle_shoot_content_toggle(query, parts, config, memory_state)
         elif action == "scd":
             await _handle_shoot_content_done(query, parts, config, notion, memory_state, recent_models)
+
+        # ===== Accounting Content =====
+        elif action == "acct":
+            await _handle_accounting_content_toggle(query, parts, config, memory_state)
+        elif action == "accs":
+            await _handle_accounting_content_save(query, parts, config, notion, memory_state)
 
         # ===== Shoot Manage (from model card) =====
         elif action == "srs":
@@ -577,6 +585,36 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
                 reply_markup=nlp_shoot_content_keyboard([], k),
                 parse_mode="HTML",
             )
+
+    elif action == "content":
+        # Show accounting content multi-select
+        now = datetime.now(tz=config.timezone)
+        yyyy_mm = now.strftime("%Y-%m")
+        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+        existing_content = record.content if record and record.content else []
+        accounting_id = record.page_id if record else None
+
+        if not accounting_id:
+            await query.answer("Нет записи accounting за этот месяц. Сначала добавьте файлы.", show_alert=True)
+            return
+
+        from app.keyboards.inline import nlp_accounting_content_keyboard
+        k = generate_token()
+        memory_state.set(user_id, {
+            "flow": "nlp_acc_content",
+            "step": "selecting",
+            "model_id": model_id,
+            "model_name": model_name,
+            "accounting_id": accounting_id,
+            "selected_content": existing_content,
+            "k": k,
+        })
+        await query.message.edit_text(
+            f"🗂 <b>{html.escape(model_name)}</b> · Content\n\n"
+            "Выберите типы контента:",
+            reply_markup=nlp_accounting_content_keyboard(existing_content, k),
+            parse_mode="HTML",
+        )
 
     elif action == "report":
         # Show report inline
@@ -1538,6 +1576,77 @@ async def _handle_shoot_comment_cb(query, parts, config, notion, memory_state):
         f"💬 <b>{html.escape(model_name)}</b> · Введите комментарий:",
         parse_mode="HTML",
     )
+
+
+# ============================================================================
+#                    ACCOUNTING CONTENT CALLBACKS
+# ============================================================================
+
+async def _handle_accounting_content_toggle(query, parts, config, memory_state):
+    """Toggle an accounting content type. Callback: nlp:acct:{type}[:{k}]"""
+    if len(parts) < 3:
+        return
+    ct = parts[2]
+    user_id = query.from_user.id
+    state = memory_state.get(user_id)
+    if not state:
+        await query.message.edit_text(SESSION_EXPIRED_MSG)
+        return
+
+    selected = list(state.get("selected_content", []))
+    if ct in selected:
+        selected.remove(ct)
+    else:
+        selected.append(ct)
+
+    k = generate_token()
+    memory_state.update(user_id, selected_content=selected, k=k)
+    model_name = state.get("model_name", "")
+
+    from app.keyboards.inline import nlp_accounting_content_keyboard
+    await query.message.edit_text(
+        f"🗂 <b>{html.escape(model_name)}</b> · Content\n\n"
+        "Выберите типы контента:",
+        reply_markup=nlp_accounting_content_keyboard(selected, k),
+        parse_mode="HTML",
+    )
+
+
+async def _handle_accounting_content_save(query, parts, config, notion, memory_state):
+    """Save accounting content. Callback: nlp:accs:save[:{k}]"""
+    user_id = query.from_user.id
+    state = memory_state.get(user_id)
+    if not state:
+        await query.message.edit_text(SESSION_EXPIRED_MSG)
+        return
+
+    accounting_id = state.get("accounting_id")
+    selected = state.get("selected_content", [])
+    model_name = state.get("model_name", "")
+
+    if not accounting_id:
+        await query.message.edit_text("Запись accounting не найдена.")
+        memory_state.clear(user_id)
+        return
+
+    try:
+        await notion.update_accounting_content(accounting_id, selected)
+        LOGGER.info(
+            "Accounting content saved: user=%s accounting_id=%s content=%s",
+            user_id, accounting_id, selected,
+        )
+        content_str = ", ".join(selected) if selected else "—"
+        memory_state.clear(user_id)
+        await query.message.edit_text(
+            f"✅ Content сохранён\n\n"
+            f"<b>{html.escape(model_name)}</b>\n"
+            f"Content: {html.escape(content_str)}",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        LOGGER.exception("Failed to save accounting content: %s", e)
+        await query.message.edit_text("❌ Ошибка при сохранении Content.")
+        memory_state.clear(user_id)
 
 
 # ============================================================================
