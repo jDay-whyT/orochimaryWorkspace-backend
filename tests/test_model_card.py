@@ -95,10 +95,10 @@ class TestModelNameToCard:
 class TestModelCardKeyboard:
     """Tests for model_card_keyboard structure and callback_data."""
 
-    def test_keyboard_has_three_rows(self):
-        """model_card_keyboard should have 3 rows."""
+    def test_keyboard_has_four_rows(self):
+        """model_card_keyboard should have 4 rows (including Content)."""
         kb = model_card_keyboard("test1")
-        assert len(kb.inline_keyboard) == 3
+        assert len(kb.inline_keyboard) == 4
 
     def test_row1_has_order_shoot_files(self):
         """Row 1: ➕ Заказ | 📅 Съёмка | 📁 Файлы."""
@@ -118,25 +118,32 @@ class TestModelCardKeyboard:
         assert "Закрыть" in row2[1].text
         assert "Репорт" in row2[2].text
 
-    def test_row3_has_menu_and_reset(self):
-        """Row 3 (service): 🏠 Меню | ♻️ Сброс."""
+    def test_row3_has_content(self):
+        """Row 3: 🗂 Content."""
         kb = model_card_keyboard("test1")
         row3 = kb.inline_keyboard[2]
-        assert len(row3) == 2
-        assert "Меню" in row3[0].text
-        assert "Сброс" in row3[1].text
+        assert len(row3) == 1
+        assert "Content" in row3[0].text
+
+    def test_row4_has_menu_and_reset(self):
+        """Row 4 (service): 🏠 Меню | ♻️ Сброс."""
+        kb = model_card_keyboard("test1")
+        row4 = kb.inline_keyboard[3]
+        assert len(row4) == 2
+        assert "Меню" in row4[0].text
+        assert "Сброс" in row4[1].text
 
     def test_menu_callback_is_cancel_menu(self):
         """Меню button -> nlp:x:m."""
         kb = model_card_keyboard("test1")
-        row3 = kb.inline_keyboard[2]
-        assert row3[0].callback_data == "nlp:x:m"
+        row4 = kb.inline_keyboard[3]
+        assert row4[0].callback_data == "nlp:x:m"
 
     def test_reset_callback_is_cancel(self):
         """Сброс button -> nlp:x:c."""
         kb = model_card_keyboard("test1")
-        row3 = kb.inline_keyboard[2]
-        assert row3[1].callback_data == "nlp:x:c"
+        row4 = kb.inline_keyboard[3]
+        assert row4[1].callback_data == "nlp:x:c"
 
     def test_order_button_starts_order_flow(self):
         """➕ Заказ -> nlp:act:order:{k}."""

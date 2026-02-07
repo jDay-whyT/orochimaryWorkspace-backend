@@ -61,6 +61,7 @@ class NotionAccounting:
     comment: str | None = None
     status: str | None = None
     last_edited: str | None = None
+    content: list[str] | None = None
 
 
 class NotionClient:
@@ -483,17 +484,20 @@ class NotionClient:
         """
         Query accounting records for a model in a given month.
 
-        Searches by Title contains "{yyyy_mm}" AND model relation.
+        Searches by model relation AND Title contains month_ru_lower
+        (derived from yyyy_mm).  Falls back to yyyy_mm substring for
+        backwards compatibility with old-format titles.
         Returns list sorted by last_edited_time descending.
         """
+        from app.utils.formatting import MONTHS_RU_LOWER
+
+        month_idx = int(yyyy_mm.split("-")[1]) - 1
+        month_label = MONTHS_RU_LOWER[month_idx]
+
         filters: list[dict[str, Any]] = [
-            {"property": "Title", "title": {"contains": yyyy_mm}},
+            {"property": "model", "relation": {"contains": model_page_id}},
+            {"property": "Title", "title": {"contains": month_label}},
         ]
-        # Always filter by model relation
-        if model_page_id:
-            filters.append(
-                {"property": "model", "relation": {"contains": model_page_id}}
-            )
 
         payload = {
             "page_size": 10,
@@ -503,8 +507,23 @@ class NotionClient:
 
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
         data = await self._request("POST", url, json=payload)
+        results = [_parse_accounting(item) for item in data.get("results", [])]
 
-        return [_parse_accounting(item) for item in data.get("results", [])]
+        if results:
+            return results
+
+        # Fallback: search by old title format (contains yyyy_mm)
+        fallback_filters: list[dict[str, Any]] = [
+            {"property": "model", "relation": {"contains": model_page_id}},
+            {"property": "Title", "title": {"contains": yyyy_mm}},
+        ]
+        payload_fb = {
+            "page_size": 10,
+            "filter": {"and": fallback_filters},
+            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+        }
+        data_fb = await self._request("POST", url, json=payload_fb)
+        return [_parse_accounting(item) for item in data_fb.get("results", [])]
 
     async def get_monthly_record(
         self,
@@ -536,8 +555,10 @@ class NotionClient:
         """
         Create new monthly accounting record.
 
-        Title format: "{MODEL_NAME} · accounting {YYYY-MM}"
+        Title format: "{MODEL_NAME} {месяц_ru_lower}" e.g. "КЛЕЩ февраль"
         """
+        from app.utils.formatting import MONTHS_RU_LOWER
+
         model = await self.get_model(model_page_id)
         status = (
             model.status
@@ -545,7 +566,9 @@ class NotionClient:
             else "work"
         )
 
-        title = f"{model_name} · accounting {yyyy_mm}"
+        month_idx = int(yyyy_mm.split("-")[1]) - 1
+        month_label = MONTHS_RU_LOWER[month_idx]
+        title = f"{model_name} {month_label}"
 
         properties: dict[str, Any] = {
             "Title": {"title": [{"text": {"content": title}}]},
@@ -596,6 +619,20 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
 
+    async def update_accounting_content(
+        self,
+        page_id: str,
+        items: list[str],
+    ) -> None:
+        """Update accounting Content multi-select."""
+        payload = {
+            "properties": {
+                "Content": {"multi_select": [{"name": item} for item in items]},
+            }
+        }
+        url = f"https://api.notion.com/v1/pages/{page_id}"
+        await self._request("PATCH", url, json=payload)
+
     async def query_accounting_all_month(
         self,
         database_id: str,
@@ -603,21 +640,35 @@ class NotionClient:
         limit: int = 100,
     ) -> list[NotionAccounting]:
         """Query ALL accounting records for a given month (across models)."""
-        filters: list[dict[str, Any]] = [
-            {"property": "Title", "title": {"contains": yyyy_mm}},
-        ]
+        from app.utils.formatting import MONTHS_RU_LOWER
 
-        payload = {
-            "page_size": limit,
-            "filter": filters[0],
-            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
-        }
+        month_idx = int(yyyy_mm.split("-")[1]) - 1
+        month_label = MONTHS_RU_LOWER[month_idx]
 
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
+
+        # Primary: search by new title format (month_ru_lower)
+        payload = {
+            "page_size": limit,
+            "filter": {"property": "Title", "title": {"contains": month_label}},
+            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+        }
         data = await self._request("POST", url, json=payload)
 
+        # Also search by old format (yyyy_mm) and merge
+        payload_fb = {
+            "page_size": limit,
+            "filter": {"property": "Title", "title": {"contains": yyyy_mm}},
+            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+        }
+        data_fb = await self._request("POST", url, json=payload_fb)
+
+        seen_ids: set[str] = set()
         results = []
-        for item in data.get("results", []):
+        for item in list(data.get("results", [])) + list(data_fb.get("results", [])):
+            if item["id"] in seen_ids:
+                continue
+            seen_ids.add(item["id"])
             accounting = _parse_accounting(item)
             if accounting.model_id:
                 model = await self.get_model(accounting.model_id)
@@ -814,4 +865,5 @@ def _parse_accounting(item: dict[str, Any]) -> NotionAccounting:
         comment=_extract_rich_text(item, "Comment"),
         status=_extract_status(item, "status"),
         last_edited=last_edited,
+        content=_extract_multi_select(item, "Content"),
     )

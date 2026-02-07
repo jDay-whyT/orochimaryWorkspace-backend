@@ -76,3 +76,15 @@ NLP_SHOOT_CONTENT_TYPES = [
     "Posting",
     "Fansly",
 ]
+
+# NLP content types for accounting (canonical values for Content multi-select)
+NLP_ACCOUNTING_CONTENT_TYPES = [
+    "basic",
+    "main",
+    "new main",
+    "twitter",
+    "reddit",
+    "fansly",
+    "ad request",
+    "no content",
+]

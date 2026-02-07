@@ -224,10 +224,10 @@ class TestCloseButtonHiddenZeroOrders:
         # Row 2 should have only 2 buttons (Заказы, Репорт)
         assert len(kb.inline_keyboard[1]) == 2
 
-    def test_keyboard_still_has_three_rows_when_zero_orders(self):
-        """Keyboard should always have 3 rows."""
+    def test_keyboard_still_has_four_rows_when_zero_orders(self):
+        """Keyboard should always have 4 rows (including Content row)."""
         kb = model_card_keyboard("test1", open_orders=0)
-        assert len(kb.inline_keyboard) == 3
+        assert len(kb.inline_keyboard) == 4
 
     def test_other_buttons_present_when_zero_orders(self):
         """All other buttons should still be present when 0 orders."""
@@ -238,10 +238,12 @@ class TestCloseButtonHiddenZeroOrders:
         assert "📁 Файлы" in all_texts
         assert "📋 Заказы" in all_texts
         assert "📊 Репорт" in all_texts
-        # Row 3 (service): Меню and Сброс
-        row3_texts = [btn.text for btn in kb.inline_keyboard[2]]
-        assert any("Меню" in t for t in row3_texts)
-        assert any("Сброс" in t for t in row3_texts)
+        # Row 3: Content button
+        assert "🗂 Content" in all_texts
+        # Row 4 (service): Меню and Сброс
+        row4_texts = [btn.text for btn in kb.inline_keyboard[3]]
+        assert any("Меню" in t for t in row4_texts)
+        assert any("Сброс" in t for t in row4_texts)
 
     def test_all_callbacks_under_64_bytes_zero_orders(self):
         """All callback_data still under 64 bytes with 0 orders."""

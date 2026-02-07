@@ -1,7 +1,7 @@
 """Accounting handlers — refactored for 1-record-per-model-per-month schema.
 
-Notion fields: Title ("{MODEL} · accounting {YYYY-MM}"), model (relation),
-Files (number), Comment (rich_text).
+Notion fields: Title ("{MODEL} {месяц_ru_lower}"), model (relation),
+Files (number), Comment (rich_text), Content (multi_select).
 """
 import html
 import logging
