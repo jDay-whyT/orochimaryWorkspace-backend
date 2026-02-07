@@ -35,42 +35,35 @@ async def handle_report_nlp(
     model_id = model["id"]
     model_name = model["name"]
 
-    # Get current month name
     now = datetime.now(tz=config.timezone)
-    month_str = now.strftime("%B")  # e.g., "February"
+    yyyy_mm = now.strftime("%Y-%m")
+    fpm = config.files_per_month
 
-    # Query accounting for current month
     try:
-        accounting_records = await notion.query_accounting_current_month(
-            config.db_accounting, model_id
+        record = await notion.get_monthly_record(
+            config.db_accounting, model_id, yyyy_mm,
         )
     except Exception as e:
         LOGGER.exception("Failed to query accounting: %s", e)
-        accounting_records = []
+        record = None
 
-    # Query open orders
     try:
         open_orders = await notion.query_open_orders(config.db_orders, model_id)
     except Exception as e:
         LOGGER.exception("Failed to query open orders: %s", e)
         open_orders = []
 
-    # Calculate totals
-    total_files = sum(
-        rec.amount for rec in accounting_records if rec.amount is not None
-    )
-    avg_percent = (
-        sum(rec.percent for rec in accounting_records if rec.percent is not None)
-        / len(accounting_records)
-        if accounting_records
-        else 0
-    )
+    if record:
+        total = record.files
+        pct = min(100, round(total / fpm * 100)) if fpm > 0 else 0
+        over = max(0, total - fpm)
+        over_str = f" +{over}" if over > 0 else ""
+        files_str = f"{total}/{fpm} ({pct}%){over_str}"
+    else:
+        files_str = f"0/{fpm} (0%)"
 
-    # Format report
-    files_str = f"{total_files} ({int(avg_percent * 100)}%)"
     orders_str = f"{len(open_orders)} открытых"
 
-    # Store model_id in memory for report detail callbacks (nlp:ro, nlp:ra)
     if memory_state:
         memory_state.set(message.from_user.id, {
             "flow": "nlp_report",
@@ -79,7 +72,7 @@ async def handle_report_nlp(
         })
 
     await message.answer(
-        f"📊 <b>{escape_html(model_name)}</b> · {month_str}\n\n"
+        f"📊 <b>{escape_html(model_name)}</b> · {yyyy_mm}\n\n"
         f"📁 Файлов: {files_str}\n"
         f"📦 Заказов: {orders_str}\n",
         reply_markup=nlp_report_keyboard(),

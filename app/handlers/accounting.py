@@ -1,4 +1,8 @@
-"""Accounting handlers - Phase 4"""
+"""Accounting handlers — refactored for 1-record-per-model-per-month schema.
+
+Notion fields: Title ("{MODEL} · accounting {YYYY-MM}"), model (relation),
+Files (number), Comment (rich_text).
+"""
 import html
 import logging
 from datetime import datetime
@@ -18,12 +22,21 @@ from app.keyboards.inline import (
 )
 from app.roles import is_authorized, is_editor
 from app.services import AccountingService, ModelsService
+from app.services.notion import NotionClient
 from app.state import MemoryState, RecentModels
-from app.utils.constants import FILES_PER_MONTH
-from app.utils.formatting import format_percent
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
+
+
+def _files_display(files: int, fpm: int) -> str:
+    """Format files as 'X/200 (Y%) +over'."""
+    pct = min(100, round(files / fpm * 100)) if fpm > 0 else 0
+    over = max(0, files - fpm)
+    base = f"{files}/{fpm} ({pct}%)"
+    if over > 0:
+        return f"{base} +{over}"
+    return base
 
 
 async def show_accounting_menu(message: Message, config: Config) -> None:
@@ -47,17 +60,17 @@ async def handle_accounting_callback(
     if not is_authorized(query.from_user.id, config):
         await query.answer("Access denied", show_alert=True)
         return
-    
+
     parts = query.data.split("|")
     if len(parts) < 3:
         await query.answer()
         return
-    
+
     action = parts[1]
     value = parts[2] if len(parts) > 2 else None
-    
-    LOGGER.info(f"Accounting callback: action={action}, value={value}")
-    
+
+    LOGGER.info("Accounting callback: action=%s, value=%s", action, value)
+
     try:
         if action == "search":
             await _start_model_search(query, memory_state)
@@ -65,30 +78,22 @@ async def handle_accounting_callback(
             await _show_current_month(query, config, memory_state)
         elif action == "add_files":
             await _start_add_files(query, config, memory_state, recent_models)
-        elif action == "model":
-            await _select_model(query, config, memory_state, recent_models, value)
-        elif action == "select_model":
+        elif action in ("model", "select_model"):
             await _select_model(query, config, memory_state, recent_models, value)
         elif action == "files" and len(parts) >= 4:
             page_id = parts[2]
             count = int(parts[3])
             await _add_files_to_record(query, config, memory_state, page_id, count)
-        elif action == "select":
-            await _show_record_details(query, config, memory_state, value)
-        elif action == "edit_content":
-            await _edit_content(query, config, memory_state, value)
-        elif action == "comment":
-            await _edit_comment(query, config, memory_state, value)
         elif action == "back":
             await _handle_back(query, config, memory_state, value)
         elif action == "cancel":
             await _cancel_flow(query, memory_state)
         else:
             await query.answer("Unknown action", show_alert=True)
-    except Exception as e:
+    except Exception:
         LOGGER.exception("Error in accounting callback")
-        await query.answer(f"Error: {str(e)}", show_alert=True)
-    
+        await query.answer("Ошибка. Попробуйте позже.", show_alert=True)
+
     await query.answer()
 
 
@@ -105,7 +110,7 @@ async def handle_text_input(
 
     data = memory_state.get(message.from_user.id)
     step = data.get("step")
-    
+
     try:
         if step == "search_model":
             await _process_model_search(message, config, memory_state)
@@ -113,179 +118,120 @@ async def handle_text_input(
             await _process_custom_files(message, config, memory_state)
         elif step == "add_comment":
             await _process_comment(message, config, memory_state)
-        
-        # Delete user message
+
         try:
             await message.delete()
         except Exception:
             pass
-    except Exception as e:
+    except Exception:
         LOGGER.exception("Error processing text input")
-        await message.answer(f"Error: {str(e)}")
+        await message.answer("Ошибка. Попробуйте позже.")
 
 
+# ------------------------------------------------------------------ search
 async def _start_model_search(query: CallbackQuery, memory_state: MemoryState) -> None:
-    """Start model search flow."""
-    memory_state.set(
-        query.from_user.id,
-        {
-            "flow": "accounting",
-            "step": "search_model",
-            "screen_chat_id": query.message.chat.id,
-            "screen_message_id": query.message.message_id,
-        },
-    )
-    
-    text = "🔍 Send model name to search:"
+    memory_state.set(query.from_user.id, {
+        "flow": "accounting", "step": "search_model",
+        "screen_chat_id": query.message.chat.id,
+        "screen_message_id": query.message.message_id,
+    })
     await query.message.edit_text(
-        text,
+        "🔍 Send model name to search:",
         reply_markup=back_keyboard("account"),
         parse_mode="HTML",
     )
 
 
-async def _process_model_search(
-    message: Message,
-    config: Config,
-    memory_state: MemoryState,
-) -> None:
-    """Process model search query."""
+async def _process_model_search(message: Message, config: Config, memory_state: MemoryState) -> None:
     query_text = message.text.strip()
-
     data = memory_state.get(message.from_user.id) or {}
-    screen_chat_id = data.get("screen_chat_id")
-    screen_message_id = data.get("screen_message_id")
+    chat_id = data.get("screen_chat_id")
+    msg_id = data.get("screen_message_id")
 
     models_service = ModelsService(config)
     try:
         models = await models_service.search_models(query_text)
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).exception("Failed to search models: %s", e)
-        text = f"❌ <b>Error searching models</b>\n\nDatabase connection failed. Please contact admin."
+    except Exception:
+        LOGGER.exception("Failed to search models")
         await message.bot.edit_message_text(
-            text,
-            chat_id=screen_chat_id,
-            message_id=screen_message_id,
-            reply_markup=back_keyboard("account"),
-            parse_mode="HTML",
+            "❌ <b>Error searching models</b>",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=back_keyboard("account"), parse_mode="HTML",
         )
         return
 
     if not models:
-        text = f"🔍 No models found for: {html.escape(query_text)}\n\nTry again:"
         await message.bot.edit_message_text(
-            text,
-            chat_id=screen_chat_id,
-            message_id=screen_message_id,
-            reply_markup=back_keyboard("account"),
-            parse_mode="HTML",
+            f"🔍 No models found for: {html.escape(query_text)}\n\nTry again:",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=back_keyboard("account"), parse_mode="HTML",
         )
         return
-    
-    # Convert to list of tuples
+
     model_list = [(m["id"], m["name"]) for m in models]
-    
-    text = f"🔍 Found {len(models)} model(s):\n\nSelect one:"
     await message.bot.edit_message_text(
-        text,
-        chat_id=screen_chat_id,
-        message_id=screen_message_id,
-        reply_markup=models_keyboard("account", model_list),
-        parse_mode="HTML",
+        f"🔍 Found {len(models)} model(s):\n\nSelect one:",
+        chat_id=chat_id, message_id=msg_id,
+        reply_markup=models_keyboard("account", model_list), parse_mode="HTML",
     )
-    
-    memory_state.update(
-        message.from_user.id,
-        step="select_model",
-        search_results=models,
-    )
+    memory_state.update(message.from_user.id, step="select_model", search_results=models)
 
 
-async def _show_current_month(
-    query: CallbackQuery,
-    config: Config,
-    memory_state: MemoryState,
-) -> None:
-    """Show current month accounting records."""
+# --------------------------------------------------------- current month
+async def _show_current_month(query: CallbackQuery, config: Config, memory_state: MemoryState) -> None:
     try:
-        accounting_service = AccountingService(config)
-        records = await accounting_service.get_current_month_records()
-
+        svc = AccountingService(config)
+        records = await svc.get_all_month_records()
         now = datetime.now(config.timezone)
-        month_str = now.strftime("%B")
+        yyyy_mm = now.strftime("%Y-%m")
+        fpm = config.files_per_month
 
         if not records:
-            text = f"💰 <b>{month_str} Accounting</b>\n\nNo records yet."
+            text = f"💰 <b>{yyyy_mm} Accounting</b>\n\nNo records yet."
         else:
-            text = f"💰 <b>{month_str} Accounting</b>\n\n"
-            for record in records[:10]:  # Limit to 10
-                name = record.get("model_name", "Unknown")
-                amount = record.get("amount", 0)
-                percent = record.get("percent", 0.0)
-                text += f"• <b>{html.escape(name)}</b>\n"
-                text += f"  Files: {amount} ({format_percent(percent)})\n\n"
+            text = f"💰 <b>{yyyy_mm} Accounting</b>\n\n"
+            for r in records[:10]:
+                name = r.get("model_name", "Unknown")
+                files = r.get("files", 0)
+                pct = r.get("percent", 0)
+                over = r.get("over", 0)
+                line = f"{files}/{fpm} ({pct}%)"
+                if over > 0:
+                    line += f" +{over}"
+                text += f"• <b>{html.escape(name)}</b>\n  Files: {line}\n\n"
 
-        await query.message.edit_text(
-            text,
-            reply_markup=accounting_menu_keyboard(),
-            parse_mode="HTML",
-        )
-
+        await query.message.edit_text(text, reply_markup=accounting_menu_keyboard(), parse_mode="HTML")
         memory_state.clear(query.from_user.id)
-    except Exception as e:
+    except Exception:
         LOGGER.exception("Error showing current month accounting")
         try:
             await query.message.edit_text(
-                "❌ <b>Error loading accounting data</b>\n\n"
-                "Please try again later or contact admin.",
-                reply_markup=accounting_menu_keyboard(),
-                parse_mode="HTML",
+                "❌ <b>Error loading accounting data</b>",
+                reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
             )
         except Exception:
-            # If even error message fails, just log it
             pass
 
 
-async def _start_add_files(
-    query: CallbackQuery,
-    config: Config,
-    memory_state: MemoryState,
-    recent_models: RecentModels,
-) -> None:
-    """Start add files flow."""
+# --------------------------------------------------------- add files flow
+async def _start_add_files(query: CallbackQuery, config: Config, memory_state: MemoryState, recent_models: RecentModels) -> None:
     recent = recent_models.get(query.from_user.id)
-    
-    memory_state.set(
-        query.from_user.id,
-        {
-            "flow": "accounting",
-            "step": "select_model",
-            "screen_chat_id": query.message.chat.id,
-            "screen_message_id": query.message.message_id,
-        },
-    )
-    
-    text = "💰 <b>Add Files</b>\n\nSelect model:"
+    memory_state.set(query.from_user.id, {
+        "flow": "accounting", "step": "select_model",
+        "screen_chat_id": query.message.chat.id,
+        "screen_message_id": query.message.message_id,
+    })
     await query.message.edit_text(
-        text,
+        "💰 <b>Add Files</b>\n\nSelect model:",
         reply_markup=recent_models_keyboard(recent, "account"),
         parse_mode="HTML",
     )
 
 
-async def _select_model(
-    query: CallbackQuery,
-    config: Config,
-    memory_state: MemoryState,
-    recent_models: RecentModels,
-    model_id: str,
-) -> None:
-    """Model selected for adding files."""
+async def _select_model(query: CallbackQuery, config: Config, memory_state: MemoryState, recent_models: RecentModels, model_id: str) -> None:
     try:
         models_service = ModelsService(config)
         model = await models_service.get_model_by_id(model_id)
-
         if not model:
             await query.answer("Model not found", show_alert=True)
             return
@@ -293,49 +239,33 @@ async def _select_model(
         model_name = model.get("name", "Unknown")
         recent_models.add(query.from_user.id, model_id, model_name)
 
-        # Get current record
-        accounting_service = AccountingService(config)
-        record = await accounting_service.get_record_by_model(model_id)
+        svc = AccountingService(config)
+        record = await svc.get_monthly_record(model_id)
+        fpm = config.files_per_month
+        current_files = record.files if record else 0
 
-        now = datetime.now(config.timezone)
-        month_str = now.strftime("%B")
+        text = (
+            f"💰 <b>{html.escape(model_name)}</b>\n\n"
+            f"Current: {_files_display(current_files, fpm)}\n\n"
+            f"Add files:"
+        )
 
-        current_amount = record["amount"] if record else 0
-        current_percent = record["percent"] if record else 0.0
-
-        text = f"💰 <b>{html.escape(model_name)} · {month_str}</b>\n\n"
-        text += f"Current: {current_amount} ({format_percent(current_percent)})\n\n"
-        text += "Add files (quick select):"
-
-        # Create dummy page_id for quick files keyboard
-        # We'll store model info in memory state
         memory_state.update(
             query.from_user.id,
-            step="add_files",
-            model_id=model_id,
-            model_name=model_name,
-            current_amount=current_amount,
+            step="add_files", model_id=model_id,
+            model_name=model_name, current_files=current_files,
         )
-
-        # Use model_id as page_id placeholder in keyboard
         await query.message.edit_text(
             text,
-            reply_markup=accounting_quick_files_keyboard(model_id, current_amount),
+            reply_markup=accounting_quick_files_keyboard(model_id, current_files),
             parse_mode="HTML",
         )
-    except Exception as e:
+    except Exception:
         LOGGER.exception("Error selecting model for accounting")
         await query.answer("Error loading model data", show_alert=True)
 
 
-async def _add_files_to_record(
-    query: CallbackQuery,
-    config: Config,
-    memory_state: MemoryState,
-    page_id: str,  # Actually model_id in this case
-    count: int,
-) -> None:
-    """Add files to accounting record."""
+async def _add_files_to_record(query: CallbackQuery, config: Config, memory_state: MemoryState, page_id: str, count: int) -> None:
     if not is_editor(query.from_user.id, config):
         await query.answer("Only editors can add files", show_alert=True)
         return
@@ -345,264 +275,160 @@ async def _add_files_to_record(
         model_id = data.get("model_id") or page_id
         model_name = data.get("model_name", "Unknown")
 
-        accounting_service = AccountingService(config)
-        result = await accounting_service.add_files(
-            model_id=model_id,
-            model_name=model_name,
-            files_to_add=count,
-        )
-
-        now = datetime.now(config.timezone)
-        month_str = now.strftime("%B")
-
-        text = f"✅ <b>Files added!</b>\n\n"
-        text += f"<b>{html.escape(model_name)} · {month_str}</b>\n"
-        text += f"Total: {result['amount']} ({format_percent(result['percent'])})\n"
-        text += f"Added: +{count}"
+        svc = AccountingService(config)
+        result = await svc.add_files(model_id, model_name, count)
+        fpm = config.files_per_month
 
         await query.message.edit_text(
-            text,
-            reply_markup=accounting_menu_keyboard(),
-            parse_mode="HTML",
+            f"✅ <b>Files added!</b>\n\n"
+            f"<b>{html.escape(model_name)}</b>\n"
+            f"Total: {_files_display(result['files'], fpm)}\n"
+            f"Added: +{count}",
+            reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
         )
-
         memory_state.clear(query.from_user.id)
-    except Exception as e:
+    except Exception:
         LOGGER.exception("Error adding files to accounting record")
-        await query.answer("Error adding files. Please try again.", show_alert=True)
+        await query.answer("Не смог обновить Notion, попробуй позже", show_alert=True)
 
 
-async def _show_record_details(
-    query: CallbackQuery,
-    config: Config,
-    memory_state: MemoryState,
-    record_id: str,
-) -> None:
-    """Show accounting record details."""
-    # This would require fetching record by ID
-    # For now, just go back to menu
-    await query.message.edit_text(
-        "💰 <b>Accounting</b>\n\nRecord details coming soon...",
-        reply_markup=accounting_menu_keyboard(),
-        parse_mode="HTML",
-    )
+# --------------------------------------------------------- custom input
+async def _process_custom_files(message: Message, config: Config, memory_state: MemoryState) -> None:
+    data = memory_state.get(message.from_user.id) or {}
+    chat_id = data.get("screen_chat_id")
+    msg_id = data.get("screen_message_id")
 
-
-async def _edit_content(
-    query: CallbackQuery,
-    config: Config,
-    memory_state: MemoryState,
-    record_id: str,
-) -> None:
-    """Edit content for record."""
-    await query.answer("Content editing coming soon", show_alert=True)
-
-
-async def _edit_comment(
-    query: CallbackQuery,
-    config: Config,
-    memory_state: MemoryState,
-    record_id: str,
-) -> None:
-    """Edit comment for record."""
-    await query.answer("Comment editing coming soon", show_alert=True)
-
-
-async def _handle_back(
-    query: CallbackQuery,
-    config: Config,
-    memory_state: MemoryState,
-    value: str,
-) -> None:
-    """Handle back button."""
-    if value == "main":
-        await query.message.delete()
-        memory_state.clear(query.from_user.id)
-    elif value == "back":
-        # Generic back from back_keyboard - return to menu
-        await query.message.edit_text(
-            "💰 <b>Accounting</b>\n\nSelect an action:",
-            reply_markup=accounting_menu_keyboard(),
-            parse_mode="HTML",
-        )
-        memory_state.clear(query.from_user.id)
-    else:
-        await query.message.edit_text(
-            "💰 <b>Accounting</b>\n\nSelect an action:",
-            reply_markup=accounting_menu_keyboard(),
-            parse_mode="HTML",
-        )
-        memory_state.clear(query.from_user.id)
-
-
-async def _cancel_flow(query: CallbackQuery, memory_state: MemoryState) -> None:
-    """Cancel current flow."""
-    await query.message.edit_text(
-        "💰 <b>Accounting</b>\n\nCancelled.",
-        reply_markup=accounting_menu_keyboard(),
-        parse_mode="HTML",
-    )
-    memory_state.clear(query.from_user.id)
-
-
-async def _process_custom_files(
-    message: Message,
-    config: Config,
-    memory_state: MemoryState,
-) -> None:
-    """Process custom file count input."""
     try:
         count = int(message.text.strip())
-        if count < 1 or count > 1000:
-            raise ValueError("Invalid count")
+        if count < 1 or count > 500:
+            raise ValueError
     except ValueError:
-        data = memory_state.get(message.from_user.id) or {}
-        screen_chat_id = data.get("screen_chat_id")
-        screen_message_id = data.get("screen_message_id")
-        
-        await message.bot.edit_message_text(
-            "Invalid number. Please enter a number between 1 and 1000:",
-            chat_id=screen_chat_id,
-            message_id=screen_message_id,
-            parse_mode="HTML",
-        )
+        if chat_id and msg_id:
+            await message.bot.edit_message_text(
+                "❌ Введите число от 1 до 500:",
+                chat_id=chat_id, message_id=msg_id, parse_mode="HTML",
+            )
         return
-    
-    # Add files with custom count
-    data = memory_state.get(message.from_user.id) or {}
+
     model_id = data.get("model_id")
-    
+    model_name = data.get("model_name", "Unknown")
     if not model_id:
         return
-    
-    # Call add files function
-    # (implementation omitted for brevity)
+
+    try:
+        svc = AccountingService(config)
+        result = await svc.add_files(model_id, model_name, count)
+        fpm = config.files_per_month
+
+        if chat_id and msg_id:
+            await message.bot.edit_message_text(
+                f"✅ <b>Files added!</b>\n\n"
+                f"<b>{html.escape(model_name)}</b>\n"
+                f"Total: {_files_display(result['files'], fpm)}\n"
+                f"Added: +{count}",
+                chat_id=chat_id, message_id=msg_id,
+                reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
+            )
+        memory_state.clear(message.from_user.id)
+    except Exception:
+        LOGGER.exception("Error adding custom files")
+        if chat_id and msg_id:
+            await message.bot.edit_message_text(
+                "❌ Не смог обновить Notion, попробуй позже",
+                chat_id=chat_id, message_id=msg_id, parse_mode="HTML",
+            )
 
 
-async def _process_comment(
-    message: Message,
-    config: Config,
-    memory_state: MemoryState,
-) -> None:
-    """Process comment input."""
+async def _process_comment(message: Message, config: Config, memory_state: MemoryState) -> None:
     comment_text = message.text.strip()
-    
     data = memory_state.get(message.from_user.id) or {}
     record_id = data.get("record_id")
-    
     if not record_id:
         return
-    
-    accounting_service = AccountingService(config)
-    await accounting_service.update_comment(record_id, comment_text)
-    
-    # Show success
-    screen_chat_id = data.get("screen_chat_id")
-    screen_message_id = data.get("screen_message_id")
-    
-    await message.bot.edit_message_text(
-        "✅ Comment updated!",
-        chat_id=screen_chat_id,
-        message_id=screen_message_id,
-        reply_markup=accounting_menu_keyboard(),
-        parse_mode="HTML",
-    )
 
+    svc = AccountingService(config)
+    await svc.update_comment(record_id, comment_text)
+
+    chat_id = data.get("screen_chat_id")
+    msg_id = data.get("screen_message_id")
+    if chat_id and msg_id:
+        await message.bot.edit_message_text(
+            "✅ Comment updated!",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
+        )
     memory_state.clear(message.from_user.id)
 
 
-# ==================== NLP Handlers ====================
+# --------------------------------------------------------- nav
+async def _handle_back(query: CallbackQuery, config: Config, memory_state: MemoryState, value: str) -> None:
+    memory_state.clear(query.from_user.id)
+    if value == "main":
+        await query.message.delete()
+    else:
+        await query.message.edit_text(
+            "💰 <b>Accounting</b>\n\nSelect an action:",
+            reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
+        )
+
+
+async def _cancel_flow(query: CallbackQuery, memory_state: MemoryState) -> None:
+    memory_state.clear(query.from_user.id)
+    await query.message.edit_text(
+        "💰 <b>Accounting</b>\n\nCancelled.",
+        reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
+    )
+
+
+# ==================== NLP Handler ====================
 
 async def handle_add_files_nlp(
     message: Message,
     model: dict,
     entities: Any,
     config: Config,
-    notion: "NotionClient",
+    notion: NotionClient,
     recent_models: RecentModels,
 ) -> None:
-    """
-    Handle adding files from NLP message.
-
-    Args:
-        message: Telegram message
-        model: {"id": str, "name": str, "aliases": list}
-        entities: Extracted entities with numbers
-        config: Config
-        notion: NotionClient
-        recent_models: RecentModels
-    """
-
+    """Handle adding files from NLP message."""
     if not is_editor(message.from_user.id, config):
         await message.answer("❌ У вас нет прав на добавление файлов.")
         return
 
-    # Extract count from entities
     if not entities.numbers:
         await message.answer("❌ Укажите количество файлов. Пример: 'мелиса 30 файлов'")
         return
 
     count = entities.numbers[0]
-
-    # Validate count
-    if count < 1 or count > 1000:
-        await message.answer("❌ Количество должно быть положительным (1-1000)")
+    if count < 1 or count > 500:
+        await message.answer("❌ Количество должно быть от 1 до 500")
         return
 
     model_id = model["id"]
     model_name = model["name"]
+    fpm = config.files_per_month
+    yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
 
-    # Get current month name (using consistent format)
-    now = datetime.now(tz=config.timezone)
-    month_str = now.strftime("%B")  # e.g., "February"
-
-    # Get or create accounting record for current month
     try:
-        # Query for existing record
-        record = await notion.get_accounting_record(
-            config.db_accounting, model_id, month_str
+        record = await notion.get_monthly_record(
+            config.db_accounting, model_id, yyyy_mm,
         )
-
         if not record:
-            # Create new record
-            LOGGER.info(
-                "Creating new accounting record for model %s, month %s",
-                model_id,
-                month_str,
-            )
             await notion.create_accounting_record(
-                config.db_accounting, model_id, count, month_str, config.files_per_month
+                config.db_accounting, model_id, model_name, count, yyyy_mm,
             )
-            new_amount = count
+            new_files = count
         else:
-            # Update existing record
-            LOGGER.info(
-                "Updating existing accounting record %s, adding %d files",
-                record.page_id,
-                count,
-            )
-            current_amount = record.amount or 0
-            new_amount = current_amount + count
-            new_percent = new_amount / float(config.files_per_month)
+            new_files = record.files + count
+            await notion.update_accounting_files(record.page_id, new_files)
 
-            await notion.update_accounting_files(
-                record.page_id, new_amount, new_percent
-            )
-
-        # Calculate percentage
-        percent = new_amount / float(config.files_per_month)
-
-        # Show success message
         await message.answer(
-            f"✅ Добавлено {count} файлов!\n\n"
-            f"<b>{html.escape(model_name)}</b> | {month_str}\n"
-            f"Файлов: {new_amount} ({int(percent * 100)}%)",
+            f"✅ +{count} файлов\n\n"
+            f"<b>{html.escape(model_name)}</b>\n"
+            f"Файлов: {_files_display(new_files, fpm)}",
             parse_mode="HTML",
         )
-
-        # Add to recent models
         recent_models.add(message.from_user.id, model_id, model_name)
-
-    except Exception as e:
-        LOGGER.exception("Failed to add files: %s", e)
-        await message.answer("❌ Ошибка при добавлении файлов. Попробуйте позже.")
+    except Exception:
+        LOGGER.exception("Failed to add files")
+        await message.answer("❌ Не смог обновить Notion, попробуй позже.")

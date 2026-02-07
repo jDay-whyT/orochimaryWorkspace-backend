@@ -141,12 +141,12 @@ class TestModelCardCache:
                        in_date="2026-02-01", status="Open"),
         ]
         mock_notion.query_upcoming_shoots.return_value = []
-        mock_notion.get_accounting_record.return_value = None
+        mock_notion.get_monthly_record.return_value = None
 
         from zoneinfo import ZoneInfo
         mock_config = MagicMock()
         mock_config.timezone = ZoneInfo("Europe/Brussels")
-        mock_config.files_per_month = 180
+        mock_config.files_per_month = 200
         mock_config.db_orders = "db_orders"
         mock_config.db_planner = "db_planner"
         mock_config.db_accounting = "db_accounting"
@@ -163,7 +163,7 @@ class TestModelCardCache:
         assert text2 == text1
         assert mock_notion.query_open_orders.call_count == 0
         assert mock_notion.query_upcoming_shoots.call_count == 0
-        assert mock_notion.get_accounting_record.call_count == 0
+        assert mock_notion.get_monthly_record.call_count == 0
 
     @pytest.mark.asyncio
     async def test_error_result_cached_shorter(self):
@@ -177,12 +177,12 @@ class TestModelCardCache:
         mock_notion = AsyncMock()
         mock_notion.query_open_orders.side_effect = RuntimeError("down")
         mock_notion.query_upcoming_shoots.side_effect = RuntimeError("down")
-        mock_notion.get_accounting_record.side_effect = RuntimeError("down")
+        mock_notion.get_monthly_record.side_effect = RuntimeError("down")
 
         from zoneinfo import ZoneInfo
         mock_config = MagicMock()
         mock_config.timezone = ZoneInfo("Europe/Brussels")
-        mock_config.files_per_month = 180
+        mock_config.files_per_month = 200
         mock_config.db_orders = "db_orders"
         mock_config.db_planner = "db_planner"
         mock_config.db_accounting = "db_accounting"

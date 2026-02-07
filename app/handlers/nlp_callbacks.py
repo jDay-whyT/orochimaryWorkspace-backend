@@ -74,6 +74,10 @@ _FLOW_STEP_RULES: dict[str, tuple[str, set[str] | None]] = {
     "od": ("nlp_order", {"awaiting_date"}),
     "oc": ("nlp_order", {"awaiting_date"}),
     "sd": ("nlp_shoot", {"awaiting_date", "awaiting_new_date", "awaiting_custom_date"}),
+    "sct": ("nlp_shoot", {"awaiting_content"}),
+    "scd": ("nlp_shoot", {"awaiting_content"}),
+    "srs": ("nlp_actions", None),
+    "scm": ("nlp_actions", None),
     "cd": ("nlp_close", {"awaiting_date", "awaiting_custom_date"}),
     "act": ("nlp_actions", None),
 }
@@ -233,6 +237,18 @@ async def handle_nlp_callback(
         elif action == "af":
             await _handle_add_files(query, parts, config, notion, memory_state, recent_models)
 
+        # ===== Shoot Content Types =====
+        elif action == "sct":
+            await _handle_shoot_content_toggle(query, parts, config, memory_state)
+        elif action == "scd":
+            await _handle_shoot_content_done(query, parts, config, notion, memory_state, recent_models)
+
+        # ===== Shoot Manage (from model card) =====
+        elif action == "srs":
+            await _handle_shoot_reschedule_cb(query, parts, config, notion, memory_state)
+        elif action == "scm":
+            await _handle_shoot_comment_cb(query, parts, config, notion, memory_state)
+
         else:
             LOGGER.warning("Unknown NLP callback action: %s", action)
             await query.answer("Unknown action", show_alert=True)
@@ -376,28 +392,29 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             return
         try:
             now = datetime.now(tz=config.timezone)
-            month_str = now.strftime("%B")
-            record = await notion.get_accounting_record(config.db_accounting, model_id, month_str)
+            yyyy_mm = now.strftime("%Y-%m")
+            fpm = config.files_per_month
+            record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
             if not record:
                 await notion.create_accounting_record(
-                    config.db_accounting, model_id, count, month_str, config.files_per_month
+                    config.db_accounting, model_id, model_data.title, count, yyyy_mm,
                 )
-                new_amount = count
+                new_files = count
             else:
-                current_amount = record.amount or 0
-                new_amount = current_amount + count
-                new_percent = new_amount / float(config.files_per_month)
-                await notion.update_accounting_files(record.page_id, new_amount, new_percent)
-            percent = int((new_amount / config.files_per_month) * 100)
+                new_files = record.files + count
+                await notion.update_accounting_files(record.page_id, new_files)
+            pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
+            over = max(0, new_files - fpm)
+            over_str = f" +{over}" if over > 0 else ""
             await query.message.edit_text(
-                f"✅ +{count} файлов ({new_amount} всего)\n\n"
-                f"<b>{html.escape(model_data.title)}</b> · {month_str}\n"
-                f"Файлов: {new_amount} ({percent}%)",
+                f"✅ +{count} файлов ({new_files} всего)\n\n"
+                f"<b>{html.escape(model_data.title)}</b>\n"
+                f"Файлов: {new_files}/{fpm} ({pct}%){over_str}",
                 parse_mode="HTML",
             )
         except Exception as e:
             LOGGER.exception("Failed to add files: %s", e)
-            await query.message.edit_text("❌ Ошибка при добавлении файлов.")
+            await query.message.edit_text("❌ Не смог обновить Notion, попробуй позже.")
 
     elif intent == CommandIntent.CLOSE_ORDERS:
         # Close orders flow
@@ -516,21 +533,49 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
         )
 
     elif action == "shoot":
-        # Show shoot date selection
-        from app.keyboards.inline import nlp_shoot_date_keyboard
-        k = generate_token()
-        memory_state.set(user_id, {
-            "flow": "nlp_shoot",
-            "step": "awaiting_date",
-            "model_id": model_id,
-            "model_name": model_name,
-            "k": k,
-        })
-        await query.message.edit_text(
-            f"📅 <b>{html.escape(model_name)}</b> · Дата съемки:",
-            reply_markup=nlp_shoot_date_keyboard(k),
-            parse_mode="HTML",
-        )
+        # Check if model has an upcoming shoot → manage it; otherwise → create new
+        try:
+            shoots = await notion.query_upcoming_shoots(config.db_planner, model_page_id=model_id)
+        except Exception:
+            shoots = []
+
+        if shoots:
+            # Manage nearest shoot
+            from app.keyboards.inline import nlp_shoot_manage_keyboard
+            shoot = shoots[0]
+            s_date = shoot.date[:10] if shoot.date else "?"
+            s_status = shoot.status or "planned"
+            k = generate_token()
+            memory_state.set(user_id, {
+                "flow": "nlp_actions",
+                "model_id": model_id,
+                "model_name": model_name,
+                "shoot_id": shoot.page_id,
+                "k": k,
+            })
+            await query.message.edit_text(
+                f"📅 <b>{html.escape(model_name)}</b> · Ближайшая: {s_date} ({s_status})\n\n"
+                "Что делаем?",
+                reply_markup=nlp_shoot_manage_keyboard(shoot.page_id, k),
+                parse_mode="HTML",
+            )
+        else:
+            # Create new shoot — start with content type selection
+            from app.keyboards.inline import nlp_shoot_content_keyboard
+            k = generate_token()
+            memory_state.set(user_id, {
+                "flow": "nlp_shoot",
+                "step": "awaiting_content",
+                "model_id": model_id,
+                "model_name": model_name,
+                "content_types": [],
+                "k": k,
+            })
+            await query.message.edit_text(
+                f"📅 <b>{html.escape(model_name)}</b> · Выберите контент:",
+                reply_markup=nlp_shoot_content_keyboard([], k),
+                parse_mode="HTML",
+            )
 
     elif action == "report":
         # Show report inline
@@ -660,20 +705,25 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
             memory_state.clear(user_id)
             return
 
+        content_types = state.get("content_types", [])
+        auto_status = _compute_shoot_status(shoot_date.isoformat(), content_types)
         title = f"{model_name} · {shoot_date.strftime('%d.%m')}"
         try:
             await notion.create_shoot(
                 database_id=config.db_planner,
                 model_page_id=model_id,
                 shoot_date=shoot_date,
-                content=[],
+                content=content_types,
                 location="home",
                 title=title,
+                status=auto_status,
             )
             memory_state.clear(user_id)
             recent_models.add(user_id, model_id, model_name)
+            ct_str = ", ".join(content_types) if content_types else "—"
             await query.message.edit_text(
-                f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}",
+                f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}\n"
+                f"Контент: {ct_str}\nСтатус: {auto_status}",
                 parse_mode="HTML",
             )
         except Exception as e:
@@ -1151,34 +1201,35 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
 
     try:
         now = datetime.now(tz=config.timezone)
-        month_str = now.strftime("%B")
+        yyyy_mm = now.strftime("%Y-%m")
+        fpm = config.files_per_month
 
-        record = await notion.get_accounting_record(config.db_accounting, model_id, month_str)
+        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
 
         if not record:
             await notion.create_accounting_record(
-                config.db_accounting, model_id, count, month_str, config.files_per_month
+                config.db_accounting, model_id, model_name, count, yyyy_mm,
             )
-            new_amount = count
+            new_files = count
         else:
-            current_amount = record.amount or 0
-            new_amount = current_amount + count
-            new_percent = new_amount / float(config.files_per_month)
-            await notion.update_accounting_files(record.page_id, new_amount, new_percent)
+            new_files = record.files + count
+            await notion.update_accounting_files(record.page_id, new_files)
 
-        percent = int((new_amount / config.files_per_month) * 100)
+        pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
+        over = max(0, new_files - fpm)
+        over_str = f" +{over}" if over > 0 else ""
         recent_models.add(user_id, model_id, model_name)
         memory_state.clear(user_id)
 
         await query.message.edit_text(
-            f"✅ +{count} файлов ({new_amount} всего)\n\n"
-            f"<b>{html.escape(model_name)}</b> · {month_str}\n"
-            f"Файлов: {new_amount} ({percent}%)",
+            f"✅ +{count} файлов ({new_files} всего)\n\n"
+            f"<b>{html.escape(model_name)}</b>\n"
+            f"Файлов: {new_files}/{fpm} ({pct}%){over_str}",
             parse_mode="HTML",
         )
     except Exception as e:
         LOGGER.exception("Failed to add files: %s", e)
-        await query.message.edit_text("❌ Ошибка при добавлении файлов.")
+        await query.message.edit_text("❌ Не смог обновить Notion, попробуй позже.")
 
 
 async def _handle_disambig_orders(query, parts, config, notion, memory_state):
@@ -1264,18 +1315,22 @@ async def _handle_report_accounting(query, config, notion, memory_state):
         await query.message.edit_text(SESSION_EXPIRED_MSG)
         return
 
-    records = await notion.query_accounting_current_month(config.db_accounting, model_id)
-    if not records:
-        await query.answer("Нет данных по учету", show_alert=True)
-        return
+    now = datetime.now(tz=config.timezone)
+    yyyy_mm = now.strftime("%Y-%m")
+    fpm = config.files_per_month
+    record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
 
     model_data = await notion.get_model(model_id)
     model_name = model_data.title if model_data else "модели"
 
-    accounting_text = "\n".join(
-        f"• {rec.title}: {rec.amount or 0} файлов ({int((rec.percent or 0) * 100)}%)"
-        for rec in records[:5]
-    )
+    if not record:
+        accounting_text = f"Файлов: 0/{fpm} (0%)"
+    else:
+        total = record.files
+        pct = min(100, round(total / fpm * 100)) if fpm > 0 else 0
+        over = max(0, total - fpm)
+        over_str = f" +{over}" if over > 0 else ""
+        accounting_text = f"Файлов: {total}/{fpm} ({pct}%){over_str}"
 
     k = generate_token()
     memory_state.update(user_id, k=k)
@@ -1334,35 +1389,147 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
 
     try:
         now = datetime.now(tz=config.timezone)
-        month_str = now.strftime("%B")
+        yyyy_mm = now.strftime("%Y-%m")
+        fpm = config.files_per_month
 
-        record = await notion.get_accounting_record(config.db_accounting, model_id, month_str)
+        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
 
         if not record:
             await notion.create_accounting_record(
-                config.db_accounting, model_id, count, month_str, config.files_per_month
+                config.db_accounting, model_id, model_name, count, yyyy_mm,
             )
-            new_amount = count
+            new_files = count
         else:
-            current_amount = record.amount or 0
-            new_amount = current_amount + count
-            new_percent = new_amount / float(config.files_per_month)
-            await notion.update_accounting_files(record.page_id, new_amount, new_percent)
+            new_files = record.files + count
+            await notion.update_accounting_files(record.page_id, new_files)
 
-        percent = int((new_amount / config.files_per_month) * 100)
+        pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
+        over = max(0, new_files - fpm)
+        over_str = f" +{over}" if over > 0 else ""
         recent_models.add(user_id, model_id, model_name)
         memory_state.clear(user_id)
 
         await query.message.edit_text(
-            f"✅ +{count} файлов ({new_amount} всего)\n\n"
-            f"<b>{html.escape(model_name)}</b> · {month_str}\n"
-            f"Файлов: {new_amount} ({percent}%)",
+            f"✅ +{count} файлов ({new_files} всего)\n\n"
+            f"<b>{html.escape(model_name)}</b>\n"
+            f"Файлов: {new_files}/{fpm} ({pct}%){over_str}",
             parse_mode="HTML",
         )
     except Exception as e:
         LOGGER.exception("Failed to add files: %s", e)
-        await query.message.edit_text("❌ Ошибка при добавлении файлов.")
+        await query.message.edit_text("❌ Не смог обновить Notion, попробуй позже.")
         memory_state.clear(user_id)
+
+
+# ============================================================================
+#                    SHOOT CONTENT TYPES + MANAGE
+# ============================================================================
+
+def _compute_shoot_status(shoot_date: str | None, content_types: list[str]) -> str:
+    """Auto-compute planner status: scheduled if date+types, else planned."""
+    if shoot_date and content_types:
+        return "scheduled"
+    return "planned"
+
+
+async def _handle_shoot_content_toggle(query, parts, config, memory_state):
+    """Toggle a content type. Callback: nlp:sct:{type}[:{k}]"""
+    if len(parts) < 3:
+        return
+    ct = parts[2]
+    user_id = query.from_user.id
+    state = memory_state.get(user_id)
+    if not state:
+        await query.message.edit_text(SESSION_EXPIRED_MSG)
+        return
+
+    selected = list(state.get("content_types", []))
+    if ct in selected:
+        selected.remove(ct)
+    else:
+        selected.append(ct)
+
+    k = generate_token()
+    memory_state.update(user_id, content_types=selected, k=k)
+    model_name = state.get("model_name", "")
+
+    from app.keyboards.inline import nlp_shoot_content_keyboard
+    await query.message.edit_text(
+        f"📅 <b>{html.escape(model_name)}</b> · Выберите контент:",
+        reply_markup=nlp_shoot_content_keyboard(selected, k),
+        parse_mode="HTML",
+    )
+
+
+async def _handle_shoot_content_done(query, parts, config, notion, memory_state, recent_models):
+    """Content selection done → proceed to date. Callback: nlp:scd:done[:{k}]"""
+    user_id = query.from_user.id
+    state = memory_state.get(user_id)
+    if not state:
+        await query.message.edit_text(SESSION_EXPIRED_MSG)
+        return
+
+    content_types = state.get("content_types", [])
+    model_name = state.get("model_name", "")
+
+    from app.keyboards.inline import nlp_shoot_date_keyboard
+    k = generate_token()
+    memory_state.update(user_id, step="awaiting_date", k=k)
+    await query.message.edit_text(
+        f"📅 <b>{html.escape(model_name)}</b> · Дата съемки:",
+        reply_markup=nlp_shoot_date_keyboard(k),
+        parse_mode="HTML",
+    )
+
+
+async def _handle_shoot_reschedule_cb(query, parts, config, notion, memory_state):
+    """Reschedule shoot from manage keyboard. Callback: nlp:srs:{shoot_id}[:{k}]"""
+    if len(parts) < 3:
+        return
+    shoot_id = parts[2]
+    user_id = query.from_user.id
+    state = memory_state.get(user_id)
+    model_name = state.get("model_name", "") if state else ""
+    model_id = state.get("model_id", "") if state else ""
+
+    from app.keyboards.inline import nlp_shoot_date_keyboard
+    k = generate_token()
+    memory_state.set(user_id, {
+        "flow": "nlp_shoot",
+        "step": "awaiting_new_date",
+        "shoot_id": shoot_id,
+        "model_id": model_id,
+        "model_name": model_name,
+        "k": k,
+    })
+    await query.message.edit_text(
+        f"📅 <b>{html.escape(model_name)}</b> · Новая дата:",
+        reply_markup=nlp_shoot_date_keyboard(k),
+        parse_mode="HTML",
+    )
+
+
+async def _handle_shoot_comment_cb(query, parts, config, notion, memory_state):
+    """Comment on shoot from manage keyboard. Callback: nlp:scm:{shoot_id}[:{k}]"""
+    if len(parts) < 3:
+        return
+    shoot_id = parts[2]
+    user_id = query.from_user.id
+    state = memory_state.get(user_id)
+    model_name = state.get("model_name", "") if state else ""
+
+    k = generate_token()
+    memory_state.set(user_id, {
+        "flow": "nlp_shoot",
+        "step": "awaiting_shoot_comment",
+        "shoot_id": shoot_id,
+        "model_name": model_name,
+        "k": k,
+    })
+    await query.message.edit_text(
+        f"💬 <b>{html.escape(model_name)}</b> · Введите комментарий:",
+        parse_mode="HTML",
+    )
 
 
 # ============================================================================
@@ -1375,35 +1542,32 @@ async def _show_report(query, model_id, model_name, config, notion, k=""):
     from app.utils import escape_html
 
     now = datetime.now(tz=config.timezone)
-    month_str = now.strftime("%B")
+    yyyy_mm = now.strftime("%Y-%m")
+    fpm = config.files_per_month
 
     try:
-        accounting_records = await notion.query_accounting_current_month(
-            config.db_accounting, model_id
-        )
+        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
     except Exception:
-        accounting_records = []
+        record = None
 
     try:
         open_orders = await notion.query_open_orders(config.db_orders, model_id)
     except Exception:
         open_orders = []
 
-    total_files = sum(
-        rec.amount for rec in accounting_records if rec.amount is not None
-    )
-    avg_percent = (
-        sum(rec.percent for rec in accounting_records if rec.percent is not None)
-        / len(accounting_records)
-        if accounting_records
-        else 0
-    )
+    if record:
+        total = record.files
+        pct = min(100, round(total / fpm * 100)) if fpm > 0 else 0
+        over = max(0, total - fpm)
+        over_str = f" +{over}" if over > 0 else ""
+        files_str = f"{total}/{fpm} ({pct}%){over_str}"
+    else:
+        files_str = f"0/{fpm} (0%)"
 
-    files_str = f"{total_files} ({int(avg_percent * 100)}%)"
     orders_str = f"{len(open_orders)} открытых"
 
     await query.message.edit_text(
-        f"📊 <b>{escape_html(model_name)}</b> · {month_str}\n\n"
+        f"📊 <b>{escape_html(model_name)}</b> · {yyyy_mm}\n\n"
         f"📁 Файлов: {files_str}\n"
         f"📦 Заказов: {orders_str}\n",
         reply_markup=nlp_report_keyboard(k),

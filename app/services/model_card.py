@@ -5,12 +5,12 @@ Card format:
   📌 {MODEL}
   📦 Заказы: open {N}
   📅 Съёмка: {next_date} ({status}) или "нет"
-  📁 Файлы ({month}): {files}/180 ({pct}%) +{over}
+  📁 Файлы ({month}): {files}/200 ({pct}%) +{over}
 
 Data sources:
   - Orders: Notion Orders DB (status=Open)
   - Shoots: Notion Planner DB (upcoming scheduled)
-  - Files:  Notion Accounting DB (current month)
+  - Files:  Notion Accounting DB (current month, one record per model)
 
 All Notion calls are wrapped in try/except — if Notion is unavailable
 the card still renders with "—" placeholders.
@@ -100,7 +100,6 @@ async def build_model_card(
     """
     cache_key = model_id.lower()
     cached = _cache_get(cache_key)
-    # Even if cached text, we need open_orders. Store it in a parallel cache.
     cached_orders = _orders_count_cache.get(cache_key)
     if cached is not None and cached_orders is not None:
         return cached, cached_orders
@@ -108,7 +107,6 @@ async def build_model_card(
     text, is_error = await _build_card_text_impl(model_id, model_name, config, notion)
     _cache_set(cache_key, text, is_error)
 
-    # Extract orders count from text (parse "open N" or "open —")
     open_orders = _extract_orders_count(text)
     _orders_count_cache[cache_key] = open_orders
     return text, open_orders
@@ -124,7 +122,7 @@ def _extract_orders_count(text: str) -> int:
     m = re.search(r'open (\d+)', text)
     if m:
         return int(m.group(1))
-    return -1  # "—" or unparseable
+    return -1
 
 
 async def _build_card_text_impl(
@@ -138,11 +136,11 @@ async def _build_card_text_impl(
     is_error=True when any Notion call failed (contains "—").
     """
     now = datetime.now(tz=config.timezone)
-    files_per_month = config.files_per_month
+    fpm = config.files_per_month
 
     orders_count = "—"
     shoot_line = "нет"
-    files_line = "0/{fpm} (0%)".format(fpm=files_per_month)
+    files_line = f"0/{fpm} (0%)"
     month_label = _month_ru(now.month)
     has_error = False
 
@@ -176,20 +174,20 @@ async def _build_card_text_impl(
 
     # Files current month
     try:
-        month_str = now.strftime("%B")
-        record = await notion.get_accounting_record(
-            config.db_accounting, model_id, month_str,
+        yyyy_mm = now.strftime("%Y-%m")
+        record = await notion.get_monthly_record(
+            config.db_accounting, model_id, yyyy_mm,
         )
         if record:
-            amount = record.amount or 0
-            pct = int((amount / files_per_month) * 100) if files_per_month > 0 else 0
-            over = max(0, amount - files_per_month)
+            total_files = record.files
+            pct = min(100, round(total_files / fpm * 100)) if fpm > 0 else 0
+            over = max(0, total_files - fpm)
             if over > 0:
-                files_line = f"{amount}/{files_per_month} ({pct}%) +{over}"
+                files_line = f"{total_files}/{fpm} ({pct}%) +{over}"
             else:
-                files_line = f"{amount}/{files_per_month} ({pct}%)"
+                files_line = f"{total_files}/{fpm} ({pct}%)"
         else:
-            files_line = f"0/{files_per_month} (0%)"
+            files_line = f"0/{fpm} (0%)"
     except Exception:
         LOGGER.warning("model_card: failed to fetch accounting for %s", model_id)
         files_line = "—"
