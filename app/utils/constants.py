@@ -54,12 +54,6 @@ ACCOUNTING_STATUS_WORK = "work"
 ACCOUNTING_STATUS_INACTIVE = "inactive"
 ACCOUNTING_STATUS_STOP = "stop"
 
-# Accounting property names (Notion)
-ACCOUNTING_TITLE_PROP = "Title"
-ACCOUNTING_MODEL_PROP = "model"
-ACCOUNTING_FILES_PROP = "Files"
-ACCOUNTING_COMMENT_PROP = "Comment"
-
 # Model statuses
 MODEL_STATUS_NEW = "new"
 MODEL_STATUS_WORK = "work"

@@ -14,7 +14,6 @@ from zoneinfo import ZoneInfo
 
 from app.services.notion import NotionAccounting, NotionPlanner
 from app.services.model_card import clear_card_cache
-from app.utils.constants import ACCOUNTING_COMMENT_PROP
 
 
 # ---------------------------------------------------------------------------
@@ -47,11 +46,10 @@ class TestAccountingCreateMonthlyRecord:
         svc = AccountingService(config)
 
         svc.notion = AsyncMock()
-        svc.notion.query_monthly_records.return_value = []
-        svc.notion.get_model.return_value = MagicMock(title="МЕЛИСА")
+        svc.notion.get_monthly_record.return_value = None
         svc.notion.create_accounting_record.return_value = "new-page-id"
 
-        result = await svc.add_files("model-1", 30, month="2026-02")
+        result = await svc.add_files("model-1", "МЕЛИСА", 30)
 
         svc.notion.create_accounting_record.assert_called_once()
         call_kwargs = svc.notion.create_accounting_record.call_args
@@ -76,11 +74,10 @@ class TestAccountingUpdateMonthlyRecord:
             files=120,
         )
         svc.notion = AsyncMock()
-        svc.notion.query_monthly_records.return_value = [existing]
-        svc.notion.get_model.return_value = MagicMock(title="МЕЛИСА")
+        svc.notion.get_monthly_record.return_value = existing
         svc.notion.update_accounting_files.return_value = None
 
-        result = await svc.add_files("model-1", 50, month="2026-02")
+        result = await svc.add_files("model-1", "МЕЛИСА", 50)
 
         svc.notion.update_accounting_files.assert_called_once_with(
             "existing-page", 170,
@@ -99,11 +96,10 @@ class TestAccountingUpdateMonthlyRecord:
             page_id="page-1", title="МЕЛИСА · accounting 2026-02", files=50,
         )
         svc.notion = AsyncMock()
-        svc.notion.query_monthly_records.return_value = [record]
-        svc.notion.get_model.return_value = MagicMock(title="МЕЛИСА")
+        svc.notion.get_monthly_record.return_value = record
         svc.notion.update_accounting_files.return_value = None
 
-        result = await svc.add_files("model-1", 15, month="2026-02")
+        result = await svc.add_files("model-1", "МЕЛИСА", 15)
         assert result["files"] == 65
 
 
@@ -141,29 +137,6 @@ class TestAccountingMultipleRecords:
         assert result is not None
         assert result.page_id == "newer"
         assert result.files == 100
-
-
-# ===========================================================================
-#  Accounting comment updates
-# ===========================================================================
-
-
-class TestAccountingCommentUpdate:
-    """Ensure accounting comment uses Comment rich_text property."""
-
-    @pytest.mark.asyncio
-    async def test_update_accounting_comment_uses_comment_prop(self):
-        from app.services.notion import NotionClient
-
-        client = NotionClient("test-token-comment")
-        mock_request = AsyncMock(return_value={})
-        with patch.object(client, "_request", mock_request):
-            await client.update_accounting_comment("page-1", "hello")
-
-        payload = mock_request.call_args.kwargs["json"]
-        assert ACCOUNTING_COMMENT_PROP in payload["properties"]
-        comment_payload = payload["properties"][ACCOUNTING_COMMENT_PROP]
-        assert comment_payload["rich_text"][0]["text"]["content"] == "hello"
 
 
 # ===========================================================================

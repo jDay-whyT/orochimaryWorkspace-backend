@@ -391,27 +391,25 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             await query.message.edit_text("❌ Нет прав.")
             return
         try:
-            from app.services.accounting import AccountingService
-            from app.keyboards.inline import model_card_keyboard
-            from app.services.model_card import build_model_card
-
-            svc = AccountingService(config)
-            await svc.add_files(model_id, count)
-            recent_models.add(user_id, model_id, model_data.title)
-            k = generate_token()
-            memory_state.set(user_id, {
-                "flow": "nlp_actions",
-                "model_id": model_id,
-                "model_name": model_data.title,
-                "k": k,
-            })
-            card_text, open_orders = await build_model_card(
-                model_id, model_data.title, config, notion,
-            )
-            oo = open_orders if open_orders >= 0 else None
+            now = datetime.now(tz=config.timezone)
+            yyyy_mm = now.strftime("%Y-%m")
+            fpm = config.files_per_month
+            record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+            if not record:
+                await notion.create_accounting_record(
+                    config.db_accounting, model_id, model_data.title, count, yyyy_mm,
+                )
+                new_files = count
+            else:
+                new_files = record.files + count
+                await notion.update_accounting_files(record.page_id, new_files)
+            pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
+            over = max(0, new_files - fpm)
+            over_str = f" +{over}" if over > 0 else ""
             await query.message.edit_text(
-                card_text,
-                reply_markup=model_card_keyboard(k, open_orders=oo),
+                f"✅ +{count} файлов ({new_files} всего)\n\n"
+                f"<b>{html.escape(model_data.title)}</b>\n"
+                f"Файлов: {new_files}/{fpm} ({pct}%){over_str}",
                 parse_mode="HTML",
             )
         except Exception as e:
@@ -1132,16 +1130,8 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             )
 
     elif target == "account":
-        try:
-            from app.services.accounting import AccountingService
-            svc = AccountingService(config)
-            await svc.update_comment(model_id, comment_text)
-            memory_state.clear(user_id)
-            await query.message.edit_text("✅ Комментарий добавлен")
-        except Exception as e:
-            LOGGER.exception("Failed to add accounting comment: %s", e)
-            await query.message.edit_text("❌ Ошибка.")
-            memory_state.clear(user_id)
+        await query.message.edit_text("Комментарии к учету пока не поддержаны.")
+        memory_state.clear(user_id)
 
 
 async def _handle_comment_order(query, parts, config, notion, memory_state):
@@ -1210,27 +1200,31 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
     model_name = model_data.title
 
     try:
-        from app.services.accounting import AccountingService
-        from app.keyboards.inline import model_card_keyboard
-        from app.services.model_card import build_model_card
+        now = datetime.now(tz=config.timezone)
+        yyyy_mm = now.strftime("%Y-%m")
+        fpm = config.files_per_month
 
-        svc = AccountingService(config)
-        await svc.add_files(model_id, count)
+        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+
+        if not record:
+            await notion.create_accounting_record(
+                config.db_accounting, model_id, model_name, count, yyyy_mm,
+            )
+            new_files = count
+        else:
+            new_files = record.files + count
+            await notion.update_accounting_files(record.page_id, new_files)
+
+        pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
+        over = max(0, new_files - fpm)
+        over_str = f" +{over}" if over > 0 else ""
         recent_models.add(user_id, model_id, model_name)
-        k = generate_token()
-        memory_state.set(user_id, {
-            "flow": "nlp_actions",
-            "model_id": model_id,
-            "model_name": model_name,
-            "k": k,
-        })
-        card_text, open_orders = await build_model_card(
-            model_id, model_name, config, notion,
-        )
-        oo = open_orders if open_orders >= 0 else None
+        memory_state.clear(user_id)
+
         await query.message.edit_text(
-            card_text,
-            reply_markup=model_card_keyboard(k, open_orders=oo),
+            f"✅ +{count} файлов ({new_files} всего)\n\n"
+            f"<b>{html.escape(model_name)}</b>\n"
+            f"Файлов: {new_files}/{fpm} ({pct}%){over_str}",
             parse_mode="HTML",
         )
     except Exception as e:
@@ -1394,27 +1388,31 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
         return
 
     try:
-        from app.services.accounting import AccountingService
-        from app.keyboards.inline import model_card_keyboard
-        from app.services.model_card import build_model_card
+        now = datetime.now(tz=config.timezone)
+        yyyy_mm = now.strftime("%Y-%m")
+        fpm = config.files_per_month
 
-        svc = AccountingService(config)
-        await svc.add_files(model_id, count)
+        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+
+        if not record:
+            await notion.create_accounting_record(
+                config.db_accounting, model_id, model_name, count, yyyy_mm,
+            )
+            new_files = count
+        else:
+            new_files = record.files + count
+            await notion.update_accounting_files(record.page_id, new_files)
+
+        pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
+        over = max(0, new_files - fpm)
+        over_str = f" +{over}" if over > 0 else ""
         recent_models.add(user_id, model_id, model_name)
-        k = generate_token()
-        memory_state.set(user_id, {
-            "flow": "nlp_actions",
-            "model_id": model_id,
-            "model_name": model_name,
-            "k": k,
-        })
-        card_text, open_orders = await build_model_card(
-            model_id, model_name, config, notion,
-        )
-        oo = open_orders if open_orders >= 0 else None
+        memory_state.clear(user_id)
+
         await query.message.edit_text(
-            card_text,
-            reply_markup=model_card_keyboard(k, open_orders=oo),
+            f"✅ +{count} файлов ({new_files} всего)\n\n"
+            f"<b>{html.escape(model_name)}</b>\n"
+            f"Файлов: {new_files}/{fpm} ({pct}%){over_str}",
             parse_mode="HTML",
         )
     except Exception as e:
