@@ -47,7 +47,7 @@ SESSION_EXPIRED_MSG = "Сессия устарела, откройте моде�
 STALE_MSG = "Сессия устарела, откройте модель заново"
 
 # Actions that do NOT require token verification (always safe)
-_NO_TOKEN_ACTIONS = {"x", "bk", "cl", "noop", "om", "op", "cp", "fm", "smn", "sctm"}
+_NO_TOKEN_ACTIONS = {"x", "bk", "noop", "om", "op", "cp", "fm", "smn", "sctm"}
 
 
 async def _safe_edit_reply_markup(bot, chat_id: int, message_id: int) -> None:
@@ -244,22 +244,33 @@ async def handle_nlp_callback(
             memory_state.clear(user_id)
             sub = parts[2] if len(parts) >= 3 else "c"
             if sub == "m":
-                await query.message.edit_text(
-                    "👋 Главное меню. Напишите запрос текстом или /start",
-                    parse_mode="HTML",
-                )
+                if query.message:
+                    try:
+                        await query.message.edit_text(
+                            "👋 Главное меню. Напишите запрос текстом или /start",
+                            parse_mode="HTML",
+                        )
+                    except Exception:
+                        pass
             else:
-                await query.message.edit_text("Отменено.")
+                if query.message:
+                    await _safe_edit_reply_markup(
+                        query.bot,
+                        chat_id=query.message.chat.id,
+                        message_id=query.message.message_id,
+                    )
+                    try:
+                        await query.message.edit_text(
+                            "Сброшено. Напиши модель заново.",
+                            reply_markup=None,
+                        )
+                    except Exception:
+                        pass
             await query.answer()
             return
         if action == "bk":
             model_id = parts[2] if len(parts) >= 3 else None
             await _handle_back_to_card(query, config, notion, memory_state, model_id)
-            await query.answer()
-            return
-        if action == "cl":
-            if query.message:
-                await query.message.delete()
             await query.answer()
             return
         if action == "noop":

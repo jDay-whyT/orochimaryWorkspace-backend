@@ -95,7 +95,7 @@ class TestModelCardKeyboard:
     """Tests for model_card_keyboard structure and callback_data."""
 
     def test_keyboard_has_two_rows(self):
-        """model_card_keyboard should have 2 rows (modules + close)."""
+        """model_card_keyboard should have 2 rows (modules + reset)."""
         kb = model_card_keyboard("test1")
         assert len(kb.inline_keyboard) == 2
 
@@ -108,21 +108,20 @@ class TestModelCardKeyboard:
         assert "Съёмка" in row1[1].text
         assert "Файлы" in row1[2].text
 
-    def test_row2_has_close(self):
-        """Row 2: close button."""
+    def test_row2_has_reset(self):
+        """Row 2: reset button."""
         kb = model_card_keyboard("test1")
         row2 = kb.inline_keyboard[1]
         assert len(row2) == 1
-        assert "Закрыть" in row2[0].text
-        assert row2[0].callback_data == "nlp:cl"
+        assert "Сброс" in row2[0].text
+        assert row2[0].callback_data == "nlp:x:c"
 
-    def test_no_report_or_service_buttons(self):
-        """Model card should not include Report/Menu/Reset buttons."""
+    def test_no_report_or_menu_buttons(self):
+        """Model card should not include Report/Menu buttons."""
         kb = model_card_keyboard("test1")
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
         assert all("Репорт" not in text for text in texts)
         assert all("Меню" not in text for text in texts)
-        assert all("Сброс" not in text for text in texts)
 
     def test_orders_button_callback(self):
         """📦 Заказы -> nlp:act:orders:{k}."""
