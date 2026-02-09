@@ -71,8 +71,9 @@ async def test_remove_keyboard_on_success():
     config = MagicMock()
     config.files_per_month = 200
     config.timezone = ZoneInfo("UTC")
+    config.allowed_editors = {1}
     notion = AsyncMock()
-    notion.get_monthly_record.return_value = MagicMock(files=0, page_id="acc-1")
+    notion.get_monthly_record.return_value = MagicMock(files=0, page_id="acc-1", status=None)
 
     await _handle_custom_files_input(message, "5", user_state, config, notion, memory_state)
 
@@ -100,6 +101,7 @@ async def test_date_prompt_cleanup():
     memory_state.set(message.chat.id, message.from_user.id, dict(user_state))
 
     config = MagicMock()
+    config.allowed_editors = {1}
     notion = AsyncMock()
 
     await _handle_custom_date_input(message, "05.02", user_state, config, notion, memory_state)
