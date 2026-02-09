@@ -115,8 +115,4 @@ jobs:
             TIMEZONE=${{ vars.TIMEZONE }}
             FILES_PER_MONTH=${{ vars.FILES_PER_MONTH }}
 
-      - name: Remove legacy role env vars
-        run: |
-          gcloud run services update "${{ steps.prep.outputs.service }}" \
-            --region "${{ steps.prep.outputs.region }}" \
-            --remove-env-vars ADMIN_IDS,EDITOR_IDS,VIEWER_IDS
+      
