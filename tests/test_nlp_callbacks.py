@@ -39,6 +39,7 @@ from app.keyboards.inline import (
     nlp_not_found_keyboard,
 )
 from app.handlers.nlp_callbacks import (
+    _remember_screen_message,
     _validate_token,
     _validate_flow_step,
     _FLOW_STEP_RULES,
@@ -48,6 +49,14 @@ from app.handlers.nlp_callbacks import (
 # ============================================================================
 #                     TOKEN GENERATION TESTS
 # ============================================================================
+
+
+def test_remember_screen_message_uses_chat_and_user_id():
+    memory_state = MagicMock()
+
+    _remember_screen_message(memory_state, 100, 200, 300)
+
+    memory_state.update.assert_called_once_with(100, 200, screen_message_id=300)
 
 class TestTokenGeneration:
     """Tests for anti-stale token generation."""
@@ -148,14 +157,15 @@ class TestTokenValidation:
         """Simulate stale: user pressed button from old keyboard after new one was sent."""
         memory = MemoryState(ttl_seconds=60)
         user_id = 42
+        chat_id = 100
 
         # First keyboard sends with token "aaaa"
-        memory.set(user_id, {"flow": "nlp_order", "step": "awaiting_count", "k": "aaaa"})
+        memory.set(chat_id, user_id, {"flow": "nlp_order", "step": "awaiting_count", "k": "aaaa"})
 
         # Second keyboard sends with new token "bbbb" (replaces state)
-        memory.update(user_id, k="bbbb")
+        memory.update(chat_id, user_id, k="bbbb")
 
-        state = memory.get(user_id)
+        state = memory.get(chat_id, user_id)
         # User presses button from first keyboard (token "aaaa")
         old_parts = ["nlp", "oq", "2", "aaaa"]
         assert _validate_token(state, old_parts, "oq") is False, \
@@ -370,29 +380,30 @@ class TestOrderFlowScenario:
         """
         memory = MemoryState(ttl_seconds=60)
         user_id = 42
+        chat_id = 100
 
         # Step 1: Model selected → nlp_actions
         k1 = generate_token()
-        memory.set(user_id, {
+        memory.set(chat_id, user_id, {
             "flow": "nlp_actions",
             "model_id": "page-123",
             "model_name": "мелиса",
             "k": k1,
         })
-        state = memory.get(user_id)
+        state = memory.get(chat_id, user_id)
         assert _validate_flow_step(state, "act") is True
         assert _validate_token(state, ["nlp", "act", "order", k1], "act") is True
 
         # Step 2: act:order → nlp_order, awaiting_type
         k2 = generate_token()
-        memory.set(user_id, {
+        memory.set(chat_id, user_id, {
             "flow": "nlp_order",
             "step": "awaiting_type",
             "model_id": "page-123",
             "model_name": "мелиса",
             "k": k2,
         })
-        state = memory.get(user_id)
+        state = memory.get(chat_id, user_id)
         assert _validate_flow_step(state, "ot") is True
         assert _validate_token(state, ["nlp", "ot", "custom", k2], "ot") is True
         # oq should NOT be valid at this step
@@ -400,8 +411,8 @@ class TestOrderFlowScenario:
 
         # Step 3: ot:custom → awaiting_count
         k3 = generate_token()
-        memory.update(user_id, step="awaiting_count", order_type="custom", k=k3)
-        state = memory.get(user_id)
+        memory.update(chat_id, user_id, step="awaiting_count", order_type="custom", k=k3)
+        state = memory.get(chat_id, user_id)
         assert _validate_flow_step(state, "oq") is True
         assert _validate_token(state, ["nlp", "oq", "2", k3], "oq") is True
         # Old k2 should be rejected
@@ -411,8 +422,8 @@ class TestOrderFlowScenario:
 
         # Step 4: oq:2 → awaiting_date
         k4 = generate_token()
-        memory.update(user_id, step="awaiting_date", count=2, k=k4)
-        state = memory.get(user_id)
+        memory.update(chat_id, user_id, step="awaiting_date", count=2, k=k4)
+        state = memory.get(chat_id, user_id)
         assert _validate_flow_step(state, "od") is True
         assert _validate_flow_step(state, "oc") is False
         assert _validate_token(state, ["nlp", "od", "today", k4], "od") is True
@@ -421,14 +432,14 @@ class TestOrderFlowScenario:
 
         # Step 5: od:today → awaiting_confirm
         k5 = generate_token()
-        memory.update(user_id, step="awaiting_confirm", in_date="2026-02-01", k=k5)
-        state = memory.get(user_id)
+        memory.update(chat_id, user_id, step="awaiting_confirm", in_date="2026-02-01", k=k5)
+        state = memory.get(chat_id, user_id)
         assert _validate_flow_step(state, "oc") is True
         assert _validate_token(state, ["nlp", "oc", k5], "oc") is True
 
         # Step 6: oc → order created, state cleared
-        memory.clear(user_id)
-        assert memory.get(user_id) is None
+        memory.clear(chat_id, user_id)
+        assert memory.get(chat_id, user_id) is None
 
 
 # ============================================================================
@@ -442,10 +453,11 @@ class TestStaleTokenScenario:
         """Press oq with old k after new k → should be rejected."""
         memory = MemoryState(ttl_seconds=60)
         user_id = 42
+        chat_id = 100
 
         # First keyboard with k1
         k1 = generate_token()
-        memory.set(user_id, {
+        memory.set(chat_id, user_id, {
             "flow": "nlp_order",
             "step": "awaiting_count",
             "model_id": "page-123",
@@ -454,9 +466,9 @@ class TestStaleTokenScenario:
 
         # New keyboard sent (e.g., user went back) with k2
         k2 = generate_token()
-        memory.update(user_id, k=k2)
+        memory.update(chat_id, user_id, k=k2)
 
-        state = memory.get(user_id)
+        state = memory.get(chat_id, user_id)
 
         # Old button press
         old_callback_parts = ["nlp", "oq", "2", k1]
@@ -470,10 +482,11 @@ class TestStaleTokenScenario:
         """When flow changes entirely, old callbacks should fail validation."""
         memory = MemoryState(ttl_seconds=60)
         user_id = 42
+        chat_id = 100
 
         # Was in order flow
         k1 = generate_token()
-        memory.set(user_id, {
+        memory.set(chat_id, user_id, {
             "flow": "nlp_order",
             "step": "awaiting_count",
             "model_id": "page-123",
@@ -482,14 +495,14 @@ class TestStaleTokenScenario:
 
         # User starts new flow (shoot)
         k2 = generate_token()
-        memory.set(user_id, {
+        memory.set(chat_id, user_id, {
             "flow": "nlp_shoot",
             "step": "awaiting_date",
             "model_id": "page-123",
             "k": k2,
         })
 
-        state = memory.get(user_id)
+        state = memory.get(chat_id, user_id)
 
         # Old order button should fail both flow AND token checks
         assert _validate_flow_step(state, "oq") is False

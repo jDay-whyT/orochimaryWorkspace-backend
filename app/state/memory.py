@@ -81,8 +81,8 @@ class MemoryState:
 
     def update(
         self,
-        chat_id: int | tuple[int, int],
-        user_id: int | None = None,
+        chat_id: int,
+        user_id: int,
         **updates: Any,
     ) -> dict[str, Any]:
         data = self.get(chat_id, user_id) or {}

@@ -47,7 +47,7 @@ async def test_back_is_stateless():
     with patch("app.services.model_card.build_model_card", new=AsyncMock(return_value=("CARD", 0))):
         await _handle_back_to_card(query, config, notion, memory_state, "model-1")
 
-    state = memory_state.get(query.from_user.id)
+    state = memory_state.get(query.message.chat.id, query.from_user.id)
     assert state["model_id"] == "model-1"
     query.message.edit_text.assert_called_once()
     assert query.message.edit_text.call_args.args[0] == "CARD"
@@ -65,7 +65,7 @@ async def test_remove_keyboard_on_success():
         "screen_message_id": 111,
         "prompt_message_id": 222,
     }
-    memory_state.set(message.from_user.id, dict(user_state))
+    memory_state.set(message.chat.id, message.from_user.id, dict(user_state))
 
     from zoneinfo import ZoneInfo
     config = MagicMock()
@@ -97,7 +97,7 @@ async def test_date_prompt_cleanup():
         "prompt_message_id": 333,
         "screen_message_id": 444,
     }
-    memory_state.set(message.from_user.id, dict(user_state))
+    memory_state.set(message.chat.id, message.from_user.id, dict(user_state))
 
     config = MagicMock()
     notion = AsyncMock()
@@ -108,13 +108,13 @@ async def test_date_prompt_cleanup():
         chat_id=message.chat.id,
         message_id=333,
     )
-    assert memory_state.get(message.from_user.id).get("prompt_message_id") is None
+    assert memory_state.get(message.chat.id, message.from_user.id).get("prompt_message_id") is None
 
 
 @pytest.mark.asyncio
 async def test_reset_from_model_card():
     memory_state = MemoryState()
-    memory_state.set(1, {
+    memory_state.set(query.message.chat.id, query.from_user.id, {
         "flow": "nlp_actions",
         "step": "menu",
         "model_id": "model-1",
@@ -129,7 +129,7 @@ async def test_reset_from_model_card():
 
     await handle_nlp_callback(query, config, notion, memory_state, recent_models)
 
-    assert memory_state.get(1) is None
+    assert memory_state.get(query.message.chat.id, query.from_user.id) is None
     query.bot.edit_message_reply_markup.assert_called_once_with(
         chat_id=query.message.chat.id,
         message_id=query.message.message_id,

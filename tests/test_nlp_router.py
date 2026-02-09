@@ -317,40 +317,48 @@ class TestStateManagement:
     def test_state_set_and_get(self):
         """State can be set and retrieved."""
         state = MemoryState(ttl_seconds=60)
-        state.set(123, {"flow": "test", "step": "one"})
-        result = state.get(123)
+        chat_id = 100
+        user_id = 123
+        state.set(chat_id, user_id, {"flow": "test", "step": "one"})
+        result = state.get(chat_id, user_id)
         assert result is not None
         assert result["flow"] == "test"
 
     def test_state_clear(self):
         """State can be cleared."""
         state = MemoryState(ttl_seconds=60)
-        state.set(123, {"flow": "test"})
-        state.clear(123)
-        assert state.get(123) is None
+        chat_id = 100
+        user_id = 123
+        state.set(chat_id, user_id, {"flow": "test"})
+        state.clear(chat_id, user_id)
+        assert state.get(chat_id, user_id) is None
 
     def test_state_expired_returns_none(self):
         """Expired state returns None (simulated with 0 TTL)."""
         state = MemoryState(ttl_seconds=0)
-        state.set(123, {"flow": "test"})
+        chat_id = 100
+        user_id = 123
+        state.set(chat_id, user_id, {"flow": "test"})
         # TTL=0 means immediately expired
         import time
         time.sleep(0.01)
-        assert state.get(123) is None
+        assert state.get(chat_id, user_id) is None
 
     def test_state_update_extends_ttl(self):
         """Update refreshes the TTL."""
         state = MemoryState(ttl_seconds=60)
-        state.set(123, {"flow": "test", "step": "one"})
-        state.update(123, step="two")
-        result = state.get(123)
+        chat_id = 100
+        user_id = 123
+        state.set(chat_id, user_id, {"flow": "test", "step": "one"})
+        state.update(chat_id, user_id, step="two")
+        result = state.get(chat_id, user_id)
         assert result["step"] == "two"
         assert result["flow"] == "test"
 
     def test_missing_state_returns_none(self):
         """Non-existent state returns None (not crash)."""
         state = MemoryState(ttl_seconds=60)
-        assert state.get(999) is None
+        assert state.get(999, 999) is None
 
 
 # ============================================================================
@@ -403,8 +411,10 @@ class TestNlpFlowWaiting:
         We verify by checking the state is recognized as nlp_* (starts with 'nlp_').
         """
         state = MemoryState(ttl_seconds=60)
-        state.set(123, {"flow": "nlp_disambiguate", "intent": "create_orders"})
-        user_state = state.get(123)
+        chat_id = 100
+        user_id = 123
+        state.set(chat_id, user_id, {"flow": "nlp_disambiguate", "intent": "create_orders"})
+        user_state = state.get(chat_id, user_id)
         flow = user_state["flow"]
         # nlp_* flows should NOT be in the FlowFilter set
         flow_filter_flows = {
@@ -433,8 +443,10 @@ class TestNlpFlowWaiting:
     def test_unknown_flow_cleared(self):
         """Unknown flow should be cleared from state."""
         state = MemoryState(ttl_seconds=60)
-        state.set(123, {"flow": "some_unknown_flow"})
-        user_state = state.get(123)
+        chat_id = 100
+        user_id = 123
+        state.set(chat_id, user_id, {"flow": "some_unknown_flow"})
+        user_state = state.get(chat_id, user_id)
         flow = user_state["flow"]
         flow_filter_flows = {
             "search", "new_order", "view", "comment",
@@ -444,8 +456,8 @@ class TestNlpFlowWaiting:
         assert flow not in flow_filter_flows
         assert not flow.startswith("nlp_")
         # Simulate clearing
-        state.clear(123)
-        assert state.get(123) is None
+        state.clear(chat_id, user_id)
+        assert state.get(chat_id, user_id) is None
 
     def test_known_flow_skips_nlp(self):
         """Known FlowFilter flow should skip NLP (return early)."""

@@ -347,36 +347,38 @@ class TestModelCardFlowValidation:
         """Model card -> 📦 Заказы -> transitions to orders module flow."""
         memory = MemoryState(ttl_seconds=60)
         user_id = 42
+        chat_id = 100
 
         # Step 1: Model card shown (flow=nlp_actions)
         k1 = generate_token()
-        memory.set(user_id, {
+        memory.set(chat_id, user_id, {
             "flow": "nlp_actions",
             "model_id": "page-123",
             "model_name": "мелиса",
             "k": k1,
         })
-        state = memory.get(user_id)
+        state = memory.get(chat_id, user_id)
         assert _validate_flow_step(state, "act") is True
 
         # Step 2: 📦 Заказы pressed -> handler sets nlp_orders_menu
-        memory.set(user_id, {
+        memory.set(chat_id, user_id, {
             "flow": "nlp_orders_menu",
             "step": "menu",
             "model_id": "page-123",
             "model_name": "мелиса",
         })
-        state = memory.get(user_id)
+        state = memory.get(chat_id, user_id)
         assert state["flow"] == "nlp_orders_menu"
 
     def test_full_card_to_files_flow(self):
         """Model card -> 📁 Файлы -> transitions to nlp_files."""
         memory = MemoryState(ttl_seconds=60)
         user_id = 42
+        chat_id = 100
 
         # Step 1: Model card shown
         k1 = generate_token()
-        memory.set(user_id, {
+        memory.set(chat_id, user_id, {
             "flow": "nlp_actions",
             "model_id": "page-123",
             "model_name": "мелиса",
@@ -385,27 +387,28 @@ class TestModelCardFlowValidation:
 
         # Step 2: 📁 Файлы pressed -> handler sets nlp_files
         k2 = generate_token()
-        memory.set(user_id, {
+        memory.set(chat_id, user_id, {
             "flow": "nlp_files",
             "model_id": "page-123",
             "model_name": "мелиса",
             "k": k2,
         })
-        state = memory.get(user_id)
+        state = memory.get(chat_id, user_id)
         assert state["flow"] == "nlp_files"
 
     def test_reset_clears_state(self):
         """♻️ Сброс clears memory state."""
         memory = MemoryState(ttl_seconds=60)
         user_id = 42
-        memory.set(user_id, {
+        chat_id = 100
+        memory.set(chat_id, user_id, {
             "flow": "nlp_actions",
             "model_id": "page-123",
             "k": "test1",
         })
         # Pressing nlp:x:c clears state
-        memory.clear(user_id)
-        assert memory.get(user_id) is None
+        memory.clear(chat_id, user_id)
+        assert memory.get(chat_id, user_id) is None
 
 
 # ============================================================================
