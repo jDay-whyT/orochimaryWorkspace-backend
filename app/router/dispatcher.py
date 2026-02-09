@@ -37,6 +37,57 @@ from app.utils import PAGE_SIZE
 LOGGER = logging.getLogger(__name__)
 
 
+async def _safe_edit_reply_markup(bot, chat_id: int, message_id: int) -> None:
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=None,
+        )
+    except Exception:
+        pass
+
+
+async def _safe_delete_or_mark_done(bot, chat_id: int, message_id: int) -> None:
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        return
+    except Exception:
+        pass
+    try:
+        await bot.edit_message_text(
+            "✅ Готово",
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=None,
+        )
+    except Exception:
+        pass
+
+
+async def _clear_previous_screen_keyboard(message: Message, memory_state: MemoryState) -> None:
+    state = memory_state.get(message.from_user.id) or {}
+    prev_id = state.get("screen_message_id")
+    if not prev_id:
+        return
+    await _safe_edit_reply_markup(message.bot, message.chat.id, prev_id)
+
+
+def _remember_screen_message(memory_state: MemoryState, user_id: int, message_id: int | None) -> None:
+    if message_id is None:
+        return
+    memory_state.update(user_id, screen_message_id=message_id)
+
+
+async def _cleanup_prompt_message(message: Message, memory_state: MemoryState) -> None:
+    state = memory_state.get(message.from_user.id) or {}
+    prompt_id = state.get("prompt_message_id")
+    if not prompt_id:
+        return
+    await _safe_delete_or_mark_done(message.bot, message.chat.id, prompt_id)
+    memory_state.update(message.from_user.id, prompt_message_id=None)
+
+
 async def route_message(
     message: Message,
     config: Config,
@@ -348,11 +399,12 @@ async def _execute_handler(
             card_text, _ = await build_model_card(
                 model["id"], model["name"], config, notion,
             )
-            await message.answer(
+            sent = await message.answer(
                 card_text,
                 reply_markup=model_card_keyboard(k),
                 parse_mode="HTML",
             )
+            _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
         else:
             await _show_help_message(message)
         return
@@ -428,11 +480,13 @@ async def _handle_shoot_create(message, model, entities, config, notion, memory_
             "model_name": model_name,
             "k": k,
         })
-        await message.answer(
+        await _clear_previous_screen_keyboard(message, memory_state)
+        sent = await message.answer(
             f"📅 <b>{html.escape(model_name)}</b> · Дата съемки:",
-            reply_markup=nlp_shoot_date_keyboard(k),
+            reply_markup=nlp_shoot_date_keyboard(model_id, k),
             parse_mode="HTML",
         )
+        _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
 
 
 async def _handle_shoot_done(message, model, entities, config, notion, memory_state):
@@ -476,18 +530,22 @@ async def _handle_shoot_done(message, model, entities, config, notion, memory_st
             from app.keyboards.inline import nlp_shoot_confirm_done_keyboard
             shoot = shoots[0]
             date_str = shoot.date[:10] if shoot.date else "?"
-            await message.answer(
+            await _clear_previous_screen_keyboard(message, memory_state)
+            sent = await message.answer(
                 f"Отметить '{date_str}' как выполненную?",
                 reply_markup=nlp_shoot_confirm_done_keyboard(shoot.page_id),
                 parse_mode="HTML",
             )
+            _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
         else:
             from app.keyboards.inline import nlp_shoot_select_keyboard
-            await message.answer(
+            await _clear_previous_screen_keyboard(message, memory_state)
+            sent = await message.answer(
                 f"📅 <b>{html.escape(model_name)}</b> · Выберите съемку:",
-                reply_markup=nlp_shoot_select_keyboard(shoots, "done"),
+                reply_markup=nlp_shoot_select_keyboard(shoots, "done", model_id),
                 parse_mode="HTML",
             )
+            _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
 
     except Exception as e:
         LOGGER.exception("Failed to handle shoot done: %s", e)
@@ -529,18 +587,22 @@ async def _handle_shoot_reschedule(message, model, entities, config, notion, mem
                 "k": k,
             })
             date_str = shoot.date[:10] if shoot.date else "?"
-            await message.answer(
+            await _clear_previous_screen_keyboard(message, memory_state)
+            sent = await message.answer(
                 f"📅 Перенос съемки {date_str}\n\nНовая дата:",
-                reply_markup=nlp_shoot_date_keyboard(k),
+                reply_markup=nlp_shoot_date_keyboard(model_id, k),
                 parse_mode="HTML",
             )
+            _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
         else:
             from app.keyboards.inline import nlp_shoot_select_keyboard
-            await message.answer(
+            await _clear_previous_screen_keyboard(message, memory_state)
+            sent = await message.answer(
                 f"📅 <b>{html.escape(model_name)}</b> · Какую съемку перенести?",
-                reply_markup=nlp_shoot_select_keyboard(shoots, "reschedule"),
+                reply_markup=nlp_shoot_select_keyboard(shoots, "reschedule", model_id),
                 parse_mode="HTML",
             )
+            _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
 
     except Exception as e:
         LOGGER.exception("Failed to handle shoot reschedule: %s", e)
@@ -567,11 +629,13 @@ async def _handle_create_orders_general(message, model, entities, config, memory
         "model_name": model["name"],
         "k": k,
     })
-    await message.answer(
+    await _clear_previous_screen_keyboard(message, memory_state)
+    sent = await message.answer(
         f"📦 <b>{html.escape(model['name'])}</b> · Тип заказа:",
-        reply_markup=nlp_order_type_keyboard(k),
+        reply_markup=nlp_order_type_keyboard(model["id"], k),
         parse_mode="HTML",
     )
+    _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
 
 
 async def _handle_close_orders(message, model, entities, config, notion, memory_state):
@@ -598,11 +662,13 @@ async def _handle_close_orders(message, model, entities, config, notion, memory_
         if not orders:
             type_label = get_order_type_display_name(entities.order_type) if entities.order_type else "заказов"
             from app.keyboards.inline import nlp_back_keyboard
-            await message.answer(
+            await _clear_previous_screen_keyboard(message, memory_state)
+            sent = await message.answer(
                 f"✅ Нет открытых {type_label} для {html.escape(model_name)}",
-                reply_markup=nlp_back_keyboard(),
+                reply_markup=nlp_back_keyboard(model_id),
                 parse_mode="HTML",
             )
+            _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
             return
 
         orders.sort(key=lambda o: o.in_date or "9999-99-99")
@@ -619,11 +685,18 @@ async def _handle_close_orders(message, model, entities, config, notion, memory_
             "orders": orders,
             "page": page,
         })
-        await message.answer(
+        await _clear_previous_screen_keyboard(message, memory_state)
+        sent = await message.answer(
             f"📦 <b>{html.escape(model_name)}</b> · Выберите заказ:",
-            reply_markup=nlp_close_order_select_keyboard(page_orders, page, total_pages),
+            reply_markup=nlp_close_order_select_keyboard(
+                page_orders,
+                page,
+                total_pages,
+                model_id,
+            ),
             parse_mode="HTML",
         )
+        _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
 
     except Exception as e:
         LOGGER.exception("Failed to handle close orders: %s", e)
@@ -666,11 +739,13 @@ async def _handle_add_comment(message, model, entities, config, notion, memory_s
             "comment_text": entities.comment_text,
             "k": k,
         })
-        await message.answer(
+        await _clear_previous_screen_keyboard(message, memory_state)
+        sent = await message.answer(
             "Что комментировать?",
-            reply_markup=nlp_comment_target_keyboard(k),
+            reply_markup=nlp_comment_target_keyboard(model["id"], k),
             parse_mode="HTML",
         )
+        _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
 
 
 async def _add_comment_to_order(message, model, entities, config, notion, memory_state):
@@ -697,11 +772,13 @@ async def _add_comment_to_order(message, model, entities, config, notion, memory
                 "comment_text": entities.comment_text,
                 "k": k,
             })
-            await message.answer(
+            await _clear_previous_screen_keyboard(message, memory_state)
+            sent = await message.answer(
                 "Выберите заказ:",
-                reply_markup=nlp_comment_order_select_keyboard(orders, k),
+                reply_markup=nlp_comment_order_select_keyboard(orders, model["id"], k),
                 parse_mode="HTML",
             )
+            _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
     except Exception as e:
         LOGGER.exception("Failed to add comment to order: %s", e)
         await message.answer("❌ Ошибка.")
@@ -731,11 +808,13 @@ async def _add_comment_to_shoot(message, model, entities, config, notion, memory
                 "comment_text": entities.comment_text,
                 "k": k,
             })
-            await message.answer(
+            await _clear_previous_screen_keyboard(message, memory_state)
+            sent = await message.answer(
                 "Выберите съемку:",
-                reply_markup=nlp_shoot_select_keyboard(shoots, "comment", k),
+                reply_markup=nlp_shoot_select_keyboard(shoots, "comment", model["id"], k),
                 parse_mode="HTML",
             )
+            _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
     except Exception as e:
         LOGGER.exception("Failed to add comment to shoot: %s", e)
         await message.answer("❌ Ошибка.")
@@ -781,14 +860,17 @@ async def _handle_shoot_comment_input(message, text, user_state, config, notion,
         existing = shoot.comments or ""
         new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
         await notion.update_shoot_comment(shoot_id, new_comment)
+        await _clear_previous_screen_keyboard(message, memory_state)
+        await _cleanup_prompt_message(message, memory_state)
         memory_state.clear(user_id)
         LOGGER.info("SHOOT_COMMENT_INPUT OK user=%s shoot_id=%s", user_id, shoot_id)
         from app.keyboards.inline import nlp_back_keyboard
-        await message.answer(
+        sent = await message.answer(
             f"✅ Комментарий добавлен для <b>{html.escape(model_name)}</b>",
             parse_mode="HTML",
-            reply_markup=nlp_back_keyboard(),
+            reply_markup=nlp_back_keyboard(user_state.get("model_id", "")),
         )
+        _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
     except Exception as e:
         LOGGER.exception("SHOOT_COMMENT_INPUT FAIL user=%s shoot_id=%s: %s", user_id, shoot_id, e)
         memory_state.clear(user_id)
@@ -960,6 +1042,8 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
                 return
             await notion.reschedule_shoot(shoot_id, parsed_date)
             old_label = old_date[:10] if old_date else "?"
+            await _clear_previous_screen_keyboard(message, memory_state)
+            await _cleanup_prompt_message(message, memory_state)
             memory_state.clear(user_id)
             await message.answer(
                 f"✅ Съемка перенесена с {old_label} на {parsed_date.strftime('%d.%m')}",
@@ -981,6 +1065,8 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
                     location="home",
                     title=title,
                 )
+                await _clear_previous_screen_keyboard(message, memory_state)
+                await _cleanup_prompt_message(message, memory_state)
                 memory_state.clear(user_id)
                 await message.answer(
                     f"✅ Съемка создана на {parsed_date.strftime('%d.%m')}",
@@ -1003,6 +1089,8 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             return
         try:
             await notion.close_order(order_id, parsed_date)
+            await _clear_previous_screen_keyboard(message, memory_state)
+            await _cleanup_prompt_message(message, memory_state)
             memory_state.clear(user_id)
             await message.answer(
                 f"✅ Заказ закрыт · {parsed_date.strftime('%d.%m')}",
@@ -1032,12 +1120,15 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             in_date=parsed_date.isoformat(),
             k=k,
         )
-        await message.answer(
+        await _clear_previous_screen_keyboard(message, memory_state)
+        await _cleanup_prompt_message(message, memory_state)
+        sent = await message.answer(
             f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\n"
             f"Дата заказа: <b>{parsed_date.strftime('%d.%m')}</b>\n\nСоздать заказ?",
-            reply_markup=nlp_order_confirm_keyboard(k),
+            reply_markup=nlp_order_confirm_keyboard(user_state.get("model_id", ""), k),
             parse_mode="HTML",
         )
+        _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
     else:
         await message.answer("❌ Неожиданное состояние. Попробуйте заново.")
         memory_state.clear(user_id)
@@ -1082,6 +1173,8 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
         pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
         over = max(0, new_files - fpm)
         over_str = f" +{over}" if over > 0 else ""
+        await _clear_previous_screen_keyboard(message, memory_state)
+        await _cleanup_prompt_message(message, memory_state)
         memory_state.clear(user_id)
 
         await message.answer(
@@ -1120,13 +1213,16 @@ async def _handle_accounting_comment_input(message, text, user_state, config, no
 
     try:
         await notion.update_accounting_comment(record_id, comment_text)
+        await _clear_previous_screen_keyboard(message, memory_state)
+        await _cleanup_prompt_message(message, memory_state)
         memory_state.clear(user_id)
         from app.keyboards.inline import nlp_back_keyboard
-        await message.answer(
+        sent = await message.answer(
             f"✅ Комментарий обновлён для <b>{html.escape(model_name)}</b>",
             parse_mode="HTML",
-            reply_markup=nlp_back_keyboard(),
+            reply_markup=nlp_back_keyboard(user_state.get("model_id", "")),
         )
+        _remember_screen_message(memory_state, message.from_user.id, sent.message_id if sent else None)
     except Exception:
         LOGGER.exception("Failed to update accounting comment")
         await message.answer("❌ Ошибка при сохранении комментария.")

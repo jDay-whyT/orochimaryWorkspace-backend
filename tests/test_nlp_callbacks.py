@@ -106,7 +106,7 @@ class TestOrderTypeMapping:
 
     def test_order_type_keyboard_no_spaces_in_callback(self):
         """nlp_order_type_keyboard callback_data must not contain spaces."""
-        kb = nlp_order_type_keyboard("test")
+        kb = nlp_order_type_keyboard("model-1", "test")
         for row in kb.inline_keyboard:
             for btn in row:
                 assert " " not in btn.callback_data, \
@@ -278,7 +278,7 @@ class TestKeyboardTokenEmbedding:
 
     def test_order_type_keyboard_has_token(self):
         """nlp_order_type_keyboard should include token in callback_data."""
-        kb = nlp_order_type_keyboard("ab12")
+        kb = nlp_order_type_keyboard("model-1", "ab12")
         callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
         token_callbacks = [c for c in callbacks if c.startswith("nlp:ot:")]
         for cb in token_callbacks:
@@ -286,7 +286,7 @@ class TestKeyboardTokenEmbedding:
 
     def test_order_qty_keyboard_has_token(self):
         """nlp_order_qty_keyboard should include token."""
-        kb = nlp_order_qty_keyboard("x1y2")
+        kb = nlp_order_qty_keyboard("model-1", "x1y2")
         callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
         qty_callbacks = [c for c in callbacks if c.startswith("nlp:oq:")]
         for cb in qty_callbacks:
@@ -294,7 +294,7 @@ class TestKeyboardTokenEmbedding:
 
     def test_order_confirm_keyboard_has_token(self):
         """nlp_order_confirm_keyboard should include token."""
-        kb = nlp_order_confirm_keyboard("t3st")
+        kb = nlp_order_confirm_keyboard("model-1", "t3st")
         callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
         oc_callbacks = [c for c in callbacks if c.startswith("nlp:oc")]
         for cb in oc_callbacks:
@@ -302,7 +302,7 @@ class TestKeyboardTokenEmbedding:
 
     def test_order_date_keyboard_has_token(self):
         """nlp_order_date_keyboard should include token."""
-        kb = nlp_order_date_keyboard("t3st")
+        kb = nlp_order_date_keyboard("model-1", "t3st")
         callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
         od_callbacks = [c for c in callbacks if c.startswith("nlp:od:")]
         for cb in od_callbacks:
@@ -318,15 +318,15 @@ class TestKeyboardTokenEmbedding:
 
     def test_back_button_has_no_token(self):
         """Back button should NOT have a token (always allowed)."""
-        kb = nlp_order_type_keyboard("ab12")
+        kb = nlp_order_type_keyboard("model-1", "ab12")
         callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
         back_callbacks = [c for c in callbacks if c.startswith("nlp:bk")]
         for cb in back_callbacks:
-            assert cb == "nlp:bk", f"Back button has extra data: {cb}"
+            assert cb == "nlp:bk:model-1", f"Back button has extra data: {cb}"
 
     def test_keyboard_without_token_works(self):
         """Keyboards should work without token (backwards compat)."""
-        kb = nlp_order_type_keyboard()
+        kb = nlp_order_type_keyboard("model-1")
         callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
         ot_callbacks = [c for c in callbacks if c.startswith("nlp:ot:")]
         # Without token, should have exactly 3 parts: nlp:ot:type
@@ -338,16 +338,16 @@ class TestKeyboardTokenEmbedding:
         """All callback_data should be under 64 bytes."""
         long_token = "zzzzzz"
         keyboards = [
-            nlp_order_type_keyboard(long_token),
-            nlp_order_qty_keyboard(long_token),
-            nlp_order_date_keyboard(long_token),
-            nlp_order_confirm_keyboard(long_token),
+            nlp_order_type_keyboard("model-1", long_token),
+            nlp_order_qty_keyboard("model-1", long_token),
+            nlp_order_date_keyboard("model-1", long_token),
+            nlp_order_confirm_keyboard("model-1", long_token),
             nlp_model_actions_keyboard(long_token),
-            nlp_shoot_date_keyboard(long_token),
-            nlp_close_order_date_keyboard(long_token),
+            nlp_shoot_date_keyboard("model-1", long_token),
+            nlp_close_order_date_keyboard("model-1", long_token),
             nlp_disambiguate_keyboard(999, long_token),
-            nlp_files_qty_keyboard(long_token),
-            nlp_report_keyboard(long_token),
+            nlp_files_qty_keyboard("model-1", long_token),
+            nlp_report_keyboard("model-1", long_token),
         ]
         for kb in keyboards:
             for row in kb.inline_keyboard:
@@ -619,15 +619,13 @@ class TestKeyboardStructure:
     """Tests for keyboard structural properties."""
 
     def test_stale_keyboard_has_menu_and_reset(self):
-        """Stale keyboard should have Меню and Сброс buttons."""
+        """Stale keyboard should be empty (handled by stateless back in handlers)."""
         kb = nlp_stale_keyboard()
-        callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-        assert "nlp:x:m" in callbacks
-        assert "nlp:x:c" in callbacks
+        assert kb.inline_keyboard == []
 
     def test_order_type_ad_request_has_underscore(self):
         """Ad Request button should use 'ad_request' (no space) in callback."""
-        kb = nlp_order_type_keyboard("test")
+        kb = nlp_order_type_keyboard("model-1", "test")
         found = False
         for row in kb.inline_keyboard:
             for btn in row:

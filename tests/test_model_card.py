@@ -94,10 +94,10 @@ class TestModelNameToCard:
 class TestModelCardKeyboard:
     """Tests for model_card_keyboard structure and callback_data."""
 
-    def test_keyboard_has_one_row(self):
-        """model_card_keyboard should have 1 row with 3 module buttons."""
+    def test_keyboard_has_two_rows(self):
+        """model_card_keyboard should have 2 rows (modules + close)."""
         kb = model_card_keyboard("test1")
-        assert len(kb.inline_keyboard) == 1
+        assert len(kb.inline_keyboard) == 2
 
     def test_row1_has_order_shoot_files(self):
         """Row 1: 📦 Заказы | 📅 Съёмка | 📁 Файлы."""
@@ -107,6 +107,14 @@ class TestModelCardKeyboard:
         assert "Заказы" in row1[0].text
         assert "Съёмка" in row1[1].text
         assert "Файлы" in row1[2].text
+
+    def test_row2_has_close(self):
+        """Row 2: close button."""
+        kb = model_card_keyboard("test1")
+        row2 = kb.inline_keyboard[1]
+        assert len(row2) == 1
+        assert "Закрыть" in row2[0].text
+        assert row2[0].callback_data == "nlp:cl"
 
     def test_no_report_or_service_buttons(self):
         """Model card should not include Report/Menu/Reset buttons."""
@@ -163,7 +171,7 @@ class TestFilesQtyKeyboard:
 
     def test_has_15_30_50_custom(self):
         """Keyboard should have +15, +30, +50, Ввод buttons."""
-        kb = nlp_files_qty_keyboard("test1")
+        kb = nlp_files_qty_keyboard("model-1", "test1")
         row1 = kb.inline_keyboard[0]
         texts = [btn.text for btn in row1]
         assert "+15" in texts
@@ -173,21 +181,21 @@ class TestFilesQtyKeyboard:
 
     def test_custom_button_callback(self):
         """Ввод button -> nlp:af:custom:{k}."""
-        kb = nlp_files_qty_keyboard("abc123")
+        kb = nlp_files_qty_keyboard("model-1", "abc123")
         row1 = kb.inline_keyboard[0]
         custom_btn = [btn for btn in row1 if btn.text == "Ввод"][0]
         assert custom_btn.callback_data == "nlp:af:custom:abc123"
 
     def test_15_button_callback(self):
         """+15 button -> nlp:af:15:{k}."""
-        kb = nlp_files_qty_keyboard("abc123")
+        kb = nlp_files_qty_keyboard("model-1", "abc123")
         row1 = kb.inline_keyboard[0]
         btn = [b for b in row1 if b.text == "+15"][0]
         assert btn.callback_data == "nlp:af:15:abc123"
 
     def test_all_callbacks_under_64_bytes(self):
         """All callback_data in files qty keyboard must be <64 bytes."""
-        kb = nlp_files_qty_keyboard("zzzzzz")
+        kb = nlp_files_qty_keyboard("model-1", "zzzzzz")
         for row in kb.inline_keyboard:
             for btn in row:
                 data = btn.callback_data

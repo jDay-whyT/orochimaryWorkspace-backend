@@ -71,10 +71,12 @@ async def handle_report_nlp(
             "model_name": model_name,
         })
 
-    await message.answer(
+    sent = await message.answer(
         f"📊 <b>{escape_html(model_name)}</b> · {yyyy_mm}\n\n"
         f"📁 Файлов: {files_str}\n"
         f"📦 Заказов: {orders_str}\n",
-        reply_markup=nlp_report_keyboard(),
+        reply_markup=nlp_report_keyboard(model_id),
         parse_mode="HTML",
     )
+    if memory_state and sent:
+        memory_state.update(message.from_user.id, screen_message_id=sent.message_id)

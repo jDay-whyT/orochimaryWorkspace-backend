@@ -1111,12 +1111,14 @@ async def handle_create_orders_nlp(
         })
 
     # Show date selection with short-callback keyboard
-    await message.answer(
+    sent = await message.answer(
         f"📦 <b>{escape_html(model['name'])}</b> · {count}x {type_label}\n"
         f"Дата: <b>{format_date_short(today(config.timezone))}</b> (можно изменить)\n",
-        reply_markup=nlp_order_date_keyboard(),
+        reply_markup=nlp_order_date_keyboard(model["id"]),
         parse_mode="HTML",
     )
+    if memory_state and sent:
+        memory_state.update(message.from_user.id, screen_message_id=sent.message_id)
 
 
 
