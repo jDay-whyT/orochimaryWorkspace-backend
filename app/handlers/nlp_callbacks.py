@@ -31,6 +31,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery
 
 from app.config import Config
+from app.filters.topic_access import TopicAccessCallbackFilter
 from app.roles import is_authorized, is_editor
 from app.services import NotionClient
 from app.state import MemoryState, RecentModels, generate_token
@@ -42,6 +43,13 @@ from app.utils import PAGE_SIZE
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
+router.callback_query.filter(TopicAccessCallbackFilter())
+
+
+def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
+    if not query.message:
+        return query.from_user.id, query.from_user.id
+    return query.message.chat.id, query.from_user.id
 
 SESSION_EXPIRED_MSG = "Сессия устарела, откройте модель заново"
 STALE_MSG = "Сессия устарела, откройте модель заново"
@@ -79,8 +87,8 @@ async def _safe_delete_or_mark_done(bot, chat_id: int, message_id: int) -> None:
 
 
 async def _clear_previous_screen_keyboard(query: CallbackQuery, memory_state: MemoryState) -> None:
-    user_id = query.from_user.id
-    state = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id) or {}
     prev_id = state.get("screen_message_id")
     if not prev_id or not query.message:
         return
@@ -89,20 +97,28 @@ async def _clear_previous_screen_keyboard(query: CallbackQuery, memory_state: Me
     await _safe_edit_reply_markup(query.bot, query.message.chat.id, prev_id)
 
 
-def _remember_screen_message(memory_state: MemoryState, user_id: int, message_id: int | None) -> None:
+def _remember_screen_message(
+    memory_state: MemoryState,
+    user_id: int,
+    message_id: int | None,
+    chat_id: int | None = None,
+) -> None:
     if message_id is None:
         return
-    memory_state.update(user_id, screen_message_id=message_id)
+    if chat_id is None:
+        memory_state.update(user_id, screen_message_id=message_id)
+        return
+    memory_state.update(chat_id, user_id, screen_message_id=message_id)
 
 
 async def _cleanup_prompt_message(query: CallbackQuery, memory_state: MemoryState) -> None:
-    user_id = query.from_user.id
-    state = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id) or {}
     prompt_id = state.get("prompt_message_id")
     if not prompt_id or not query.message:
         return
     await _safe_delete_or_mark_done(query.bot, query.message.chat.id, prompt_id)
-    memory_state.update(user_id, prompt_message_id=None)
+    memory_state.update(chat_id, user_id, prompt_message_id=None)
 
 
 # ============================================================================
@@ -174,12 +190,12 @@ async def _reject_stale(
     model_id: str | None = None,
 ) -> None:
     """Reject a callback with a stale/invalid message."""
-    user_id = query.from_user.id
+    chat_id, user_id = _state_ids_from_query(query)
     LOGGER.info(
         "NLP callback REJECTED: user=%s reason=%s data=%s",
         user_id, reason, query.data,
     )
-    memory_state.clear(user_id)
+    memory_state.clear(chat_id, user_id)
     reply_markup = None
     if model_id:
         from app.keyboards.inline import nlp_back_keyboard
@@ -226,8 +242,8 @@ async def handle_nlp_callback(
         return
 
     action = parts[1]
-    user_id = query.from_user.id
-    state = memory_state.get(user_id)
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
 
     LOGGER.info(
         "NLP callback: user=%s action=%s data=%s flow=%s step=%s model_id=%s order_type=%s",
@@ -241,7 +257,7 @@ async def handle_nlp_callback(
     try:
         # ===== Cancel (always allowed) =====
         if action == "x":
-            memory_state.clear(user_id)
+            memory_state.clear(chat_id, user_id)
             sub = parts[2] if len(parts) >= 3 else "c"
             if sub == "m":
                 if query.message:
@@ -397,7 +413,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
         return
 
     model_id = parts[2]
-    user_id = query.from_user.id
+    chat_id, user_id = _state_ids_from_query(query)
 
     # Get model info
     model_data = await notion.get_model(model_id)
@@ -409,10 +425,10 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
     recent_models.add(user_id, model_id, model_data.title)
 
     # Get original intent + text from memory state
-    state = memory_state.get(user_id)
+    state = memory_state.get(chat_id, user_id)
     intent_value = state.get("intent", "") if state else ""
     original_text = state.get("entities_raw", "") if state else ""
-    memory_state.clear(user_id)
+    memory_state.clear(chat_id, user_id)
 
     # Parse intent
     try:
@@ -435,7 +451,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
         k = generate_token()
         # Map internal order_type to callback-safe value for storage
         cb_order_type = ORDER_TYPE_CB_REVERSE.get(entities.order_type, entities.order_type)
-        memory_state.set(user_id, {
+        memory_state.set(chat_id, user_id, {
             "flow": "nlp_order",
             "step": "awaiting_date",
             "model_id": model_id,
@@ -450,13 +466,18 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             reply_markup=nlp_order_date_keyboard(model_id, k),
             parse_mode="HTML",
         )
-        _remember_screen_message(memory_state, user_id, msg.message_id if msg else query.message.message_id)
+        _remember_screen_message(
+            memory_state,
+            user_id,
+            msg.message_id if msg else query.message.message_id,
+            chat_id=chat_id,
+        )
 
     elif intent in (CommandIntent.CREATE_ORDERS, CommandIntent.CREATE_ORDERS_GENERAL):
         # Order without type: ask for type
         from app.keyboards.inline import nlp_order_type_keyboard
         k = generate_token()
-        memory_state.set(user_id, {
+        memory_state.set(chat_id, user_id, {
             "flow": "nlp_order",
             "step": "awaiting_type",
             "model_id": model_id,
@@ -469,7 +490,12 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             reply_markup=nlp_order_type_keyboard(model_id, k),
             parse_mode="HTML",
         )
-        _remember_screen_message(memory_state, user_id, msg.message_id if msg else query.message.message_id)
+        _remember_screen_message(
+            memory_state,
+            user_id,
+            msg.message_id if msg else query.message.message_id,
+            chat_id=chat_id,
+        )
 
     elif intent == CommandIntent.SHOOT_CREATE:
         if entities and entities.date:
@@ -498,7 +524,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             # No date: ask for date
             from app.keyboards.inline import nlp_shoot_date_keyboard
             k = generate_token()
-            memory_state.set(user_id, {
+            memory_state.set(chat_id, user_id, {
                 "flow": "nlp_shoot",
                 "step": "awaiting_date",
                 "model_id": model_id,
@@ -511,7 +537,12 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
                 reply_markup=nlp_shoot_date_keyboard(model_id, k),
                 parse_mode="HTML",
             )
-            _remember_screen_message(memory_state, user_id, msg.message_id if msg else query.message.message_id)
+            _remember_screen_message(
+                memory_state,
+                user_id,
+                msg.message_id if msg else query.message.message_id,
+                chat_id=chat_id,
+            )
 
     elif intent == CommandIntent.ADD_FILES and entities and entities.numbers:
         # Add files directly
@@ -564,7 +595,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
         from app.keyboards.inline import model_card_keyboard
         from app.services.model_card import build_model_card
         k = generate_token()
-        memory_state.set(user_id, {
+        memory_state.set(chat_id, user_id, {
             "flow": "nlp_actions",
             "model_id": model_id,
             "model_name": model_data.title,
@@ -579,7 +610,12 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             reply_markup=model_card_keyboard(k),
             parse_mode="HTML",
         )
-        _remember_screen_message(memory_state, user_id, msg.message_id if msg else query.message.message_id)
+        _remember_screen_message(
+            memory_state,
+            user_id,
+            msg.message_id if msg else query.message.message_id,
+            chat_id=chat_id,
+        )
 
 
 # ============================================================================
@@ -596,8 +632,8 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
         return
 
     action = parts[2]
-    user_id = query.from_user.id
-    state = memory_state.get(user_id)
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
     if not state or not state.get("model_id"):
         await _session_expired(query, memory_state)
         return
@@ -612,7 +648,7 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
             return
         from app.keyboards.inline import nlp_order_type_keyboard
         k = generate_token()
-        memory_state.set(user_id, {
+        memory_state.set(chat_id, user_id, {
             "flow": "nlp_order",
             "step": "awaiting_type",
             "model_id": model_id,
@@ -625,7 +661,12 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
             reply_markup=nlp_order_type_keyboard(model_id, k),
             parse_mode="HTML",
         )
-        _remember_screen_message(memory_state, user_id, msg.message_id if msg else query.message.message_id)
+        _remember_screen_message(
+            memory_state,
+            user_id,
+            msg.message_id if msg else query.message.message_id,
+            chat_id=chat_id,
+        )
 
     elif action == "files":
         await _show_files_menu(query, config, notion, memory_state)
@@ -650,7 +691,7 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
 
         from app.keyboards.inline import nlp_accounting_content_keyboard
         k = generate_token()
-        memory_state.set(user_id, {
+        memory_state.set(chat_id, user_id, {
             "flow": "nlp_acc_content",
             "step": "selecting",
             "model_id": model_id,
@@ -666,12 +707,17 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
             reply_markup=nlp_accounting_content_keyboard(existing_content, model_id, k),
             parse_mode="HTML",
         )
-        _remember_screen_message(memory_state, user_id, msg.message_id if msg else query.message.message_id)
+        _remember_screen_message(
+            memory_state,
+            chat_id,
+            user_id,
+            msg.message_id if msg else query.message.message_id,
+        )
 
     elif action == "report":
         # Show report inline
         k = generate_token()
-        memory_state.set(user_id, {
+        memory_state.set(chat_id, user_id, {
             "flow": "nlp_report",
             "model_id": model_id,
             "model_name": model_name,
@@ -994,7 +1040,8 @@ async def _handle_close_picker_page(
         page = int(parts[2])
     except ValueError:
         return
-    state = memory_state.get(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
     if not state or not state.get("model_id"):
         await _session_expired(query, memory_state)
         return

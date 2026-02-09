@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
 from app.filters import FlowFilter
+from app.filters.topic_access import TopicAccessCallbackFilter, TopicAccessMessageFilter
 from app.keyboards.inline import (
     summary_menu_keyboard,
     summary_card_keyboard,
@@ -20,6 +21,18 @@ from app.state import MemoryState, RecentModels
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
+router.message.filter(TopicAccessMessageFilter())
+router.callback_query.filter(TopicAccessCallbackFilter())
+
+
+def _state_ids_from_message(message: Message) -> tuple[int, int]:
+    return message.chat.id, message.from_user.id
+
+
+def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
+    if not query.message:
+        return query.from_user.id, query.from_user.id
+    return query.message.chat.id, query.from_user.id
 
 
 async def show_summary_menu(message: Message, config: Config, recent_models: RecentModels = None) -> None:
@@ -62,7 +75,7 @@ async def handle_summary_callback(
     
     action = parts[1]
     value = parts[2] if len(parts) > 2 else None
-    user_id = query.from_user.id
+    chat_id, user_id = _state_ids_from_query(query)
     
     try:
         if action == "back":
@@ -102,7 +115,8 @@ async def handle_text_input(
     if not is_authorized(message.from_user.id, config):
         return
 
-    data = memory_state.get(message.from_user.id)
+    chat_id, user_id = _state_ids_from_message(message)
+    data = memory_state.get(chat_id, user_id)
     step = data.get("step")
     
     try:
@@ -127,34 +141,37 @@ async def _handle_back(
     value: str,
 ) -> None:
     """Handle back button."""
+    chat_id, user_id = _state_ids_from_query(query)
     if value == "main":
-        memory_state.clear(query.from_user.id)
+        memory_state.clear(chat_id, user_id)
         await query.message.delete()
     elif value == "back":
         # Generic back from back_keyboard - return to menu
-        recent = recent_models.get(query.from_user.id)
+        recent = recent_models.get(user_id)
         text = "📊 <b>Summary</b>\n\n⭐ Recent:\n\nSelect a model:"
         await query.message.edit_text(
             text,
             reply_markup=summary_menu_keyboard(recent),
             parse_mode="HTML",
         )
-        memory_state.clear(query.from_user.id)
+        memory_state.clear(chat_id, user_id)
     elif value == "menu":
-        recent = recent_models.get(query.from_user.id)
+        recent = recent_models.get(user_id)
         text = "📊 <b>Summary</b>\n\n⭐ Recent:\n\nSelect a model:"
         await query.message.edit_text(
             text,
             reply_markup=summary_menu_keyboard(recent),
             parse_mode="HTML",
         )
-        memory_state.clear(query.from_user.id)
+        memory_state.clear(chat_id, user_id)
 
 
 async def _start_search(query: CallbackQuery, memory_state: MemoryState) -> None:
     """Start model search flow."""
+    chat_id, user_id = _state_ids_from_query(query)
     memory_state.set(
-        query.from_user.id,
+        chat_id,
+        user_id,
         {
             "flow": "summary",
             "step": "search_model",
@@ -180,7 +197,8 @@ async def _process_model_search(
     """Process model search query."""
     query_text = message.text.strip()
 
-    data = memory_state.get(message.from_user.id) or {}
+    chat_id, user_id = _state_ids_from_message(message)
+    data = memory_state.get(chat_id, user_id) or {}
     screen_chat_id = data.get("screen_chat_id")
     screen_message_id = data.get("screen_message_id")
 
@@ -224,7 +242,8 @@ async def _process_model_search(
     )
     
     memory_state.update(
-        message.from_user.id,
+        chat_id,
+        user_id,
         step="select_model",
         search_results=models,
     )
@@ -238,7 +257,7 @@ async def _show_model_summary(
     model_id: str,
 ) -> None:
     """Show model summary card with stats."""
-    user_id = query.from_user.id
+    chat_id, user_id = _state_ids_from_query(query)
     
     # Get model info
     models_service = ModelsService(config)
@@ -296,6 +315,7 @@ async def _show_model_summary(
     )
     
     memory_state.update(
+        chat_id,
         user_id,
         selected_model_id=model_id,
         selected_model_name=model_name,
@@ -357,4 +377,5 @@ async def _cancel_flow(query: CallbackQuery, memory_state: MemoryState) -> None:
         "📊 <b>Summary</b>\n\nCancelled.",
         parse_mode="HTML",
     )
-    memory_state.clear(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    memory_state.clear(chat_id, user_id)

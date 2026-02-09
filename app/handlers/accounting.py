@@ -13,6 +13,7 @@ from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
 from app.filters import FlowFilter
+from app.filters.topic_access import TopicAccessCallbackFilter, TopicAccessMessageFilter
 from app.keyboards.inline import (
     accounting_menu_keyboard,
     accounting_quick_files_keyboard,
@@ -27,6 +28,18 @@ from app.state import MemoryState, RecentModels
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
+router.message.filter(TopicAccessMessageFilter())
+router.callback_query.filter(TopicAccessCallbackFilter())
+
+
+def _state_ids_from_message(message: Message) -> tuple[int, int]:
+    return message.chat.id, message.from_user.id
+
+
+def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
+    if not query.message:
+        return query.from_user.id, query.from_user.id
+    return query.message.chat.id, query.from_user.id
 
 
 def _files_display(files: int, fpm: int) -> str:
@@ -108,7 +121,8 @@ async def handle_text_input(
     if not is_authorized(message.from_user.id, config):
         return
 
-    data = memory_state.get(message.from_user.id)
+    chat_id, user_id = _state_ids_from_message(message)
+    data = memory_state.get(chat_id, user_id)
     step = data.get("step")
 
     try:
@@ -130,7 +144,8 @@ async def handle_text_input(
 
 # ------------------------------------------------------------------ search
 async def _start_model_search(query: CallbackQuery, memory_state: MemoryState) -> None:
-    memory_state.set(query.from_user.id, {
+    chat_id, user_id = _state_ids_from_query(query)
+    memory_state.set(chat_id, user_id, {
         "flow": "accounting", "step": "search_model",
         "screen_chat_id": query.message.chat.id,
         "screen_message_id": query.message.message_id,
@@ -144,7 +159,8 @@ async def _start_model_search(query: CallbackQuery, memory_state: MemoryState) -
 
 async def _process_model_search(message: Message, config: Config, memory_state: MemoryState) -> None:
     query_text = message.text.strip()
-    data = memory_state.get(message.from_user.id) or {}
+    chat_id, user_id = _state_ids_from_message(message)
+    data = memory_state.get(chat_id, user_id) or {}
     chat_id = data.get("screen_chat_id")
     msg_id = data.get("screen_message_id")
 
@@ -174,7 +190,7 @@ async def _process_model_search(message: Message, config: Config, memory_state: 
         chat_id=chat_id, message_id=msg_id,
         reply_markup=models_keyboard("account", model_list), parse_mode="HTML",
     )
-    memory_state.update(message.from_user.id, step="select_model", search_results=models)
+    memory_state.update(chat_id, user_id, step="select_model", search_results=models)
 
 
 # --------------------------------------------------------- current month
@@ -201,7 +217,8 @@ async def _show_current_month(query: CallbackQuery, config: Config, memory_state
                 text += f"• <b>{html.escape(name)}</b>\n  Files: {line}\n\n"
 
         await query.message.edit_text(text, reply_markup=accounting_menu_keyboard(), parse_mode="HTML")
-        memory_state.clear(query.from_user.id)
+        chat_id, user_id = _state_ids_from_query(query)
+        memory_state.clear(chat_id, user_id)
     except Exception:
         LOGGER.exception("Error showing current month accounting")
         try:
@@ -215,8 +232,9 @@ async def _show_current_month(query: CallbackQuery, config: Config, memory_state
 
 # --------------------------------------------------------- add files flow
 async def _start_add_files(query: CallbackQuery, config: Config, memory_state: MemoryState, recent_models: RecentModels) -> None:
-    recent = recent_models.get(query.from_user.id)
-    memory_state.set(query.from_user.id, {
+    chat_id, user_id = _state_ids_from_query(query)
+    recent = recent_models.get(user_id)
+    memory_state.set(chat_id, user_id, {
         "flow": "accounting", "step": "select_model",
         "screen_chat_id": query.message.chat.id,
         "screen_message_id": query.message.message_id,
@@ -237,7 +255,8 @@ async def _select_model(query: CallbackQuery, config: Config, memory_state: Memo
             return
 
         model_name = model.get("name", "Unknown")
-        recent_models.add(query.from_user.id, model_id, model_name)
+        chat_id, user_id = _state_ids_from_query(query)
+        recent_models.add(user_id, model_id, model_name)
 
         svc = AccountingService(config)
         record = await svc.get_monthly_record(model_id)
@@ -251,7 +270,8 @@ async def _select_model(query: CallbackQuery, config: Config, memory_state: Memo
         )
 
         memory_state.update(
-            query.from_user.id,
+            chat_id,
+            user_id,
             step="add_files", model_id=model_id,
             model_name=model_name, current_files=current_files,
         )
@@ -271,7 +291,8 @@ async def _add_files_to_record(query: CallbackQuery, config: Config, memory_stat
         return
 
     try:
-        data = memory_state.get(query.from_user.id) or {}
+        chat_id, user_id = _state_ids_from_query(query)
+        data = memory_state.get(chat_id, user_id) or {}
         model_id = data.get("model_id") or page_id
         model_name = data.get("model_name", "Unknown")
 
@@ -286,7 +307,7 @@ async def _add_files_to_record(query: CallbackQuery, config: Config, memory_stat
             f"Added: +{count}",
             reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
         )
-        memory_state.clear(query.from_user.id)
+        memory_state.clear(chat_id, user_id)
     except Exception:
         LOGGER.exception("Error adding files to accounting record")
         await query.answer("Не смог обновить Notion, попробуй позже", show_alert=True)
@@ -294,7 +315,8 @@ async def _add_files_to_record(query: CallbackQuery, config: Config, memory_stat
 
 # --------------------------------------------------------- custom input
 async def _process_custom_files(message: Message, config: Config, memory_state: MemoryState) -> None:
-    data = memory_state.get(message.from_user.id) or {}
+    chat_id, user_id = _state_ids_from_message(message)
+    data = memory_state.get(chat_id, user_id) or {}
     chat_id = data.get("screen_chat_id")
     msg_id = data.get("screen_message_id")
 
@@ -329,7 +351,7 @@ async def _process_custom_files(message: Message, config: Config, memory_state: 
                 chat_id=chat_id, message_id=msg_id,
                 reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
             )
-        memory_state.clear(message.from_user.id)
+        memory_state.clear(chat_id, user_id)
     except Exception:
         LOGGER.exception("Error adding custom files")
         if chat_id and msg_id:
@@ -341,7 +363,8 @@ async def _process_custom_files(message: Message, config: Config, memory_state: 
 
 async def _process_comment(message: Message, config: Config, memory_state: MemoryState) -> None:
     comment_text = message.text.strip()
-    data = memory_state.get(message.from_user.id) or {}
+    chat_id, user_id = _state_ids_from_message(message)
+    data = memory_state.get(chat_id, user_id) or {}
     record_id = data.get("record_id")
     if not record_id:
         return
@@ -357,12 +380,13 @@ async def _process_comment(message: Message, config: Config, memory_state: Memor
             chat_id=chat_id, message_id=msg_id,
             reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
         )
-    memory_state.clear(message.from_user.id)
+    memory_state.clear(chat_id, user_id)
 
 
 # --------------------------------------------------------- nav
 async def _handle_back(query: CallbackQuery, config: Config, memory_state: MemoryState, value: str) -> None:
-    memory_state.clear(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    memory_state.clear(chat_id, user_id)
     if value == "main":
         await query.message.delete()
     else:
@@ -373,7 +397,8 @@ async def _handle_back(query: CallbackQuery, config: Config, memory_state: Memor
 
 
 async def _cancel_flow(query: CallbackQuery, memory_state: MemoryState) -> None:
-    memory_state.clear(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    memory_state.clear(chat_id, user_id)
     await query.message.edit_text(
         "💰 <b>Accounting</b>\n\nCancelled.",
         reply_markup=accounting_menu_keyboard(), parse_mode="HTML",

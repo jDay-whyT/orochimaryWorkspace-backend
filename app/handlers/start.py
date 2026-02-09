@@ -5,12 +5,14 @@ from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardRemove
 
 from app.config import Config
+from app.filters.topic_access import TopicAccessMessageFilter
 from app.roles import is_authorized
 from app.services import NotionClient
 from app.state import MemoryState, RecentModels
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
+router.message.filter(TopicAccessMessageFilter())
 
 
 @router.message(Command("start"))

@@ -13,7 +13,29 @@ class StateEntry:
 class MemoryState:
     """In-memory user state storage with TTL."""
     ttl_seconds: int = 1800  # 30 minutes
-    _storage: dict[int, StateEntry] = field(default_factory=dict)
+    _storage: dict[tuple[int, int], StateEntry] = field(default_factory=dict)
+    _last_chat_id_by_user: dict[int, int] = field(default_factory=dict)
+
+    @staticmethod
+    def _key(chat_id: int, user_id: int) -> tuple[int, int]:
+        return (chat_id, user_id)
+
+    def _resolve_key(
+        self,
+        chat_id: int | tuple[int, int],
+        user_id: int | None,
+    ) -> tuple[int, int] | None:
+        if user_id is None:
+            if isinstance(chat_id, tuple):
+                chat_id, user_id = chat_id
+            else:
+                legacy_user_id = chat_id
+                chat_id = self._last_chat_id_by_user.get(legacy_user_id)
+                if chat_id is None:
+                    return None
+                user_id = legacy_user_id
+        self._last_chat_id_by_user[user_id] = chat_id
+        return (chat_id, user_id)
 
     def _now(self) -> float:
         return time.time()
@@ -22,28 +44,54 @@ class MemoryState:
         return entry.expires_at <= self._now()
 
     def _cleanup(self) -> None:
-        expired = [user_id for user_id, entry in self._storage.items() if self._is_expired(entry)]
-        for user_id in expired:
-            self._storage.pop(user_id, None)
+        expired = [key for key, entry in self._storage.items() if self._is_expired(entry)]
+        for key in expired:
+            self._storage.pop(key, None)
 
-    def get(self, user_id: int) -> dict[str, Any] | None:
+    def get(
+        self,
+        chat_id: int | tuple[int, int],
+        user_id: int | None = None,
+    ) -> dict[str, Any] | None:
         self._cleanup()
-        entry = self._storage.get(user_id)
+        key = self._resolve_key(chat_id, user_id)
+        if key is None:
+            return None
+        entry = self._storage.get(key)
         if not entry:
             return None
         if self._is_expired(entry):
-            self._storage.pop(user_id, None)
+            self._storage.pop(key, None)
             return None
         return entry.data
 
-    def set(self, user_id: int, data: dict[str, Any]) -> None:
-        self._storage[user_id] = StateEntry(data=data, expires_at=self._now() + self.ttl_seconds)
+    def set(
+        self,
+        chat_id: int | tuple[int, int],
+        user_id: int | None,
+        data: dict[str, Any],
+    ) -> None:
+        key = self._resolve_key(chat_id, user_id)
+        if key is None:
+            return
+        self._storage[key] = StateEntry(
+            data=data,
+            expires_at=self._now() + self.ttl_seconds,
+        )
 
-    def update(self, user_id: int, **updates: Any) -> dict[str, Any]:
-        data = self.get(user_id) or {}
+    def update(
+        self,
+        chat_id: int | tuple[int, int],
+        user_id: int | None = None,
+        **updates: Any,
+    ) -> dict[str, Any]:
+        data = self.get(chat_id, user_id) or {}
         data.update(updates)
-        self.set(user_id, data)
+        self.set(chat_id, user_id, data)
         return data
 
-    def clear(self, user_id: int) -> None:
-        self._storage.pop(user_id, None)
+    def clear(self, chat_id: int | tuple[int, int], user_id: int | None = None) -> None:
+        key = self._resolve_key(chat_id, user_id)
+        if key is None:
+            return
+        self._storage.pop(key, None)

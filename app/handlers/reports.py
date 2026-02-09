@@ -7,6 +7,7 @@ from aiogram.types import Message
 from aiogram import Router
 
 from app.config import Config
+from app.filters.topic_access import TopicAccessMessageFilter
 from app.services import NotionClient
 from app.keyboards.inline import nlp_report_keyboard
 from app.utils import escape_html
@@ -15,6 +16,7 @@ from app.state import MemoryState
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
+router.message.filter(TopicAccessMessageFilter())
 
 
 async def handle_report_nlp(
@@ -65,7 +67,7 @@ async def handle_report_nlp(
     orders_str = f"{len(open_orders)} открытых"
 
     if memory_state:
-        memory_state.set(message.from_user.id, {
+        memory_state.set(message.chat.id, message.from_user.id, {
             "flow": "nlp_report",
             "model_id": model_id,
             "model_name": model_name,
@@ -79,4 +81,4 @@ async def handle_report_nlp(
         parse_mode="HTML",
     )
     if memory_state and sent:
-        memory_state.update(message.from_user.id, screen_message_id=sent.message_id)
+        memory_state.update(message.chat.id, message.from_user.id, screen_message_id=sent.message_id)
