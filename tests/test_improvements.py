@@ -319,9 +319,10 @@ class TestMenuResetAlwaysAllowed:
         """Pressing cancel should clear state from memory."""
         memory = MemoryState(ttl_seconds=60)
         user_id = 42
+        chat_id = 100
 
         # Set some random state
-        memory.set(user_id, {
+        memory.set(chat_id, user_id, {
             "flow": "nlp_order",
             "step": "awaiting_count",
             "model_id": "page-123",
@@ -329,17 +330,18 @@ class TestMenuResetAlwaysAllowed:
         })
 
         # Simulate cancel: clear state
-        memory.clear(user_id)
-        assert memory.get(user_id) is None
+        memory.clear(chat_id, user_id)
+        assert memory.get(chat_id, user_id) is None
 
     def test_cancel_valid_in_stale_session(self):
         """Cancel should work even in completely stale session."""
         memory = MemoryState(ttl_seconds=60)
         user_id = 42
+        chat_id = 100
 
         # Set state with token
         k1 = generate_token()
-        memory.set(user_id, {
+        memory.set(chat_id, user_id, {
             "flow": "nlp_actions",
             "model_id": "page-123",
             "k": k1,
@@ -347,14 +349,14 @@ class TestMenuResetAlwaysAllowed:
 
         # Change state to a new token (old buttons are stale)
         k2 = generate_token()
-        memory.set(user_id, {
+        memory.set(chat_id, user_id, {
             "flow": "nlp_order",
             "step": "awaiting_type",
             "model_id": "page-456",
             "k": k2,
         })
 
-        state = memory.get(user_id)
+        state = memory.get(chat_id, user_id)
 
         # Old cancel button with no token — should still pass
         assert _validate_token(state, ["nlp", "x", "c"], "x") is True

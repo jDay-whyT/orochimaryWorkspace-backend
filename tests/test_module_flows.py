@@ -77,7 +77,7 @@ class TestOrdersAggregationAndPagination:
         config = _make_config(allowed_editors={1})
         notion = AsyncMock()
         memory = MemoryState()
-        memory.set(1, {
+        memory.set(1, 1, {
             "flow": "nlp_order",
             "step": "awaiting_confirm",
             "model_id": "m1",
@@ -91,6 +91,7 @@ class TestOrdersAggregationAndPagination:
         query = MagicMock()
         query.from_user.id = 1
         query.message.edit_text = AsyncMock()
+        query.message.chat.id = 1
         query.answer = AsyncMock()
 
         await nlp_callbacks._handle_order_confirm(
@@ -106,7 +107,7 @@ class TestOrdersAggregationAndPagination:
         config = _make_config(allowed_editors={1})
         notion = AsyncMock()
         memory = MemoryState()
-        memory.set(1, {
+        memory.set(1, 1, {
             "flow": "nlp_order",
             "step": "awaiting_confirm",
             "model_id": "m1",
@@ -120,6 +121,7 @@ class TestOrdersAggregationAndPagination:
         query = MagicMock()
         query.from_user.id = 1
         query.message.edit_text = AsyncMock()
+        query.message.chat.id = 1
         query.answer = AsyncMock()
 
         await nlp_callbacks._handle_order_confirm(
@@ -138,7 +140,7 @@ class TestOrdersAggregationAndPagination:
             NotionOrder(page_id=f"o{i}", title="t", order_type="custom", in_date="2026-02-01")
             for i in range(PAGE_SIZE + 2)
         ]
-        memory.set(1, {
+        memory.set(1, 1, {
             "flow": "nlp_orders_menu",
             "step": "menu",
             "model_id": "m1",
@@ -150,6 +152,7 @@ class TestOrdersAggregationAndPagination:
         query = MagicMock()
         query.from_user.id = 1
         query.message.edit_text = AsyncMock()
+        query.message.chat.id = 1
         query.answer = AsyncMock()
 
         await nlp_callbacks._show_orders_view(query, config, notion, memory, page=1)
@@ -173,6 +176,7 @@ class TestOrdersAggregationAndPagination:
         query = MagicMock()
         query.from_user.id = 1
         query.message.edit_text = AsyncMock()
+        query.message.chat.id = 1
         query.answer = AsyncMock()
 
         await nlp_callbacks._show_close_picker(
@@ -191,7 +195,7 @@ class TestShootContentAndComment:
         config = _make_config(allowed_editors={1})
         notion = AsyncMock()
         memory = MemoryState()
-        memory.set(1, {
+        memory.set(1, 1, {
             "flow": "nlp_shoot",
             "step": "awaiting_content_update",
             "shoot_id": "s1",
@@ -202,6 +206,7 @@ class TestShootContentAndComment:
         query = MagicMock()
         query.from_user.id = 1
         query.message.edit_text = AsyncMock()
+        query.message.chat.id = 1
         query.answer = AsyncMock()
 
         await nlp_callbacks._handle_shoot_content_done(
