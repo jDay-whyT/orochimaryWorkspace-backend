@@ -31,6 +31,7 @@ PLANNER_CONTENT_OPTIONS = [
     "snapchat",
     "fansly",
     "reddit",
+    "event",
 ]
 
 # Planner location options
