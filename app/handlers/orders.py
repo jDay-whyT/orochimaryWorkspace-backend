@@ -848,17 +848,29 @@ async def create_order(
     
     try:
         # Create order(s)
-        for i in range(1, qty + 1):
-            title = f"{order_type} {i}/{qty} — {in_date_str}"
+        if order_type == "short":
+            title = f"{order_type} × {qty} — {in_date_str}"
             await notion.create_order(
                 config.db_orders,
                 model_id,
                 order_type,
                 in_date,
-                count=1,
+                count=qty,
                 title=title,
                 comments=comments,
             )
+        else:
+            for i in range(1, qty + 1):
+                title = f"{order_type} {i}/{qty} — {in_date_str}"
+                await notion.create_order(
+                    config.db_orders,
+                    model_id,
+                    order_type,
+                    in_date,
+                    count=1,
+                    title=title,
+                    comments=comments,
+                )
     except Exception as e:
         LOGGER.exception("Failed to create order: %s", e)
         await query.answer("Failed to create order", show_alert=True)
@@ -1068,7 +1080,7 @@ async def handle_create_orders_nlp(
         notion: NotionClient
         memory_state: MemoryState for storing flow context
     """
-    from app.keyboards.inline import nlp_order_confirm_keyboard
+    from app.keyboards.inline import nlp_order_date_keyboard
     from app.router.entities_v2 import get_order_type_display_name
 
     if not can_edit(message.from_user.id, config):
@@ -1098,11 +1110,11 @@ async def handle_create_orders_nlp(
             "count": count,
         })
 
-    # Show confirmation with short-callback keyboard
+    # Show date selection with short-callback keyboard
     await message.answer(
         f"📦 <b>{escape_html(model['name'])}</b> · {count}x {type_label}\n"
         f"Дата: <b>{format_date_short(today(config.timezone))}</b> (можно изменить)\n",
-        reply_markup=nlp_order_confirm_keyboard(),
+        reply_markup=nlp_order_date_keyboard(),
         parse_mode="HTML",
     )
 

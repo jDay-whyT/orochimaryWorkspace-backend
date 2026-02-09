@@ -25,6 +25,7 @@ from app.keyboards.inline import (
     ORDER_TYPE_DISPLAY,
     nlp_order_type_keyboard,
     nlp_order_qty_keyboard,
+    nlp_order_date_keyboard,
     nlp_order_confirm_keyboard,
     nlp_model_actions_keyboard,
     nlp_shoot_date_keyboard,
@@ -193,14 +194,20 @@ class TestFlowStepValidation:
         state2 = {"flow": "nlp_order", "step": "awaiting_type"}
         assert _validate_flow_step(state2, "oq") is False
 
-    def test_od_oc_require_awaiting_date(self):
-        """od and oc require flow=nlp_order, step=awaiting_date."""
+    def test_od_requires_awaiting_date(self):
+        """od requires flow=nlp_order, step=awaiting_date."""
         state = {"flow": "nlp_order", "step": "awaiting_date"}
         assert _validate_flow_step(state, "od") is True
-        assert _validate_flow_step(state, "oc") is True
 
         state2 = {"flow": "nlp_order", "step": "awaiting_count"}
         assert _validate_flow_step(state2, "od") is False
+
+    def test_oc_requires_awaiting_confirm(self):
+        """oc requires flow=nlp_order, step=awaiting_confirm."""
+        state = {"flow": "nlp_order", "step": "awaiting_confirm"}
+        assert _validate_flow_step(state, "oc") is True
+
+        state2 = {"flow": "nlp_order", "step": "awaiting_date"}
         assert _validate_flow_step(state2, "oc") is False
 
     def test_sd_requires_nlp_shoot(self):
@@ -257,7 +264,7 @@ class TestFlowStepValidation:
 
     def test_unregulated_actions_always_pass(self):
         """Actions without flow/step rules should always pass."""
-        for action in ("sm", "df", "do", "ro", "ra", "af", "co", "ct", "cmo"):
+        for action in ("sm", "df", "do", "ro", "ra", "af", "co", "ct", "cmo", "bk", "noop", "fm", "smn", "sctm"):
             assert _validate_flow_step(None, action) is True
             assert _validate_flow_step({"flow": "any"}, action) is True
 
@@ -289,7 +296,15 @@ class TestKeyboardTokenEmbedding:
         """nlp_order_confirm_keyboard should include token."""
         kb = nlp_order_confirm_keyboard("t3st")
         callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-        od_callbacks = [c for c in callbacks if c.startswith("nlp:od:") or c.startswith("nlp:oc")]
+        oc_callbacks = [c for c in callbacks if c.startswith("nlp:oc")]
+        for cb in oc_callbacks:
+            assert cb.endswith(":t3st"), f"Missing token in {cb}"
+
+    def test_order_date_keyboard_has_token(self):
+        """nlp_order_date_keyboard should include token."""
+        kb = nlp_order_date_keyboard("t3st")
+        callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+        od_callbacks = [c for c in callbacks if c.startswith("nlp:od:")]
         for cb in od_callbacks:
             assert cb.endswith(":t3st"), f"Missing token in {cb}"
 
@@ -301,13 +316,13 @@ class TestKeyboardTokenEmbedding:
         for cb in act_callbacks:
             assert cb.endswith(":zz99"), f"Missing token in {cb}"
 
-    def test_cancel_button_has_no_token(self):
-        """Cancel button should NOT have a token (always allowed)."""
+    def test_back_button_has_no_token(self):
+        """Back button should NOT have a token (always allowed)."""
         kb = nlp_order_type_keyboard("ab12")
         callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-        cancel_callbacks = [c for c in callbacks if c.startswith("nlp:x:")]
-        for cb in cancel_callbacks:
-            assert cb == "nlp:x:c", f"Cancel button has extra data: {cb}"
+        back_callbacks = [c for c in callbacks if c.startswith("nlp:bk")]
+        for cb in back_callbacks:
+            assert cb == "nlp:bk", f"Back button has extra data: {cb}"
 
     def test_keyboard_without_token_works(self):
         """Keyboards should work without token (backwards compat)."""
@@ -325,6 +340,7 @@ class TestKeyboardTokenEmbedding:
         keyboards = [
             nlp_order_type_keyboard(long_token),
             nlp_order_qty_keyboard(long_token),
+            nlp_order_date_keyboard(long_token),
             nlp_order_confirm_keyboard(long_token),
             nlp_model_actions_keyboard(long_token),
             nlp_shoot_date_keyboard(long_token),
@@ -398,12 +414,19 @@ class TestOrderFlowScenario:
         memory.update(user_id, step="awaiting_date", count=2, k=k4)
         state = memory.get(user_id)
         assert _validate_flow_step(state, "od") is True
-        assert _validate_flow_step(state, "oc") is True
+        assert _validate_flow_step(state, "oc") is False
         assert _validate_token(state, ["nlp", "od", "today", k4], "od") is True
         # oq should NOT be valid anymore
         assert _validate_flow_step(state, "oq") is False
 
-        # Step 5: od:today or oc → order created, state cleared
+        # Step 5: od:today → awaiting_confirm
+        k5 = generate_token()
+        memory.update(user_id, step="awaiting_confirm", in_date="2026-02-01", k=k5)
+        state = memory.get(user_id)
+        assert _validate_flow_step(state, "oc") is True
+        assert _validate_token(state, ["nlp", "oc", k5], "oc") is True
+
+        # Step 6: oc → order created, state cleared
         memory.clear(user_id)
         assert memory.get(user_id) is None
 

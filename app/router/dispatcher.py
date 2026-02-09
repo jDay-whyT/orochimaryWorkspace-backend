@@ -31,6 +31,7 @@ from app.router.entities_v2 import (
 from app.router.command_filters import CommandIntent
 from app.router.model_resolver import resolve_model
 from app.utils.formatting import format_appended_comment, MAX_COMMENT_LENGTH
+from app.utils import PAGE_SIZE
 
 
 LOGGER = logging.getLogger(__name__)
@@ -344,13 +345,12 @@ async def _execute_handler(
                 "model_name": model["name"],
                 "k": k,
             })
-            card_text, open_orders = await build_model_card(
+            card_text, _ = await build_model_card(
                 model["id"], model["name"], config, notion,
             )
-            oo = open_orders if open_orders >= 0 else None
             await message.answer(
                 card_text,
-                reply_markup=model_card_keyboard(k, open_orders=oo),
+                reply_markup=model_card_keyboard(k),
                 parse_mode="HTML",
             )
         else:
@@ -597,45 +597,33 @@ async def _handle_close_orders(message, model, entities, config, notion, memory_
 
         if not orders:
             type_label = get_order_type_display_name(entities.order_type) if entities.order_type else "заказов"
+            from app.keyboards.inline import nlp_back_keyboard
             await message.answer(
                 f"✅ Нет открытых {type_label} для {html.escape(model_name)}",
+                reply_markup=nlp_back_keyboard(),
                 parse_mode="HTML",
             )
             return
 
-        if len(orders) == 1:
-            # Single order — ask for close date
-            order = orders[0]
-            from app.keyboards.inline import nlp_close_order_date_keyboard
-            k = generate_token()
-            memory_state.set(message.from_user.id, {
-                "flow": "nlp_close",
-                "step": "awaiting_date",
-                "order_id": order.page_id,
-                "k": k,
-            })
-            days = _calc_days_open(order.in_date)
-            label = f"{order.order_type or '?'} · {_format_date_short(order.in_date)} ({days}d)"
-            await message.answer(
-                f"Закрыть '{label}'?\n\nДата закрытия:",
-                reply_markup=nlp_close_order_date_keyboard(k),
-                parse_mode="HTML",
-            )
-        else:
-            # Multiple orders — show selection
-            from app.keyboards.inline import nlp_close_order_select_keyboard
-            k2 = generate_token()
-            memory_state.set(message.from_user.id, {
-                "flow": "nlp_close",
-                "model_id": model_id,
-                "model_name": model_name,
-                "k": k2,
-            })
-            await message.answer(
-                f"📦 <b>{html.escape(model_name)}</b> · Выберите заказ:",
-                reply_markup=nlp_close_order_select_keyboard(orders, k2),
-                parse_mode="HTML",
-            )
+        orders.sort(key=lambda o: o.in_date or "9999-99-99")
+        total_pages = max(1, (len(orders) + PAGE_SIZE - 1) // PAGE_SIZE)
+        page = 1
+        page_orders = orders[:PAGE_SIZE]
+
+        from app.keyboards.inline import nlp_close_order_select_keyboard
+        memory_state.set(message.from_user.id, {
+            "flow": "nlp_close_picker",
+            "step": "selecting",
+            "model_id": model_id,
+            "model_name": model_name,
+            "orders": orders,
+            "page": page,
+        })
+        await message.answer(
+            f"📦 <b>{html.escape(model_name)}</b> · Выберите заказ:",
+            reply_markup=nlp_close_order_select_keyboard(page_orders, page, total_pages),
+            parse_mode="HTML",
+        )
 
     except Exception as e:
         LOGGER.exception("Failed to handle close orders: %s", e)
@@ -648,6 +636,12 @@ async def _handle_close_orders(message, model, entities, config, notion, memory_
 
 async def _handle_add_comment(message, model, entities, config, notion, memory_state):
     """Handle adding a comment."""
+    from app.roles import is_editor
+
+    if not is_editor(message.from_user.id, config):
+        await message.answer("❌ Нет доступа.")
+        return
+
     if not entities.comment_text:
         await message.answer("❌ Укажите текст комментария. Пример: 'мелиса заказ коммент: текст'")
         return
@@ -789,9 +783,11 @@ async def _handle_shoot_comment_input(message, text, user_state, config, notion,
         await notion.update_shoot_comment(shoot_id, new_comment)
         memory_state.clear(user_id)
         LOGGER.info("SHOOT_COMMENT_INPUT OK user=%s shoot_id=%s", user_id, shoot_id)
+        from app.keyboards.inline import nlp_back_keyboard
         await message.answer(
             f"✅ Комментарий добавлен для <b>{html.escape(model_name)}</b>",
             parse_mode="HTML",
+            reply_markup=nlp_back_keyboard(),
         )
     except Exception as e:
         LOGGER.exception("SHOOT_COMMENT_INPUT FAIL user=%s shoot_id=%s: %s", user_id, shoot_id, e)
@@ -1016,6 +1012,32 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             LOGGER.exception("Failed to close order: %s", e)
             await message.answer("❌ Ошибка при закрытии заказа.")
             memory_state.clear(user_id)
+    elif current_flow == "nlp_order":
+        if not is_editor(user_id, config):
+            await message.answer("❌ Нет доступа.")
+            memory_state.clear(user_id)
+            return
+        from app.keyboards.inline import nlp_order_confirm_keyboard
+        from app.router.entities_v2 import get_order_type_display_name
+
+        model_name = user_state.get("model_name", "")
+        order_type = user_state.get("order_type", "")
+        count = user_state.get("count", 1)
+        type_label = get_order_type_display_name(order_type)
+
+        k = generate_token()
+        memory_state.update(
+            user_id,
+            step="awaiting_confirm",
+            in_date=parsed_date.isoformat(),
+            k=k,
+        )
+        await message.answer(
+            f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\n"
+            f"Дата заказа: <b>{parsed_date.strftime('%d.%m')}</b>\n\nСоздать заказ?",
+            reply_markup=nlp_order_confirm_keyboard(k),
+            parse_mode="HTML",
+        )
     else:
         await message.answer("❌ Неожиданное состояние. Попробуйте заново.")
         memory_state.clear(user_id)
@@ -1071,6 +1093,43 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
     except Exception as e:
         LOGGER.exception("Failed to add files: %s", e)
         await message.answer("❌ Не смог обновить Notion, попробуй позже.")
+        memory_state.clear(user_id)
+
+
+async def _handle_accounting_comment_input(message, text, user_state, config, notion, memory_state):
+    """Handle accounting comment input for nlp_accounting_comment flow."""
+    from app.roles import is_editor
+
+    user_id = message.from_user.id
+    if not is_editor(user_id, config):
+        await message.answer("❌ Нет доступа.")
+        memory_state.clear(user_id)
+        return
+
+    comment_text = text.strip()
+    if not comment_text:
+        await message.answer("❌ Комментарий не может быть пустым.")
+        return
+
+    record_id = user_state.get("accounting_id")
+    model_name = user_state.get("model_name", "")
+    if not record_id:
+        await message.answer("❌ Сессия устарела, попробуйте заново.")
+        memory_state.clear(user_id)
+        return
+
+    try:
+        await notion.update_accounting_comment(record_id, comment_text)
+        memory_state.clear(user_id)
+        from app.keyboards.inline import nlp_back_keyboard
+        await message.answer(
+            f"✅ Комментарий обновлён для <b>{html.escape(model_name)}</b>",
+            parse_mode="HTML",
+            reply_markup=nlp_back_keyboard(),
+        )
+    except Exception:
+        LOGGER.exception("Failed to update accounting comment")
+        await message.answer("❌ Ошибка при сохранении комментария.")
         memory_state.clear(user_id)
 
 
@@ -1143,6 +1202,7 @@ _NLP_TEXT_HANDLERS: dict[tuple[str | None, str], object] = {
     (None, "awaiting_custom_date"): _handle_custom_date_input,
     ("nlp_files", "awaiting_count"): _handle_custom_files_input,
     (None, "awaiting_shoot_comment"): _handle_shoot_comment_input,
+    ("nlp_accounting_comment", "awaiting_accounting_comment"): _handle_accounting_comment_input,
 }
 
 

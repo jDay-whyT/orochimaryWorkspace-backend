@@ -2,7 +2,7 @@
 Tests for the 5 improvements:
 1. SEARCH_MODEL garbage protection (stop-words, looks_like_model_name)
 2. TTL cache for build_model_card_text
-3. "Close" button hidden when 0 open orders
+3. Model card shows only 3 module buttons
 4. Strict manual files input parsing
 5. Menu/Reset always allowed regardless of token/step
 """
@@ -198,56 +198,30 @@ class TestModelCardCache:
 
 
 # ============================================================================
-#  3. "CLOSE" BUTTON HIDDEN WHEN 0 OPEN ORDERS
+#  3. MODEL CARD HAS ONLY 3 MODULE BUTTONS (NO MENU/RESET)
 # ============================================================================
 
-class TestCloseButtonHiddenZeroOrders:
-    """Tests for hiding '✓ Закрыть' when open_orders == 0."""
+class TestModelCardModulesOnly:
+    """Tests for the slim 3-button model card."""
 
-    def test_close_button_present_by_default(self):
-        """When open_orders is None (unknown), Close button should be shown."""
+    def test_model_card_only_three_buttons(self):
         kb = model_card_keyboard("test1")
-        row2_texts = [btn.text for btn in kb.inline_keyboard[1]]
-        assert "✓ Закрыть" in row2_texts
+        assert len(kb.inline_keyboard) == 1
+        row = kb.inline_keyboard[0]
+        assert len(row) == 3
+        texts = [btn.text for btn in row]
+        assert "Заказы" in texts[0]
+        assert "Съёмка" in texts[1]
+        assert "Файлы" in texts[2]
 
-    def test_close_button_present_when_orders_exist(self):
-        """When open_orders > 0, Close button should be shown."""
-        kb = model_card_keyboard("test1", open_orders=3)
-        row2_texts = [btn.text for btn in kb.inline_keyboard[1]]
-        assert "✓ Закрыть" in row2_texts
+    def test_no_service_buttons(self):
+        kb = model_card_keyboard("test1")
+        texts = [btn.text for row in kb.inline_keyboard for btn in row]
+        assert all("Меню" not in t for t in texts)
+        assert all("Сброс" not in t for t in texts)
 
-    def test_close_button_hidden_when_zero_orders(self):
-        """When open_orders == 0, Close button should be hidden."""
-        kb = model_card_keyboard("test1", open_orders=0)
-        row2_texts = [btn.text for btn in kb.inline_keyboard[1]]
-        assert "✓ Закрыть" not in row2_texts
-        # Row 2 should have only 2 buttons (Заказы, Репорт)
-        assert len(kb.inline_keyboard[1]) == 2
-
-    def test_keyboard_still_has_four_rows_when_zero_orders(self):
-        """Keyboard should always have 4 rows (including Content row)."""
-        kb = model_card_keyboard("test1", open_orders=0)
-        assert len(kb.inline_keyboard) == 4
-
-    def test_other_buttons_present_when_zero_orders(self):
-        """All other buttons should still be present when 0 orders."""
-        kb = model_card_keyboard("test1", open_orders=0)
-        all_texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "➕ Заказ" in all_texts
-        assert "📅 Съёмка" in all_texts
-        assert "📁 Файлы" in all_texts
-        assert "📋 Заказы" in all_texts
-        assert "📊 Репорт" in all_texts
-        # Row 3: Content button
-        assert "🗂 Content" in all_texts
-        # Row 4 (service): Меню and Сброс
-        row4_texts = [btn.text for btn in kb.inline_keyboard[3]]
-        assert any("Меню" in t for t in row4_texts)
-        assert any("Сброс" in t for t in row4_texts)
-
-    def test_all_callbacks_under_64_bytes_zero_orders(self):
-        """All callback_data still under 64 bytes with 0 orders."""
-        kb = model_card_keyboard("zzzzzz", open_orders=0)
+    def test_all_callbacks_under_64_bytes(self):
+        kb = model_card_keyboard("zzzzzz")
         for row in kb.inline_keyboard:
             for btn in row:
                 assert len(btn.callback_data.encode("utf-8")) < 64

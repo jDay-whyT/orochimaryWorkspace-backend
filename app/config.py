@@ -21,10 +21,8 @@ class Config:
     db_planner: str
     db_accounting: str
     
-    # Roles
-    admin_ids: set[int]
-    editor_ids: set[int]
-    viewer_ids: set[int]
+    # Access
+    allowed_editors: set[int]
     
     timezone: ZoneInfo
     files_per_month: int
@@ -57,9 +55,9 @@ def _validate_config(config: Config) -> None:
     if not config.notion_token:
         errors.append("NOTION_TOKEN is required")
     
-    # Critical: At least one admin must be configured
-    if not config.admin_ids and not config.editor_ids and not config.viewer_ids:
-        errors.append("At least one user ID must be configured (ADMIN_IDS, EDITOR_IDS, or VIEWER_IDS)")
+    # Critical: At least one editor must be configured
+    if not config.allowed_editors:
+        errors.append("At least one user ID must be configured (ALLOWED_EDITORS)")
     
     # Validate database IDs format (should be UUIDs)
     db_ids = {
@@ -104,10 +102,8 @@ def load_config(validate: bool = True) -> Config:
     db_planner = os.getenv("DB_PLANNER", "1fb32bee-e7a0-815f-ae1d-000ba6995a1a").strip()
     db_accounting = os.getenv("DB_ACCOUNTING", "1ff32bee-e7a0-8025-a26c-000bc7008ec8").strip()
     
-    # Roles
-    admin_ids = _parse_user_ids(os.getenv("ADMIN_IDS", ""))
-    editor_ids = _parse_user_ids(os.getenv("EDITOR_IDS", ""))
-    viewer_ids = _parse_user_ids(os.getenv("VIEWER_IDS", ""))
+    # Access
+    allowed_editors = _parse_user_ids(os.getenv("ALLOWED_EDITORS", ""))
     
     timezone_name = os.getenv("TIMEZONE", "Europe/Brussels")  # Default to europe-west1 region
     
@@ -131,9 +127,7 @@ def load_config(validate: bool = True) -> Config:
         db_orders=db_orders,
         db_planner=db_planner,
         db_accounting=db_accounting,
-        admin_ids=admin_ids,
-        editor_ids=editor_ids,
-        viewer_ids=viewer_ids,
+        allowed_editors=allowed_editors,
         timezone=timezone,
         files_per_month=files_per_month,
     )

@@ -740,6 +740,16 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
 
+    async def update_shoot_content(self, page_id: str, items: list[str]) -> None:
+        """Update shoot Content multi-select."""
+        payload = {
+            "properties": {
+                "content": {"multi_select": [{"name": item} for item in items]},
+            }
+        }
+        url = f"https://api.notion.com/v1/pages/{page_id}"
+        await self._request("PATCH", url, json=payload)
+
 
 # ==================== Helper functions ====================
 
