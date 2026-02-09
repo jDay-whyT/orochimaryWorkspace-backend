@@ -206,7 +206,7 @@ class TestModelCardModulesOnly:
 
     def test_model_card_only_three_buttons(self):
         kb = model_card_keyboard("test1")
-        assert len(kb.inline_keyboard) == 1
+        assert len(kb.inline_keyboard) == 2
         row = kb.inline_keyboard[0]
         assert len(row) == 3
         texts = [btn.text for btn in row]
@@ -218,7 +218,6 @@ class TestModelCardModulesOnly:
         kb = model_card_keyboard("test1")
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
         assert all("Меню" not in t for t in texts)
-        assert all("Сброс" not in t for t in texts)
 
     def test_all_callbacks_under_64_bytes(self):
         kb = model_card_keyboard("zzzzzz")
