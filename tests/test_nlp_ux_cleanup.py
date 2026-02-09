@@ -114,6 +114,7 @@ async def test_date_prompt_cleanup():
 @pytest.mark.asyncio
 async def test_reset_from_model_card():
     memory_state = MemoryState()
+    query = _make_query(data="nlp:x:c")
     memory_state.set(query.message.chat.id, query.from_user.id, {
         "flow": "nlp_actions",
         "step": "menu",
@@ -121,7 +122,6 @@ async def test_reset_from_model_card():
         "prompt_message_id": 111,
         "screen_message_id": 222,
     })
-    query = _make_query(data="nlp:x:c")
     query.message.edit_text.side_effect = Exception("not editable")
     config = MagicMock()
     notion = AsyncMock()

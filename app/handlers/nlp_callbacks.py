@@ -2442,7 +2442,7 @@ async def _handle_accounting_content_toggle(query, parts, config, memory_state):
     if len(parts) < 3:
         return
     ct = parts[2]
-    user_id = query.from_user.id
+    chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
         await query.message.edit_text("❌ Нет доступа.")
         return
