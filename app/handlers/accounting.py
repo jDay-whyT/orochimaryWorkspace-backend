@@ -25,6 +25,7 @@ from app.roles import is_authorized, is_editor
 from app.services import AccountingService, ModelsService
 from app.services.notion import NotionClient
 from app.state import MemoryState, RecentModels
+from app.utils.accounting import format_accounting_progress
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -42,14 +43,9 @@ def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
     return query.message.chat.id, query.from_user.id
 
 
-def _files_display(files: int, fpm: int) -> str:
-    """Format files as 'X/200 (Y%) +over'."""
-    pct = min(100, round(files / fpm * 100)) if fpm > 0 else 0
-    over = max(0, files - fpm)
-    base = f"{files}/{fpm} ({pct}%)"
-    if over > 0:
-        return f"{base} +{over}"
-    return base
+def _files_display(files: int, status: str | None) -> str:
+    """Format files as 'X/target (Y%) +over'."""
+    return format_accounting_progress(files, status)
 
 
 async def show_accounting_menu(message: Message, config: Config) -> None:
@@ -200,7 +196,6 @@ async def _show_current_month(query: CallbackQuery, config: Config, memory_state
         records = await svc.get_all_month_records()
         now = datetime.now(config.timezone)
         yyyy_mm = now.strftime("%Y-%m")
-        fpm = config.files_per_month
 
         if not records:
             text = f"💰 <b>{yyyy_mm} Accounting</b>\n\nNo records yet."
@@ -209,11 +204,7 @@ async def _show_current_month(query: CallbackQuery, config: Config, memory_state
             for r in records[:10]:
                 name = r.get("model_name", "Unknown")
                 files = r.get("files", 0)
-                pct = r.get("percent", 0)
-                over = r.get("over", 0)
-                line = f"{files}/{fpm} ({pct}%)"
-                if over > 0:
-                    line += f" +{over}"
+                line = _files_display(files, r.get("status"))
                 text += f"• <b>{html.escape(name)}</b>\n  Files: {line}\n\n"
 
         await query.message.edit_text(text, reply_markup=accounting_menu_keyboard(), parse_mode="HTML")
@@ -260,12 +251,12 @@ async def _select_model(query: CallbackQuery, config: Config, memory_state: Memo
 
         svc = AccountingService(config)
         record = await svc.get_monthly_record(model_id)
-        fpm = config.files_per_month
         current_files = record.files if record else 0
+        record_status = record.status if record else None
 
         text = (
             f"💰 <b>{html.escape(model_name)}</b>\n\n"
-            f"Current: {_files_display(current_files, fpm)}\n\n"
+            f"Current: {_files_display(current_files, record_status)}\n\n"
             f"Add files:"
         )
 
@@ -298,12 +289,11 @@ async def _add_files_to_record(query: CallbackQuery, config: Config, memory_stat
 
         svc = AccountingService(config)
         result = await svc.add_files(model_id, model_name, count)
-        fpm = config.files_per_month
 
         await query.message.edit_text(
             f"✅ <b>Files added!</b>\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
-            f"Total: {_files_display(result['files'], fpm)}\n"
+            f"Total: {_files_display(result['files'], result.get('status'))}\n"
             f"Added: +{count}",
             reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
         )
@@ -340,13 +330,12 @@ async def _process_custom_files(message: Message, config: Config, memory_state: 
     try:
         svc = AccountingService(config)
         result = await svc.add_files(model_id, model_name, count)
-        fpm = config.files_per_month
 
         if chat_id and msg_id:
             await message.bot.edit_message_text(
                 f"✅ <b>Files added!</b>\n\n"
                 f"<b>{html.escape(model_name)}</b>\n"
-                f"Total: {_files_display(result['files'], fpm)}\n"
+                f"Total: {_files_display(result['files'], result.get('status'))}\n"
                 f"Added: +{count}",
                 chat_id=chat_id, message_id=msg_id,
                 reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
@@ -431,7 +420,6 @@ async def handle_add_files_nlp(
 
     model_id = model["id"]
     model_name = model["name"]
-    fpm = config.files_per_month
     yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
 
     try:
@@ -443,14 +431,16 @@ async def handle_add_files_nlp(
                 config.db_accounting, model_id, model_name, count, yyyy_mm,
             )
             new_files = count
+            record_status = None
         else:
             new_files = record.files + count
             await notion.update_accounting_files(record.page_id, new_files)
+            record_status = record.status
 
         await message.answer(
             f"✅ +{count} файлов\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
-            f"Файлов: {_files_display(new_files, fpm)}",
+            f"Файлов: {_files_display(new_files, record_status)}",
             parse_mode="HTML",
         )
         recent_models.add(message.from_user.id, model_id, model_name)

@@ -12,6 +12,7 @@ from app.services import NotionClient
 from app.keyboards.inline import nlp_report_keyboard
 from app.utils import escape_html
 from app.state import MemoryState
+from app.utils.accounting import format_accounting_progress
 
 
 LOGGER = logging.getLogger(__name__)
@@ -39,7 +40,6 @@ async def handle_report_nlp(
 
     now = datetime.now(tz=config.timezone)
     yyyy_mm = now.strftime("%Y-%m")
-    fpm = config.files_per_month
 
     try:
         record = await notion.get_monthly_record(
@@ -57,12 +57,9 @@ async def handle_report_nlp(
 
     if record:
         total = record.files
-        pct = min(100, round(total / fpm * 100)) if fpm > 0 else 0
-        over = max(0, total - fpm)
-        over_str = f" +{over}" if over > 0 else ""
-        files_str = f"{total}/{fpm} ({pct}%){over_str}"
+        files_str = format_accounting_progress(total, record.status)
     else:
-        files_str = f"0/{fpm} (0%)"
+        files_str = format_accounting_progress(0, None)
 
     orders_str = f"{len(open_orders)} открытых"
 

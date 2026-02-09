@@ -31,6 +31,7 @@ from app.router.entities_v2 import (
 from app.router.command_filters import CommandIntent
 from app.router.model_resolver import resolve_model
 from app.utils.formatting import format_appended_comment, MAX_COMMENT_LENGTH
+from app.utils.accounting import calculate_accounting_progress, format_accounting_progress
 from app.utils import PAGE_SIZE
 
 
@@ -969,7 +970,6 @@ async def _handle_files_stats(message, model, config, notion):
 
     model_name = model["name"]
     model_id = model["id"]
-    fpm = config.files_per_month
 
     try:
         yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
@@ -977,22 +977,22 @@ async def _handle_files_stats(message, model, config, notion):
 
         if record:
             current = record.files
-            pct = min(100, round(current / fpm * 100)) if fpm > 0 else 0
-            over = max(0, current - fpm)
-            remaining = max(0, fpm - current)
+            target, pct, over = calculate_accounting_progress(current, record.status)
+            remaining = max(0, target - current)
             over_str = f"\nСверх лимита: +{over}" if over > 0 else ""
 
             await message.answer(
                 f"📊 <b>{html.escape(model_name)}</b> | {yyyy_mm}\n\n"
-                f"Файлов: {current}/{fpm} ({pct}%)\n"
-                f"До {fpm}: {remaining} файлов{over_str}",
+                f"Файлов: {current}/{target} ({pct}%)\n"
+                f"До {target}: {remaining} файлов{over_str}",
                 parse_mode="HTML",
             )
         else:
+            target, pct, _ = calculate_accounting_progress(0, None)
             await message.answer(
                 f"📊 <b>{html.escape(model_name)}</b> | {yyyy_mm}\n\n"
-                f"Файлов: 0/{fpm} (0%)\n"
-                f"До {fpm}: {fpm} файлов",
+                f"Файлов: 0/{target} ({pct}%)\n"
+                f"До {target}: {target} файлов",
                 parse_mode="HTML",
             )
 
@@ -1247,7 +1247,6 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
 
     model_id = user_state.get("model_id", "")
     model_name = user_state.get("model_name", "")
-    fpm = config.files_per_month
     yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
 
     try:
@@ -1258,13 +1257,13 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
                 config.db_accounting, model_id, model_name, count, yyyy_mm,
             )
             new_files = count
+            record_status = None
         else:
             new_files = record.files + count
             await notion.update_accounting_files(record.page_id, new_files)
+            record_status = record.status
 
-        pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
-        over = max(0, new_files - fpm)
-        over_str = f" +{over}" if over > 0 else ""
+        progress_line = format_accounting_progress(new_files, record_status)
         await _clear_previous_screen_keyboard(message, memory_state)
         await _cleanup_prompt_message(message, memory_state)
         memory_state.clear(chat_id, user_id)
@@ -1272,7 +1271,7 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
         await message.answer(
             f"✅ +{count} файлов ({new_files} всего)\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
-            f"Файлов: {new_files}/{fpm} ({pct}%){over_str}",
+            f"Файлов: {progress_line}",
             parse_mode="HTML",
         )
     except Exception as e:

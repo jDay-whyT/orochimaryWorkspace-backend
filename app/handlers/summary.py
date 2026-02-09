@@ -18,6 +18,7 @@ from app.keyboards.inline import (
 from app.roles import is_authorized
 from app.services import ModelsService, OrdersService, AccountingService
 from app.state import MemoryState, RecentModels
+from app.utils.accounting import format_accounting_progress
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -278,15 +279,13 @@ async def _show_model_summary(
     # Get current month stats
     now = datetime.now(config.timezone)
     yyyy_mm = now.strftime("%Y-%m")
-    fpm = config.files_per_month
 
     # Get accounting record
     accounting_service = AccountingService(config)
     record = await accounting_service.get_monthly_record(model_id)
 
     total_files = record.files if record else 0
-    pct = min(100, round(total_files / fpm * 100)) if fpm > 0 else 0
-    over = max(0, total_files - fpm)
+    record_status = record.status if record else None
 
     # Get orders stats
     orders_service = OrdersService(config)
@@ -295,9 +294,7 @@ async def _show_model_summary(
     debts_count = open_count
 
     # Build summary text
-    files_line = f"{total_files}/{fpm} ({pct}%)"
-    if over > 0:
-        files_line += f" +{over}"
+    files_line = format_accounting_progress(total_files, record_status)
 
     text = f"📊 <b>{html.escape(model_name)}</b>\n"
     text += f"{html.escape(project)} · {status} · {winrate}\n\n"
