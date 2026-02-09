@@ -9,6 +9,7 @@ from typing import Any
 
 from app.config import Config
 from app.services.notion import NotionClient, NotionAccounting
+from app.utils.accounting import calculate_accounting_progress
 
 LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ class AccountingService:
                 "files": new_files,
                 "model_id": model_id,
                 "model_name": model_name,
+                "status": record.status,
             }
         else:
             page_id = await self.notion.create_accounting_record(
@@ -73,6 +75,7 @@ class AccountingService:
                 "files": files_to_add,
                 "model_id": model_id,
                 "model_name": model_name,
+                "status": None,
             }
 
     async def get_all_month_records(self) -> list[dict[str, Any]]:
@@ -81,18 +84,22 @@ class AccountingService:
         records = await self.notion.query_accounting_all_month(
             self.config.db_accounting, yyyy_mm,
         )
-        fpm = self.config.files_per_month
-        return [
-            {
-                "id": r.page_id,
-                "model_id": r.model_id,
-                "model_name": r.model_title or "Unknown",
-                "files": r.files,
-                "percent": min(100, round(r.files / fpm * 100)) if fpm > 0 else 0,
-                "over": max(0, r.files - fpm),
-            }
-            for r in records
-        ]
+        results: list[dict[str, Any]] = []
+        for record in records:
+            target, pct, over = calculate_accounting_progress(record.files, record.status)
+            results.append(
+                {
+                    "id": record.page_id,
+                    "model_id": record.model_id,
+                    "model_name": record.model_title or "Unknown",
+                    "files": record.files,
+                    "target": target,
+                    "percent": pct,
+                    "over": over,
+                    "status": record.status,
+                }
+            )
+        return results
 
     async def update_comment(self, record_id: str, comment: str) -> None:
         """Update Comment for an accounting record."""

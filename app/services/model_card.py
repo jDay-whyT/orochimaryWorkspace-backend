@@ -25,6 +25,7 @@ from datetime import date, datetime
 
 from app.config import Config
 from app.services.notion import NotionClient
+from app.utils.accounting import format_accounting_progress
 
 LOGGER = logging.getLogger(__name__)
 
@@ -136,11 +137,10 @@ async def _build_card_text_impl(
     is_error=True when any Notion call failed (contains "—").
     """
     now = datetime.now(tz=config.timezone)
-    fpm = config.files_per_month
 
     orders_count = "—"
     shoot_line = "нет"
-    files_line = f"0/{fpm} (0%)"
+    files_line = format_accounting_progress(0, None)
     month_label = _month_ru(now.month)
     has_error = False
 
@@ -180,14 +180,9 @@ async def _build_card_text_impl(
         )
         if record:
             total_files = record.files
-            pct = min(100, round(total_files / fpm * 100)) if fpm > 0 else 0
-            over = max(0, total_files - fpm)
-            if over > 0:
-                files_line = f"{total_files}/{fpm} ({pct}%) +{over}"
-            else:
-                files_line = f"{total_files}/{fpm} ({pct}%)"
+            files_line = format_accounting_progress(total_files, record.status)
         else:
-            files_line = f"0/{fpm} (0%)"
+            files_line = format_accounting_progress(0, None)
     except Exception:
         LOGGER.warning("model_card: failed to fetch accounting for %s", model_id)
         files_line = "—"

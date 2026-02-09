@@ -38,6 +38,7 @@ from app.state import MemoryState, RecentModels, generate_token
 from app.router.command_filters import CommandIntent
 from app.keyboards.inline import ORDER_TYPE_CB_MAP
 from app.utils.formatting import format_appended_comment
+from app.utils.accounting import calculate_accounting_progress, format_accounting_progress
 from app.utils import PAGE_SIZE
 
 
@@ -550,23 +551,22 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
         try:
             now = datetime.now(tz=config.timezone)
             yyyy_mm = now.strftime("%Y-%m")
-            fpm = config.files_per_month
             record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
             if not record:
                 await notion.create_accounting_record(
                     config.db_accounting, model_id, model_data.title, count, yyyy_mm,
                 )
                 new_files = count
+                record_status = None
             else:
                 new_files = record.files + count
                 await notion.update_accounting_files(record.page_id, new_files)
-            pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
-            over = max(0, new_files - fpm)
-            over_str = f" +{over}" if over > 0 else ""
+                record_status = record.status
+            progress_line = format_accounting_progress(new_files, record_status)
             await query.message.edit_text(
                 f"✅ +{count} файлов ({new_files} всего)\n\n"
                 f"<b>{html.escape(model_data.title)}</b>\n"
-                f"Файлов: {new_files}/{fpm} ({pct}%){over_str}",
+                f"Файлов: {progress_line}",
                 parse_mode="HTML",
             )
         except Exception as e:
@@ -2000,7 +2000,6 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
     try:
         now = datetime.now(tz=config.timezone)
         yyyy_mm = now.strftime("%Y-%m")
-        fpm = config.files_per_month
 
         record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
 
@@ -2009,20 +2008,20 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
                 config.db_accounting, model_id, model_name, count, yyyy_mm,
             )
             new_files = count
+            record_status = None
         else:
             new_files = record.files + count
             await notion.update_accounting_files(record.page_id, new_files)
+            record_status = record.status
 
-        pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
-        over = max(0, new_files - fpm)
-        over_str = f" +{over}" if over > 0 else ""
+        progress_line = format_accounting_progress(new_files, record_status)
         recent_models.add(user_id, model_id, model_name)
         memory_state.clear(chat_id, user_id)
 
         await query.message.edit_text(
             f"✅ +{count} файлов ({new_files} всего)\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
-            f"Файлов: {new_files}/{fpm} ({pct}%){over_str}",
+            f"Файлов: {progress_line}",
             parse_mode="HTML",
         )
     except Exception as e:
@@ -2119,20 +2118,16 @@ async def _handle_report_accounting(query, config, notion, memory_state):
 
     now = datetime.now(tz=config.timezone)
     yyyy_mm = now.strftime("%Y-%m")
-    fpm = config.files_per_month
     record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
 
     model_data = await notion.get_model(model_id)
     model_name = model_data.title if model_data else "модели"
 
     if not record:
-        accounting_text = f"Файлов: 0/{fpm} (0%)"
+        accounting_text = f"Файлов: {format_accounting_progress(0, None)}"
     else:
         total = record.files
-        pct = min(100, round(total / fpm * 100)) if fpm > 0 else 0
-        over = max(0, total - fpm)
-        over_str = f" +{over}" if over > 0 else ""
-        accounting_text = f"Файлов: {total}/{fpm} ({pct}%){over_str}"
+        accounting_text = f"Файлов: {format_accounting_progress(total, record.status)}"
 
     k = generate_token()
     memory_state.update(chat_id, user_id, k=k)
@@ -2199,7 +2194,6 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
     try:
         now = datetime.now(tz=config.timezone)
         yyyy_mm = now.strftime("%Y-%m")
-        fpm = config.files_per_month
 
         record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
 
@@ -2208,13 +2202,13 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
                 config.db_accounting, model_id, model_name, count, yyyy_mm,
             )
             new_files = count
+            record_status = None
         else:
             new_files = record.files + count
             await notion.update_accounting_files(record.page_id, new_files)
+            record_status = record.status
 
-        pct = min(100, round(new_files / fpm * 100)) if fpm > 0 else 0
-        over = max(0, new_files - fpm)
-        over_str = f" +{over}" if over > 0 else ""
+        progress_line = format_accounting_progress(new_files, record_status)
         recent_models.add(user_id, model_id, model_name)
 
         await _clear_previous_screen_keyboard(query, memory_state)
@@ -2222,7 +2216,7 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
         msg = await query.message.edit_text(
             f"✅ +{count} файлов ({new_files} всего)\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
-            f"Файлов: {new_files}/{fpm} ({pct}%){over_str}",
+            f"Файлов: {progress_line}",
             parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
@@ -2526,7 +2520,6 @@ async def _show_report(query, model_id, model_name, config, notion, memory_state
 
     now = datetime.now(tz=config.timezone)
     yyyy_mm = now.strftime("%Y-%m")
-    fpm = config.files_per_month
 
     try:
         record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
@@ -2540,12 +2533,9 @@ async def _show_report(query, model_id, model_name, config, notion, memory_state
 
     if record:
         total = record.files
-        pct = min(100, round(total / fpm * 100)) if fpm > 0 else 0
-        over = max(0, total - fpm)
-        over_str = f" +{over}" if over > 0 else ""
-        files_str = f"{total}/{fpm} ({pct}%){over_str}"
+        files_str = format_accounting_progress(total, record.status)
     else:
-        files_str = f"0/{fpm} (0%)"
+        files_str = format_accounting_progress(0, None)
 
     orders_str = f"{len(open_orders)} открытых"
 
