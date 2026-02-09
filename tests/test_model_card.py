@@ -4,14 +4,13 @@ Tests for universal model card (CRM main scenario).
 Test cases:
 1. "мелиса" -> SEARCH_MODEL intent, response contains 📌 and buttons
 2. callback_data format is <64 bytes for model_card_keyboard
-3. model_card_keyboard has correct button layout (3 rows)
-4. ➕ Заказ callback -> nlp:act:order with token
+3. model_card_keyboard has correct 3-module layout
+4. 📦 Заказы callback -> nlp:act:orders with token
 5. 📁 Файлы callback -> shows +15/+30/+50/Ввод keyboard
 6. build_model_card_text with Notion data returns correct format
 7. build_model_card_text with Notion failure returns "—" placeholders
-8. model_card_keyboard includes Меню and Сброс service buttons
-9. nlp_files_qty_keyboard has +15/+30/+50/Ввод buttons
-10. af:custom callback switches to awaiting_count flow
+8. nlp_files_qty_keyboard has +15/+30/+50/Ввод buttons
+9. af:custom callback switches to awaiting_count flow
 """
 
 import pytest
@@ -95,61 +94,33 @@ class TestModelNameToCard:
 class TestModelCardKeyboard:
     """Tests for model_card_keyboard structure and callback_data."""
 
-    def test_keyboard_has_four_rows(self):
-        """model_card_keyboard should have 4 rows (including Content)."""
+    def test_keyboard_has_one_row(self):
+        """model_card_keyboard should have 1 row with 3 module buttons."""
         kb = model_card_keyboard("test1")
-        assert len(kb.inline_keyboard) == 4
+        assert len(kb.inline_keyboard) == 1
 
     def test_row1_has_order_shoot_files(self):
-        """Row 1: ➕ Заказ | 📅 Съёмка | 📁 Файлы."""
+        """Row 1: 📦 Заказы | 📅 Съёмка | 📁 Файлы."""
         kb = model_card_keyboard("test1")
         row1 = kb.inline_keyboard[0]
         assert len(row1) == 3
-        assert "Заказ" in row1[0].text
+        assert "Заказы" in row1[0].text
         assert "Съёмка" in row1[1].text
         assert "Файлы" in row1[2].text
 
-    def test_row2_has_orders_close_report(self):
-        """Row 2: 📋 Заказы | ✓ Закрыть | 📊 Репорт."""
+    def test_no_report_or_service_buttons(self):
+        """Model card should not include Report/Menu/Reset buttons."""
         kb = model_card_keyboard("test1")
-        row2 = kb.inline_keyboard[1]
-        assert len(row2) == 3
-        assert "Заказы" in row2[0].text
-        assert "Закрыть" in row2[1].text
-        assert "Репорт" in row2[2].text
+        texts = [btn.text for row in kb.inline_keyboard for btn in row]
+        assert all("Репорт" not in text for text in texts)
+        assert all("Меню" not in text for text in texts)
+        assert all("Сброс" not in text for text in texts)
 
-    def test_row3_has_content(self):
-        """Row 3: 🗂 Content."""
-        kb = model_card_keyboard("test1")
-        row3 = kb.inline_keyboard[2]
-        assert len(row3) == 1
-        assert "Content" in row3[0].text
-
-    def test_row4_has_menu_and_reset(self):
-        """Row 4 (service): 🏠 Меню | ♻️ Сброс."""
-        kb = model_card_keyboard("test1")
-        row4 = kb.inline_keyboard[3]
-        assert len(row4) == 2
-        assert "Меню" in row4[0].text
-        assert "Сброс" in row4[1].text
-
-    def test_menu_callback_is_cancel_menu(self):
-        """Меню button -> nlp:x:m."""
-        kb = model_card_keyboard("test1")
-        row4 = kb.inline_keyboard[3]
-        assert row4[0].callback_data == "nlp:x:m"
-
-    def test_reset_callback_is_cancel(self):
-        """Сброс button -> nlp:x:c."""
-        kb = model_card_keyboard("test1")
-        row4 = kb.inline_keyboard[3]
-        assert row4[1].callback_data == "nlp:x:c"
-
-    def test_order_button_starts_order_flow(self):
-        """➕ Заказ -> nlp:act:order:{k}."""
+    def test_orders_button_callback(self):
+        """📦 Заказы -> nlp:act:orders:{k}."""
         kb = model_card_keyboard("abc123")
         row1 = kb.inline_keyboard[0]
-        assert row1[0].callback_data == "nlp:act:order:abc123"
+        assert row1[0].callback_data == "nlp:act:orders:abc123"
 
     def test_files_button_callback(self):
         """📁 Файлы -> nlp:act:files:{k}."""
@@ -366,7 +337,7 @@ class TestModelCardFlowValidation:
         assert _validate_token(state, ["nlp", "act", "order", "wrong"], "act") is False
 
     def test_full_card_to_order_flow(self):
-        """Model card -> ➕ Заказ -> transitions to nlp_order/awaiting_type."""
+        """Model card -> 📦 Заказы -> transitions to orders module flow."""
         memory = MemoryState(ttl_seconds=60)
         user_id = 42
 
@@ -381,18 +352,15 @@ class TestModelCardFlowValidation:
         state = memory.get(user_id)
         assert _validate_flow_step(state, "act") is True
 
-        # Step 2: ➕ Заказ pressed -> handler sets nlp_order/awaiting_type
-        k2 = generate_token()
+        # Step 2: 📦 Заказы pressed -> handler sets nlp_orders_menu
         memory.set(user_id, {
-            "flow": "nlp_order",
-            "step": "awaiting_type",
+            "flow": "nlp_orders_menu",
+            "step": "menu",
             "model_id": "page-123",
             "model_name": "мелиса",
-            "k": k2,
         })
         state = memory.get(user_id)
-        assert _validate_flow_step(state, "ot") is True
-        assert _validate_flow_step(state, "act") is False  # no longer in nlp_actions
+        assert state["flow"] == "nlp_orders_menu"
 
     def test_full_card_to_files_flow(self):
         """Model card -> 📁 Файлы -> transitions to nlp_files."""

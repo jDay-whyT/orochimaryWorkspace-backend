@@ -16,7 +16,7 @@ from app.router.intent_v2 import classify_intent_v2, get_intent_description
 from app.router.entities_v2 import extract_entities_v2
 
 
-def test_case(text: str, expected_intent: CommandIntent = None):
+def run_case(text: str, expected_intent: CommandIntent = None):
     """Test a single command and display results."""
     print(f"\n{'='*70}")
     print(f"Текст: '{text}'")
@@ -93,7 +93,7 @@ def main():
     failed = 0
 
     for text, expected in test_cases:
-        if test_case(text, expected):
+        if run_case(text, expected):
             passed += 1
         else:
             failed += 1

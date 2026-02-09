@@ -379,12 +379,12 @@ class TestNlpShootContentTypes:
     def test_has_expected_types(self):
         from app.utils.constants import NLP_SHOOT_CONTENT_TYPES
 
-        assert "Twitter" in NLP_SHOOT_CONTENT_TYPES
-        assert "Reddit" in NLP_SHOOT_CONTENT_TYPES
-        assert "Main" in NLP_SHOOT_CONTENT_TYPES
-        assert "SFC" in NLP_SHOOT_CONTENT_TYPES
-        assert "Posting" in NLP_SHOOT_CONTENT_TYPES
-        assert "Fansly" in NLP_SHOOT_CONTENT_TYPES
+        assert "twitter" in NLP_SHOOT_CONTENT_TYPES
+        assert "reddit" in NLP_SHOOT_CONTENT_TYPES
+        assert "main" in NLP_SHOOT_CONTENT_TYPES
+        assert "SFS" in NLP_SHOOT_CONTENT_TYPES
+        assert "posting" in NLP_SHOOT_CONTENT_TYPES
+        assert "fansly" in NLP_SHOOT_CONTENT_TYPES
         assert len(NLP_SHOOT_CONTENT_TYPES) == 6
 
 

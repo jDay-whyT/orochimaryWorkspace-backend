@@ -62,7 +62,7 @@ MODEL_STATUS_STOP = "stop"
 MODEL_STATUS_LOOTED = "looted"
 
 # Pagination
-PAGE_SIZE = 5
+PAGE_SIZE = 8
 
 # Files per month limit (for accounting percentage calculation)
 FILES_MONTH_LIMIT = 200

@@ -5,7 +5,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardRemove
 
 from app.config import Config
-from app.roles import is_authorized, get_user_role
+from app.roles import is_authorized
 from app.services import NotionClient
 from app.state import MemoryState, RecentModels
 
@@ -28,8 +28,7 @@ async def cmd_start(message: Message, config: Config) -> None:
         LOGGER.warning("Unauthorized access attempt from user %s", user_id)
         return
 
-    role = get_user_role(user_id, config)
-    LOGGER.info("User %s started bot with role %s", user_id, role.value)
+    LOGGER.info("User %s started bot", user_id)
 
     await message.answer(
         "👋 Привет! Это бот для ведение моделей в Notion\n\n"

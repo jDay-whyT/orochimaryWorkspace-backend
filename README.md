@@ -18,7 +18,7 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 
 ## ENV переменные
 
-> Формат списков ролей: `"123,456"` (через запятую, без пробелов или с ними — ок).
+> Формат списка ALLOWED_EDITORS: `"123,456"` (через запятую, без пробелов или с ними — ок).
 
 | Переменная | Обязательно | Описание |
 |---|---|---|
@@ -28,9 +28,7 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `NOTION_DB_ORDERS_ID` | ✅ | ID базы **Orders** |
 | `NOTION_DB_PLANNER_ID` | ✅ | ID базы **Planner** |
 | `NOTION_DB_ACCOUNTING_ID` | ✅ | ID базы **Accounting** |
-| `ADMIN_IDS` | ✅ | Список user_id с полным доступом |
-| `EDITOR_IDS` | ✅ | Список user_id с доступом к CRUD (Orders/Planner/Accounting) |
-| `VIEWER_IDS` | ✅ | Список user_id только на чтение (Summary) |
+| `ALLOWED_EDITORS` | ✅ | Список user_id с доступом к чтению/записи |
 | `WEBHOOK_SECRET` | ⚠️ | Секрет для проверки заголовка `X-Telegram-Bot-Api-Secret-Token` |
 | `LOG_LEVEL` | ⚠️ | Уровень логирования (например `INFO`, `DEBUG`) |
 
@@ -38,7 +36,8 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 
 ### Авторизация по user_id
 
-- Если `user_id` пользователя **не входит** ни в один список ролей (`ADMIN_IDS`, `EDITOR_IDS`, `VIEWER_IDS`) — бот отвечает **“Access denied”**.
+- Пользователи из `ALLOWED_EDITORS` имеют доступ к чтению и записи.
+- Остальные пользователи могут читать, но не видят кнопки записи и получают ответ “нет доступа” при попытке записи.
 - Узнать свой `user_id` можно:
   - Через бота **@userinfobot**.
   - Либо попросить администратора посмотреть лог входящего апдейта.
@@ -64,9 +63,7 @@ NOTION_DB_MODELS_ID=...
 NOTION_DB_ORDERS_ID=...
 NOTION_DB_PLANNER_ID=...
 NOTION_DB_ACCOUNTING_ID=...
-ADMIN_IDS=123,456
-EDITOR_IDS=
-VIEWER_IDS=
+ALLOWED_EDITORS=123,456
 WEBHOOK_SECRET=...
 LOG_LEVEL=INFO
 
@@ -93,9 +90,7 @@ export NOTION_DB_MODELS_ID=...
 export NOTION_DB_ORDERS_ID=...
 export NOTION_DB_PLANNER_ID=...
 export NOTION_DB_ACCOUNTING_ID=...
-export ADMIN_IDS="123,456"
-export EDITOR_IDS=""
-export VIEWER_IDS=""
+export ALLOWED_EDITORS="123,456"
 export WEBHOOK_SECRET=...
 
 export DB_MODELS=$NOTION_DB_MODELS_ID
@@ -114,9 +109,7 @@ $env:NOTION_DB_MODELS_ID="..."
 $env:NOTION_DB_ORDERS_ID="..."
 $env:NOTION_DB_PLANNER_ID="..."
 $env:NOTION_DB_ACCOUNTING_ID="..."
-$env:ADMIN_IDS="123,456"
-$env:EDITOR_IDS=""
-$env:VIEWER_IDS=""
+$env:ALLOWED_EDITORS="123,456"
 $env:WEBHOOK_SECRET="..."
 
 $env:DB_MODELS=$env:NOTION_DB_MODELS_ID
@@ -172,9 +165,7 @@ gcloud run services update orochimary-bot \
   --region europe-west1 \
   --set-env-vars "TELEGRAM_BOT_TOKEN=..." \
   --set-env-vars "NOTION_TOKEN=..." \
-  --set-env-vars "ADMIN_IDS=123,456" \
-  --set-env-vars "EDITOR_IDS=" \
-  --set-env-vars "VIEWER_IDS=" \
+  --set-env-vars "ALLOWED_EDITORS=123,456" \
   --set-env-vars "NOTION_DB_MODELS_ID=..." \
   --set-env-vars "NOTION_DB_ORDERS_ID=..." \
   --set-env-vars "NOTION_DB_PLANNER_ID=..." \
@@ -218,7 +209,7 @@ curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
 
 ### “Бот молчит”
 
-1) **Проверь роли**: `ADMIN_IDS/EDITOR_IDS/VIEWER_IDS`.
+1) **Проверь доступ**: `ALLOWED_EDITORS`.
 2) **Проверь webhook**: `/tg/webhook` доступен и Telegram действительно шлёт апдейты.
 3) **Проверь логи Cloud Run**: должны быть строки вида `Webhook request received` и `Update handled`.
 4) **Проверь fallback-хендлер**: в idle режиме должен отвечать.
@@ -312,4 +303,3 @@ app/
 
 - **Не коммитьте** токены и секреты.
 - По желанию используйте **Secret Manager** + привязку переменных в Cloud Run.
-
