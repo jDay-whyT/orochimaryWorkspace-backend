@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
 from app.filters import FlowFilter
+from app.filters.topic_access import TopicAccessCallbackFilter, TopicAccessMessageFilter
 from app.keyboards.inline import (
     planner_menu_keyboard,
     models_keyboard,
@@ -23,6 +24,18 @@ from app.utils.constants import PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTION
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
+router.message.filter(TopicAccessMessageFilter())
+router.callback_query.filter(TopicAccessCallbackFilter())
+
+
+def _state_ids_from_message(message: Message) -> tuple[int, int]:
+    return message.chat.id, message.from_user.id
+
+
+def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
+    if not query.message:
+        return query.from_user.id, query.from_user.id
+    return query.message.chat.id, query.from_user.id
 
 
 async def show_planner_menu(message: Message, config: Config) -> None:
@@ -120,7 +133,8 @@ async def handle_text_input(
     if not is_authorized(message.from_user.id, config):
         return
 
-    state = memory_state.get(message.from_user.id)
+    chat_id, user_id = _state_ids_from_message(message)
+    state = memory_state.get(chat_id, user_id)
     step = state.get("step")
     
     # Delete user message to keep chat clean
@@ -151,28 +165,29 @@ async def _handle_back(
     value: str,
 ) -> None:
     """Handle back navigation."""
+    chat_id, user_id = _state_ids_from_query(query)
     if value == "main":
-        memory_state.clear(query.from_user.id)
+        memory_state.clear(chat_id, user_id)
         await query.message.delete()
     elif value == "back":
         # Generic back from back_cancel_keyboard - return to menu
-        memory_state.clear(query.from_user.id)
+        memory_state.clear(chat_id, user_id)
         await query.message.edit_text(
             "📅 <b>Planner</b>\n\nSelect an action:",
             reply_markup=planner_menu_keyboard(),
             parse_mode="HTML",
         )
     elif value == "menu":
-        memory_state.clear(query.from_user.id)
+        memory_state.clear(chat_id, user_id)
         await query.message.edit_text(
             "📅 <b>Planner</b>\n\nSelect an action:",
             reply_markup=planner_menu_keyboard(),
             parse_mode="HTML",
         )
     elif value == "select_model":
-        state = memory_state.get(query.from_user.id)
+        state = memory_state.get(chat_id, user_id)
         if state:
-            recent = recent_models.get(query.from_user.id)
+            recent = recent_models.get(user_id)
             await query.message.edit_text(
                 "📅 <b>New Shoot</b>\n\nStep 1: Select model",
                 reply_markup=models_keyboard("planner", recent, show_search=True),
@@ -180,7 +195,7 @@ async def _handle_back(
             )
             state["step"] = "select_model"
     elif value == "content":
-        state = memory_state.get(query.from_user.id)
+        state = memory_state.get(chat_id, user_id)
         if state:
             selected = state.get("content", [])
             await query.message.edit_text(
@@ -192,7 +207,7 @@ async def _handle_back(
             )
             state["step"] = "select_content"
     elif value == "location":
-        state = memory_state.get(query.from_user.id)
+        state = memory_state.get(chat_id, user_id)
         if state:
             await query.message.edit_text(
                 "📅 <b>New Shoot</b>\n\nStep 3: Select location",
@@ -204,7 +219,8 @@ async def _handle_back(
 
 async def _cancel_flow(query: CallbackQuery, memory_state: MemoryState) -> None:
     """Cancel current flow."""
-    memory_state.clear(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    memory_state.clear(chat_id, user_id)
     await query.message.edit_text(
         "📅 <b>Planner</b>\n\nCancelled.",
         parse_mode="HTML",
@@ -271,7 +287,7 @@ async def _start_new_shoot(
         return
 
     memory_state.set(
-        query.from_user.id,
+        *_state_ids_from_query(query),
         {
             "flow": "planner",
             "step": "select_model",
@@ -280,7 +296,8 @@ async def _start_new_shoot(
         },
     )
     
-    recent = recent_models.get(query.from_user.id)
+    _, user_id = _state_ids_from_query(query)
+    recent = recent_models.get(user_id)
     
     await query.message.edit_text(
         "📅 <b>New Shoot</b>\n\nStep 1: Select model",
@@ -297,7 +314,8 @@ async def _select_model_for_shoot(
     model_id: str,
 ) -> None:
     """Select model and proceed to content selection."""
-    state = memory_state.get(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
     if not state:
         return
     
@@ -310,7 +328,7 @@ async def _select_model_for_shoot(
             return
         
         # Add to recent
-        recent_models.add(query.from_user.id, model_id, model["name"])
+        recent_models.add(user_id, model_id, model["name"])
         
         # Save to state
         state["model_id"] = model_id
@@ -333,7 +351,8 @@ async def _select_model_for_shoot(
 
 async def _start_search(query: CallbackQuery, memory_state: MemoryState) -> None:
     """Start model search."""
-    state = memory_state.get(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
     if not state:
         return
     
@@ -355,7 +374,8 @@ async def _handle_search_results(
     recent_models: RecentModels,
 ) -> None:
     """Handle model search results."""
-    state = memory_state.get(message.from_user.id)
+    chat_id, user_id = _state_ids_from_message(message)
+    state = memory_state.get(chat_id, user_id)
     if not state:
         return
     
@@ -424,7 +444,8 @@ async def _toggle_content(
     content_type: str,
 ) -> None:
     """Toggle content type selection."""
-    state = memory_state.get(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
     if not state:
         return
     
@@ -453,7 +474,8 @@ async def _finish_content_selection(
     memory_state: MemoryState,
 ) -> None:
     """Finish content selection and move to location."""
-    state = memory_state.get(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
     if not state:
         return
     
@@ -481,7 +503,8 @@ async def _select_location(
     location: str,
 ) -> None:
     """Select location and show calendar."""
-    state = memory_state.get(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
     if not state:
         return
     
@@ -516,7 +539,8 @@ async def _navigate_calendar(
         return
     
     year, month = result
-    state = memory_state.get(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
     if not state:
         return
     
@@ -534,7 +558,8 @@ async def _select_date(
     date_str: str,
 ) -> None:
     """Select date and show confirmation."""
-    state = memory_state.get(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
     if not state:
         return
     
@@ -577,7 +602,8 @@ async def _start_add_comment(
     comment_for: str,
 ) -> None:
     """Start adding comment."""
-    state = memory_state.get(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
     if not state:
         return
     
@@ -598,7 +624,8 @@ async def _handle_comment_text(
     memory_state: MemoryState,
 ) -> None:
     """Handle comment text input."""
-    state = memory_state.get(message.from_user.id)
+    chat_id, user_id = _state_ids_from_message(message)
+    state = memory_state.get(chat_id, user_id)
     if not state:
         return
     
@@ -652,7 +679,8 @@ async def _create_shoot(
     recent_models: RecentModels,
 ) -> None:
     """Create the shoot in Notion."""
-    state = memory_state.get(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
     if not state:
         return
     
@@ -676,7 +704,7 @@ async def _create_shoot(
             comment=comment,
         )
         
-        memory_state.clear(query.from_user.id)
+        memory_state.clear(chat_id, user_id)
         
         await query.message.edit_text(
             "✅ <b>Shoot Created!</b>\n\n"
@@ -797,7 +825,7 @@ async def _start_reschedule(
         return
     
     memory_state.set(
-        query.from_user.id,
+        *_state_ids_from_query(query),
         {
             "flow": "planner",
             "step": "reschedule_date",

@@ -32,7 +32,8 @@ class FlowFilter(BaseFilter):
             True if current flow is in allowed_flows, False otherwise
         """
         user_id = message.from_user.id
-        data = memory_state.get(user_id)
+        chat_id = message.chat.id
+        data = memory_state.get(chat_id, user_id)
 
         if not data:
             return False

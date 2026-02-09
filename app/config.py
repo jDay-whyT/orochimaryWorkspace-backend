@@ -23,6 +23,7 @@ class Config:
     
     # Access
     allowed_editors: set[int]
+    crm_topic_thread_id: int
     
     timezone: ZoneInfo
     files_per_month: int
@@ -58,6 +59,9 @@ def _validate_config(config: Config) -> None:
     # Critical: At least one editor must be configured
     if not config.allowed_editors:
         errors.append("At least one user ID must be configured (ALLOWED_EDITORS)")
+
+    if config.crm_topic_thread_id <= 0:
+        errors.append("CRM_TOPIC_THREAD_ID must be a positive integer")
     
     # Validate database IDs format (should be UUIDs)
     db_ids = {
@@ -104,6 +108,11 @@ def load_config(validate: bool = True) -> Config:
     
     # Access
     allowed_editors = _parse_user_ids(os.getenv("ALLOWED_EDITORS", ""))
+    try:
+        crm_topic_thread_id = int(os.getenv("CRM_TOPIC_THREAD_ID", "0"))
+    except ValueError:
+        print("ERROR: CRM_TOPIC_THREAD_ID must be an integer", file=sys.stderr)
+        sys.exit(1)
     
     timezone_name = os.getenv("TIMEZONE", "Europe/Brussels")  # Default to europe-west1 region
     
@@ -128,6 +137,7 @@ def load_config(validate: bool = True) -> Config:
         db_planner=db_planner,
         db_accounting=db_accounting,
         allowed_editors=allowed_editors,
+        crm_topic_thread_id=crm_topic_thread_id,
         timezone=timezone,
         files_per_month=files_per_month,
     )

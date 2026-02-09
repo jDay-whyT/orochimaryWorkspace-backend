@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
 from app.filters import FlowFilter
+from app.filters.topic_access import TopicAccessCallbackFilter, TopicAccessMessageFilter
 from app.keyboards import (
     orders_menu_keyboard,
     orders_list_keyboard,
@@ -37,6 +38,18 @@ from app.utils import (
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
+router.message.filter(TopicAccessMessageFilter())
+router.callback_query.filter(TopicAccessCallbackFilter())
+
+
+def _state_ids_from_message(message: Message) -> tuple[int, int]:
+    return message.chat.id, message.from_user.id
+
+
+def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
+    if not query.message:
+        return query.from_user.id, query.from_user.id
+    return query.message.chat.id, query.from_user.id
 
 
 # ==================== Menu ====================
@@ -154,12 +167,12 @@ async def handle_back(
     recent_models: RecentModels,
 ) -> None:
     """Handle back navigation."""
-    user_id = query.from_user.id
-    data = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
     flow = data.get("flow")
     
     if value == "main":
-        memory_state.clear(user_id)
+        memory_state.clear(chat_id, user_id)
         await safe_edit_message(
             query,
             "📦 <b>Orders</b>\n\nSelect an action:",
@@ -168,7 +181,7 @@ async def handle_back(
 
     elif value == "back":
         # Generic back from back_cancel_keyboard - return to menu
-        memory_state.clear(user_id)
+        memory_state.clear(chat_id, user_id)
         await safe_edit_message(
             query,
             "📦 <b>Orders</b>\n\nSelect an action:",
@@ -176,7 +189,7 @@ async def handle_back(
         )
 
     elif value == "menu":
-        memory_state.clear(user_id)
+        memory_state.clear(chat_id, user_id)
         await safe_edit_message(
             query,
             "📦 <b>Orders</b>\n\nSelect an action:",
@@ -193,7 +206,7 @@ async def handle_back(
                 reply_markup=recent_models_keyboard(recent, "orders"),
             )
         else:
-            memory_state.update(user_id, flow="search", step="waiting_query")
+            memory_state.update(chat_id, user_id, flow="search", step="waiting_query")
             await safe_edit_message(
                 query,
                 "🔍 Enter model name to search:",
@@ -207,7 +220,7 @@ async def handle_back(
     elif value == "model":
         # Back to model selection in new order flow
         recent = recent_models.get(user_id)
-        memory_state.update(user_id, step="select_model")
+        memory_state.update(chat_id, user_id, step="select_model")
         if recent:
             await safe_edit_message(
                 query,
@@ -215,7 +228,7 @@ async def handle_back(
                 reply_markup=recent_models_keyboard(recent, "orders"),
             )
         else:
-            memory_state.update(user_id, step="waiting_query")
+            memory_state.update(chat_id, user_id, step="waiting_query")
             await safe_edit_message(
                 query,
                 "➕ <b>New Order</b>\n\n🔍 Enter model name:",
@@ -224,7 +237,7 @@ async def handle_back(
     
     elif value == "type":
         # Back to type selection
-        memory_state.update(user_id, step="select_type")
+        memory_state.update(chat_id, user_id, step="select_type")
         model_title = data.get("model_title", "")
         await safe_edit_message(
             query,
@@ -236,7 +249,7 @@ async def handle_back(
 
     elif value == "qty":
         # Back to quantity selection
-        memory_state.update(user_id, step="select_qty")
+        memory_state.update(chat_id, user_id, step="select_qty")
         model_title = data.get("model_title", "")
         order_type = data.get("order_type", "")
         await safe_edit_message(
@@ -250,7 +263,7 @@ async def handle_back(
 
     elif value == "date":
         # Back to date selection
-        memory_state.update(user_id, step="select_date")
+        memory_state.update(chat_id, user_id, step="select_date")
         model_title = data.get("model_title", "")
         order_type = data.get("order_type", "")
         qty = data.get("qty", 1)
@@ -265,7 +278,7 @@ async def handle_back(
 
     elif value == "comment":
         # Back to comment prompt
-        memory_state.update(user_id, step="comment_prompt")
+        memory_state.update(chat_id, user_id, step="comment_prompt")
         model_title = data.get("model_title", "")
         order_type = data.get("order_type", "")
         qty = data.get("qty", 1)
@@ -285,7 +298,8 @@ async def handle_back(
 
 async def handle_cancel(query: CallbackQuery, memory_state: MemoryState) -> None:
     """Handle cancel action."""
-    memory_state.clear(query.from_user.id)
+    chat_id, user_id = _state_ids_from_query(query)
+    memory_state.clear(chat_id, user_id)
     await safe_edit_message(
         query,
         "📦 <b>Orders</b>\n\nCancelled.",
@@ -298,8 +312,10 @@ async def handle_cancel(query: CallbackQuery, memory_state: MemoryState) -> None
 
 async def start_model_search(query: CallbackQuery, memory_state: MemoryState) -> None:
     """Start model search flow."""
+    chat_id, user_id = _state_ids_from_query(query)
     memory_state.update(
-        query.from_user.id,
+        chat_id,
+        user_id,
         flow="search",
         step="waiting_query",
     )
@@ -320,8 +336,8 @@ async def handle_model_select(
     recent_models: RecentModels,
 ) -> None:
     """Handle model selection."""
-    user_id = query.from_user.id
-    data = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
     flow = data.get("flow")
     
     # Get model info
@@ -343,6 +359,7 @@ async def handle_model_select(
     if flow == "new_order":
         # Continue with new order flow
         memory_state.update(
+            chat_id,
             user_id,
             model_id=model_id,
             model_title=model_title,
@@ -358,6 +375,7 @@ async def handle_model_select(
     else:
         # Show open orders for model
         memory_state.update(
+            chat_id,
             user_id,
             flow="view",
             model_id=model_id,
@@ -378,8 +396,8 @@ async def show_open_orders_list(
     notion: NotionClient,
 ) -> None:
     """Show list of all open orders."""
-    user_id = query.from_user.id
-    data = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
     
     model_id = data.get("model_id")
     
@@ -387,7 +405,7 @@ async def show_open_orders_list(
         # Need to select model first
         from app.state import RecentModels
         # This is a simplified path - normally we'd inject recent_models
-        memory_state.update(user_id, flow="view", step="select_model")
+        memory_state.update(chat_id, user_id, flow="view", step="select_model")
         await safe_edit_message(
             query,
             "📋 <b>Open Orders</b>\n\n"
@@ -408,8 +426,8 @@ async def _show_orders_for_model(
     notion: NotionClient,
 ) -> None:
     """Internal: show orders for selected model."""
-    user_id = query.from_user.id
-    data = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
     
     model_id = data.get("model_id")
     model_title = data.get("model_title", "")
@@ -422,7 +440,7 @@ async def _show_orders_for_model(
     orders.sort(key=lambda o: o.in_date or "9999-99-99")
     
     # Store in state
-    memory_state.update(user_id, orders=[_order_to_dict(o) for o in orders])
+    memory_state.update(chat_id, user_id, orders=[_order_to_dict(o) for o in orders])
     
     if not orders:
         await safe_edit_message(
@@ -439,7 +457,7 @@ async def _show_orders_for_model(
     start = (page - 1) * PAGE_SIZE
     page_orders = orders[start:start + PAGE_SIZE]
     
-    memory_state.update(user_id, page=page)
+    memory_state.update(chat_id, user_id, page=page)
     
     # Build list
     today_date = today(config.timezone)
@@ -475,7 +493,8 @@ async def handle_pagination(
         await query.answer()
         return
     
-    memory_state.update(query.from_user.id, page=page)
+    chat_id, user_id = _state_ids_from_query(query)
+    memory_state.update(chat_id, user_id, page=page)
     await _show_orders_for_model(query, memory_state, config, notion)
     await query.answer()
 
@@ -490,8 +509,8 @@ async def show_order_details(
     notion: NotionClient,
 ) -> None:
     """Show details for a specific order."""
-    user_id = query.from_user.id
-    data = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
     
     model_title = data.get("model_title", "")
     orders = data.get("orders", [])
@@ -507,7 +526,7 @@ async def show_order_details(
         await query.answer("Order not found", show_alert=True)
         return
     
-    memory_state.update(user_id, selected_order=page_id)
+    memory_state.update(chat_id, user_id, selected_order=page_id)
     
     today_date = today(config.timezone)
     in_date = order.get("in_date")
@@ -555,7 +574,8 @@ async def close_order(
         return
     
     # Get order info for message
-    data = memory_state.get(query.from_user.id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
     orders = data.get("orders", [])
     order = next((o for o in orders if o.get("page_id") == page_id), None)
     
@@ -580,8 +600,10 @@ async def start_comment_input(
     memory_state: MemoryState,
 ) -> None:
     """Start comment input for existing order."""
+    chat_id, user_id = _state_ids_from_query(query)
     memory_state.update(
-        query.from_user.id,
+        chat_id,
+        user_id,
         flow="comment",
         selected_order=page_id,
         step="waiting_comment",
@@ -607,10 +629,11 @@ async def start_new_order(
         await query.answer("You don't have permission to create orders", show_alert=True)
         return
     
-    user_id = query.from_user.id
+    chat_id, user_id = _state_ids_from_query(query)
     recent = recent_models.get(user_id)
     
     memory_state.update(
+        chat_id,
         user_id,
         flow="new_order",
         step="select_model",
@@ -624,7 +647,7 @@ async def start_new_order(
             reply_markup=recent_models_keyboard(recent, "orders"),
         )
     else:
-        memory_state.update(user_id, step="waiting_query")
+        memory_state.update(chat_id, user_id, step="waiting_query")
         await safe_edit_message(
             query,
             "➕ <b>New Order</b>\n\n"
@@ -645,11 +668,12 @@ async def handle_type_select(
         await query.answer("Invalid type", show_alert=True)
         return
     
-    user_id = query.from_user.id
-    data = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
     model_title = data.get("model_title", "")
     
     memory_state.update(
+        chat_id,
         user_id,
         order_type=order_type,
         step="select_qty",
@@ -673,13 +697,13 @@ async def handle_qty_select(
     memory_state: MemoryState,
 ) -> None:
     """Handle quantity selection."""
-    user_id = query.from_user.id
-    data = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
     model_title = data.get("model_title", "")
     order_type = data.get("order_type", "")
     
     if value == "custom":
-        memory_state.update(user_id, step="waiting_qty")
+        memory_state.update(chat_id, user_id, step="waiting_qty")
         await safe_edit_message(
             query,
             f"➕ <b>New Order</b>\n\n"
@@ -700,6 +724,7 @@ async def handle_qty_select(
         return
     
     memory_state.update(
+        chat_id,
         user_id,
         qty=qty,
         step="select_date",
@@ -728,13 +753,14 @@ async def handle_date_select(
         await query.answer("Invalid date", show_alert=True)
         return
     
-    user_id = query.from_user.id
-    data = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
     model_title = data.get("model_title", "")
     order_type = data.get("order_type", "")
     qty = data.get("qty", 1)
     
     memory_state.update(
+        chat_id,
         user_id,
         in_date=in_date.isoformat(),
         step="comment_prompt",
@@ -758,7 +784,8 @@ async def handle_comment_skip(
     config: Config,
 ) -> None:
     """Skip comment and show confirmation."""
-    memory_state.update(query.from_user.id, comments=None, step="confirm")
+    chat_id, user_id = _state_ids_from_query(query)
+    memory_state.update(chat_id, user_id, comments=None, step="confirm")
     await _show_confirmation(query, memory_state, config)
     await query.answer()
 
@@ -768,14 +795,14 @@ async def start_order_comment_input(
     memory_state: MemoryState,
 ) -> None:
     """Start comment input for new order."""
-    user_id = query.from_user.id
-    data = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
     model_title = data.get("model_title", "")
     order_type = data.get("order_type", "")
     qty = data.get("qty", 1)
     in_date = data.get("in_date")
     
-    memory_state.update(user_id, step="waiting_comment")
+    memory_state.update(chat_id, user_id, step="waiting_comment")
 
     await safe_edit_message(
         query,
@@ -795,8 +822,8 @@ async def _show_confirmation(
     config: Config,
 ) -> None:
     """Show order confirmation screen."""
-    user_id = query.from_user.id
-    data = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
     
     model_title = data.get("model_title", "")
     order_type = data.get("order_type", "")
@@ -829,8 +856,8 @@ async def create_order(
         await query.answer("You don't have permission to create orders", show_alert=True)
         return
     
-    user_id = query.from_user.id
-    data = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
     
     model_id = data.get("model_id")
     model_title = data.get("model_title", "")
@@ -841,7 +868,7 @@ async def create_order(
     
     if not all([model_id, order_type, in_date_str]):
         await query.answer("Missing data. Please start over.", show_alert=True)
-        memory_state.clear(user_id)
+        memory_state.clear(chat_id, user_id)
         return
     
     in_date = date.fromisoformat(in_date_str)
@@ -876,7 +903,7 @@ async def create_order(
         await query.answer("Failed to create order", show_alert=True)
         return
     
-    memory_state.clear(user_id)
+    memory_state.clear(chat_id, user_id)
 
     await safe_edit_message(
         query,
@@ -903,8 +930,8 @@ async def handle_text_input(
     if not is_authorized(message.from_user.id, config):
         return
 
-    user_id = message.from_user.id
-    data = memory_state.get(user_id) or {}
+    chat_id, user_id = _state_ids_from_message(message)
+    data = memory_state.get(chat_id, user_id) or {}
 
     flow = data.get("flow")
     step = data.get("step")
@@ -947,6 +974,7 @@ async def handle_text_input(
         
         model_options = {m.page_id: m.title for m in models}
         memory_state.update(
+            chat_id,
             user_id,
             model_options=model_options,
             step="select_model",
@@ -980,6 +1008,7 @@ async def handle_text_input(
         order_type = data.get("order_type", "")
         
         memory_state.update(
+            chat_id,
             user_id,
             qty=qty,
             step="select_date",
@@ -997,12 +1026,13 @@ async def handle_text_input(
     # Comment input for new order
     elif step == "waiting_comment" and flow == "new_order":
         memory_state.update(
+            chat_id,
             user_id,
             comments=text if text else None,
             step="confirm",
         )
         
-        data = memory_state.get(user_id) or {}
+        data = memory_state.get(chat_id, user_id) or {}
         model_title = data.get("model_title", "")
         order_type = data.get("order_type", "")
         qty = data.get("qty", 1)
@@ -1033,7 +1063,7 @@ async def handle_text_input(
             await message.answer("Failed to save comment", parse_mode="HTML")
             return
         
-        memory_state.update(user_id, flow="view", step=None)
+        memory_state.update(chat_id, user_id, flow="view", step=None)
         
         await message.answer(
             "💬 Comment saved!",
@@ -1101,7 +1131,7 @@ async def handle_create_orders_nlp(
 
     # Store flow context in memory for callback handlers
     if memory_state:
-        memory_state.set(message.from_user.id, {
+        memory_state.set(message.chat.id, message.from_user.id, {
             "flow": "nlp_order",
             "step": "awaiting_date",
             "model_id": model["id"],
@@ -1118,7 +1148,7 @@ async def handle_create_orders_nlp(
         parse_mode="HTML",
     )
     if memory_state and sent:
-        memory_state.update(message.from_user.id, screen_message_id=sent.message_id)
+        memory_state.update(message.chat.id, message.from_user.id, screen_message_id=sent.message_id)
 
 
 
