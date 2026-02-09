@@ -112,15 +112,26 @@ async def test_date_prompt_cleanup():
 
 
 @pytest.mark.asyncio
-async def test_close_model_card():
+async def test_reset_from_model_card():
     memory_state = MemoryState()
-    memory_state.set(1, {"flow": "nlp_actions", "model_id": "model-1"})
-    query = _make_query(data="nlp:cl")
+    memory_state.set(1, {
+        "flow": "nlp_actions",
+        "step": "menu",
+        "model_id": "model-1",
+        "prompt_message_id": 111,
+        "screen_message_id": 222,
+    })
+    query = _make_query(data="nlp:x:c")
+    query.message.edit_text.side_effect = Exception("not editable")
     config = MagicMock()
     notion = AsyncMock()
     recent_models = MagicMock()
 
     await handle_nlp_callback(query, config, notion, memory_state, recent_models)
 
-    query.message.delete.assert_called_once()
-    assert memory_state.get(1) == {"flow": "nlp_actions", "model_id": "model-1"}
+    assert memory_state.get(1) is None
+    query.bot.edit_message_reply_markup.assert_called_once_with(
+        chat_id=query.message.chat.id,
+        message_id=query.message.message_id,
+        reply_markup=None,
+    )
