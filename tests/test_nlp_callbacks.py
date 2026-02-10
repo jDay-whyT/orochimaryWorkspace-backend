@@ -683,5 +683,72 @@ class TestDispatcherDateFix:
             "datetime.resolution should be replaced with timedelta(days=90)"
 
 
+# ============================================================================
+#              MESSAGE EDIT ERROR HANDLING TESTS
+# ============================================================================
+
+class TestMessageEditErrorHandling:
+    """Tests that handlers gracefully handle message edit errors."""
+
+    @pytest.mark.asyncio
+    async def test_edit_text_message_not_modified_does_not_crash(self):
+        """When edit_text raises TelegramBadRequest 'message is not modified', handler should not crash."""
+        from aiogram.exceptions import TelegramBadRequest
+        from unittest.mock import AsyncMock, patch
+        from app.handlers.nlp_callbacks import _handle_select_model
+
+        # Setup mocks
+        query = MagicMock()
+        query.from_user.id = 42
+        query.data = "nlp:sm:page-123:abc123"
+        query.message = MagicMock()
+        query.message.chat.id = 100
+        query.message.message_id = 200
+
+        # Create TelegramBadRequest with required method parameter
+        mock_method = MagicMock()
+        mock_method.method_name = "editMessageText"
+        query.message.edit_text = AsyncMock(
+            side_effect=TelegramBadRequest(method=mock_method, message="Bad Request: message is not modified")
+        )
+        query.answer = AsyncMock()
+
+        config = MagicMock()
+        config.allowed_editors = {42}
+
+        notion = AsyncMock()
+        notion.get_model.return_value = MagicMock(
+            title="Test Model",
+            page_id="page-123"
+        )
+
+        memory_state = MemoryState(ttl_seconds=60)
+        memory_state.set(100, 42, {
+            "flow": "nlp_actions",
+            "intent": "create_orders",
+            "entities_raw": "заказ кастом",
+            "model_id": "page-123"
+        })
+
+        recent_models = MagicMock()
+        recent_models.add = MagicMock()
+
+        parts = ["nlp", "sm", "page-123", "abc123"]
+
+        # Mock extract_entities_v2 to return entities with order_type
+        with patch("app.router.entities_v2.extract_entities_v2") as mock_extract:
+            mock_extract.return_value = MagicMock(
+                order_type="custom",
+                first_number=1,
+                date=None
+            )
+            with patch("app.handlers.nlp_callbacks._clear_previous_screen_keyboard", new=AsyncMock()):
+                # This should not raise an exception even though edit_text raises TelegramBadRequest
+                await _handle_select_model(query, parts, config, notion, memory_state, recent_models)
+
+        # If we got here without exception, test passed
+        assert True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
