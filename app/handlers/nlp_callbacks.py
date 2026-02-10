@@ -460,11 +460,15 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             "k": k,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            f"<b>{html.escape(model_data.title)}</b> · {count}x {type_label}\n\nДата заказа:",
-            reply_markup=nlp_order_date_keyboard(model_id, k),
-            parse_mode="HTML",
-        )
+        try:
+            msg = await query.message.edit_text(
+                f"<b>{html.escape(model_data.title)}</b> · {count}x {type_label}\n\nДата заказа:",
+                reply_markup=nlp_order_date_keyboard(model_id, k),
+                parse_mode="HTML",
+            )
+        except Exception:
+            # Ignore edit errors (e.g., "message is not modified")
+            msg = None
         _remember_screen_message(
             memory_state,
             chat_id,
@@ -484,11 +488,15 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             "k": k,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            f"📦 <b>{html.escape(model_data.title)}</b> · Тип заказа:",
-            reply_markup=nlp_order_type_keyboard(model_id, k),
-            parse_mode="HTML",
-        )
+        try:
+            msg = await query.message.edit_text(
+                f"📦 <b>{html.escape(model_data.title)}</b> · Тип заказа:",
+                reply_markup=nlp_order_type_keyboard(model_id, k),
+                parse_mode="HTML",
+            )
+        except Exception:
+            # Ignore edit errors (e.g., "message is not modified")
+            msg = None
         _remember_screen_message(
             memory_state,
             chat_id,
@@ -500,7 +508,11 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
         if entities and entities.date:
             # Date known: create shoot directly
             if not is_editor(user_id, config):
-                await query.message.edit_text("❌ Нет прав.")
+                try:
+                    await query.message.edit_text("❌ Нет прав.")
+                except Exception:
+                    # Ignore edit errors (e.g., "message is not modified")
+                    pass
                 return
             title = f"{model_data.title} · {entities.date.strftime('%d.%m')}"
             try:
