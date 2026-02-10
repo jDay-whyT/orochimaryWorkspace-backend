@@ -40,6 +40,7 @@ from app.keyboards.inline import ORDER_TYPE_CB_MAP
 from app.utils.formatting import format_appended_comment
 from app.utils.accounting import calculate_accounting_progress, format_accounting_progress
 from app.utils import PAGE_SIZE
+from app.utils.telegram import safe_edit_message
 
 
 LOGGER = logging.getLogger(__name__)
@@ -1747,11 +1748,13 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
         type_label = get_order_type_display_name(order_type)
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
-        msg = await query.message.edit_text(
+        await safe_edit_message(
+            query,
             f"✅ Создано {count}x {type_label}\n"
             f"<b>{html.escape(model_name)}</b> · {in_date.strftime('%d.%m')}",
             parse_mode="HTML",
         )
+        msg = query.message
         memory_state.clear(chat_id, user_id)
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
