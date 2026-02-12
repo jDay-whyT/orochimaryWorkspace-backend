@@ -26,6 +26,7 @@ from app.services import AccountingService, ModelsService
 from app.services.notion import NotionClient
 from app.state import MemoryState, RecentModels
 from app.utils.accounting import format_accounting_progress
+from app.utils.telegram import safe_edit_message
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -146,7 +147,8 @@ async def _start_model_search(query: CallbackQuery, memory_state: MemoryState) -
         "screen_chat_id": query.message.chat.id,
         "screen_message_id": query.message.message_id,
     })
-    await query.message.edit_text(
+    await safe_edit_message(
+        query,
         "🔍 Send model name to search:",
         reply_markup=back_keyboard("account"),
         parse_mode="HTML",
@@ -161,31 +163,44 @@ async def _process_model_search(message: Message, config: Config, memory_state: 
     msg_id = data.get("screen_message_id")
 
     models_service = ModelsService(config)
+    from aiogram.exceptions import TelegramBadRequest
     try:
         models = await models_service.search_models(query_text)
     except Exception:
         LOGGER.exception("Failed to search models")
-        await message.bot.edit_message_text(
-            "❌ <b>Error searching models</b>",
-            chat_id=chat_id, message_id=msg_id,
-            reply_markup=back_keyboard("account"), parse_mode="HTML",
-        )
+        try:
+            await message.bot.edit_message_text(
+                "❌ <b>Error searching models</b>",
+                chat_id=chat_id, message_id=msg_id,
+                reply_markup=back_keyboard("account"), parse_mode="HTML",
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
         return
 
     if not models:
-        await message.bot.edit_message_text(
-            f"🔍 No models found for: {html.escape(query_text)}\n\nTry again:",
-            chat_id=chat_id, message_id=msg_id,
-            reply_markup=back_keyboard("account"), parse_mode="HTML",
-        )
+        try:
+            await message.bot.edit_message_text(
+                f"🔍 No models found for: {html.escape(query_text)}\n\nTry again:",
+                chat_id=chat_id, message_id=msg_id,
+                reply_markup=back_keyboard("account"), parse_mode="HTML",
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
         return
 
     model_list = [(m["id"], m["name"]) for m in models]
-    await message.bot.edit_message_text(
-        f"🔍 Found {len(models)} model(s):\n\nSelect one:",
-        chat_id=chat_id, message_id=msg_id,
-        reply_markup=models_keyboard("account", model_list), parse_mode="HTML",
-    )
+    try:
+        await message.bot.edit_message_text(
+            f"🔍 Found {len(models)} model(s):\n\nSelect one:",
+            chat_id=chat_id, message_id=msg_id,
+            reply_markup=models_keyboard("account", model_list), parse_mode="HTML",
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            raise
     memory_state.update(chat_id, user_id, step="select_model", search_results=models)
 
 
@@ -207,15 +222,17 @@ async def _show_current_month(query: CallbackQuery, config: Config, memory_state
                 line = _files_display(files, r.get("status"))
                 text += f"• <b>{html.escape(name)}</b>\n  Files: {line}\n\n"
 
-        await query.message.edit_text(text, reply_markup=accounting_menu_keyboard(), parse_mode="HTML")
+        await safe_edit_message(query, text, reply_markup=accounting_menu_keyboard(), parse_mode="HTML")
         chat_id, user_id = _state_ids_from_query(query)
         memory_state.clear(chat_id, user_id)
     except Exception:
         LOGGER.exception("Error showing current month accounting")
         try:
-            await query.message.edit_text(
+            await safe_edit_message(
+                query,
                 "❌ <b>Error loading accounting data</b>",
-                reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
+                reply_markup=accounting_menu_keyboard(),
+                parse_mode="HTML",
             )
         except Exception:
             pass

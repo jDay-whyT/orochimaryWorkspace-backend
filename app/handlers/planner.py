@@ -21,6 +21,7 @@ from app.roles import is_authorized, is_editor_or_admin
 from app.services import PlannerService, ModelsService
 from app.state import MemoryState, RecentModels
 from app.utils.constants import PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS
+from app.utils.telegram import safe_edit_message
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -457,8 +458,9 @@ async def _toggle_content(
         selected.append(content_type)
     
     state["content"] = selected
-    
-    await query.message.edit_text(
+
+    await safe_edit_message(
+        query,
         f"📅 <b>New Shoot</b>\n\n"
         f"Model: {html.escape(state.get('model_name', 'Unknown'))}\n\n"
         f"Step 2: Select content\n\n"
@@ -485,8 +487,9 @@ async def _finish_content_selection(
         return
     
     state["step"] = "select_location"
-    
-    await query.message.edit_text(
+
+    await safe_edit_message(
+        query,
         f"📅 <b>New Shoot</b>\n\n"
         f"Model: {html.escape(state.get('model_name', 'Unknown'))}\n"
         f"Content: {', '.join(selected)}\n\n"
@@ -610,7 +613,8 @@ async def _start_add_comment(
     state["step"] = "add_comment"
     state["comment_for"] = comment_for
     
-    await query.message.edit_text(
+    await safe_edit_message(
+        query,
         "📅 <b>Add Comment</b>\n\n"
         "Enter your comment:",
         reply_markup=back_keyboard("planner", "confirm"),
@@ -656,20 +660,25 @@ async def _handle_comment_text(
     
     if chat_id and message_id:
         from aiogram import Bot
+        from aiogram.exceptions import TelegramBadRequest
         bot = message.bot
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=f"📅 <b>New Shoot - Confirmation</b>\n\n"
-                 f"Model: {html.escape(model_name)}\n"
-                 f"Date: {date_str}\n"
-                 f"Location: {location}\n"
-                 f"Content: {content}\n"
-                 f"Comment: {html.escape(comment)}\n\n"
-                 f"Ready to create?",
-            reply_markup=builder.as_markup(),
-            parse_mode="HTML",
-        )
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=f"📅 <b>New Shoot - Confirmation</b>\n\n"
+                     f"Model: {html.escape(model_name)}\n"
+                     f"Date: {date_str}\n"
+                     f"Location: {location}\n"
+                     f"Content: {content}\n"
+                     f"Comment: {html.escape(comment)}\n\n"
+                     f"Ready to create?",
+                reply_markup=builder.as_markup(),
+                parse_mode="HTML",
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
 
 
 async def _create_shoot(

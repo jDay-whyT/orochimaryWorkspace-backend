@@ -19,6 +19,7 @@ from app.roles import is_authorized
 from app.services import ModelsService, OrdersService, AccountingService
 from app.state import MemoryState, RecentModels
 from app.utils.accounting import format_accounting_progress
+from app.utils.telegram import safe_edit_message
 
 LOGGER = logging.getLogger(__name__)
 router = Router()

@@ -23,6 +23,7 @@ PLANNER_ACTIVE_STATUSES = [
 
 # Planner content options
 PLANNER_CONTENT_OPTIONS = [
+    "basic",
     "new main",
     "posting",
     "main pack",
@@ -70,6 +71,7 @@ FILES_MONTH_LIMIT = 200
 
 # NLP content types for shoots (canonical values for Planner multi-select)
 NLP_SHOOT_CONTENT_TYPES = [
+    "basic",
     "twitter",
     "reddit",
     "main",
