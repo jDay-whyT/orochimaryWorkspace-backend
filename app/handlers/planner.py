@@ -122,7 +122,7 @@ async def handle_planner_callback(
         await query.answer(f"Error: {str(e)}", show_alert=True)
 
 
-@router.message(FlowFilter({"planner"}), F.text)
+@router.message(FlowFilter({"nlp_planner"}), F.text)
 async def handle_text_input(
     message: Message,
     config: Config,
@@ -289,7 +289,7 @@ async def _start_new_shoot(
     memory_state.set(
         *_state_ids_from_query(query),
         {
-            "flow": "planner",
+            "flow": "nlp_planner",
             "step": "select_model",
             "screen_chat_id": query.message.chat.id,
             "screen_message_id": query.message.message_id,
@@ -827,7 +827,7 @@ async def _start_reschedule(
     memory_state.set(
         *_state_ids_from_query(query),
         {
-            "flow": "planner",
+            "flow": "nlp_planner",
             "step": "reschedule_date",
             "shoot_id": shoot_id,
             "screen_chat_id": query.message.chat.id,

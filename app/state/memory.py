@@ -1,6 +1,9 @@
 import time
+import logging
 from dataclasses import dataclass, field
 from typing import Any
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -86,6 +89,52 @@ class MemoryState:
         **updates: Any,
     ) -> dict[str, Any]:
         data = self.get(chat_id, user_id) or {}
+        data.update(updates)
+        self.set(chat_id, user_id, data)
+        return data
+
+    def transition(
+        self,
+        chat_id: int,
+        user_id: int,
+        flow: str,
+        **updates: Any,
+    ) -> dict[str, Any]:
+        """
+        Transition user state to a new flow with validation and logging.
+
+        Args:
+            chat_id: Chat ID
+            user_id: User ID
+            flow: New flow name (must start with 'nlp_' prefix)
+            **updates: Additional state updates
+
+        Returns:
+            Updated state dictionary
+
+        Raises:
+            ValueError: If flow doesn't start with 'nlp_' prefix
+        """
+        if not flow.startswith("nlp_"):
+            raise ValueError(
+                f"Invalid flow name '{flow}'. All flows must start with 'nlp_' prefix. "
+                f"Use 'nlp_{flow}' instead."
+            )
+
+        old_state = self.get(chat_id, user_id) or {}
+        old_flow = old_state.get("flow", "none")
+
+        LOGGER.info(
+            "State transition: user=%s chat=%s flow=%s->%s updates=%s",
+            user_id,
+            chat_id,
+            old_flow,
+            flow,
+            updates,
+        )
+
+        data = old_state.copy()
+        data["flow"] = flow
         data.update(updates)
         self.set(chat_id, user_id, data)
         return data

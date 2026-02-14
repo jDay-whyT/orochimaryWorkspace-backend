@@ -206,7 +206,7 @@ async def handle_back(
                 reply_markup=recent_models_keyboard(recent, "orders"),
             )
         else:
-            memory_state.update(chat_id, user_id, flow="search", step="waiting_query")
+            memory_state.transition(chat_id, user_id, flow="nlp_search", step="waiting_query")
             await safe_edit_message(
                 query,
                 "🔍 Enter model name to search:",
@@ -316,7 +316,7 @@ async def start_model_search(query: CallbackQuery, memory_state: MemoryState) ->
     memory_state.update(
         chat_id,
         user_id,
-        flow="search",
+        flow="nlp_search",
         step="waiting_query",
     )
     await safe_edit_message(
@@ -377,7 +377,7 @@ async def handle_model_select(
         memory_state.update(
             chat_id,
             user_id,
-            flow="view",
+            flow="nlp_view",
             model_id=model_id,
             model_title=model_title,
             page=1,
@@ -405,7 +405,7 @@ async def show_open_orders_list(
         # Need to select model first
         from app.state import RecentModels
         # This is a simplified path - normally we'd inject recent_models
-        memory_state.update(chat_id, user_id, flow="view", step="select_model")
+        memory_state.transition(chat_id, user_id, flow="nlp_view", step="select_model")
         await safe_edit_message(
             query,
             "📋 <b>Open Orders</b>\n\n"
@@ -604,7 +604,7 @@ async def start_comment_input(
     memory_state.update(
         chat_id,
         user_id,
-        flow="comment",
+        flow="nlp_comment_legacy",
         selected_order=page_id,
         step="waiting_comment",
     )
@@ -635,7 +635,7 @@ async def start_new_order(
     memory_state.update(
         chat_id,
         user_id,
-        flow="new_order",
+        flow="nlp_new_order",
         step="select_model",
     )
     
@@ -918,7 +918,7 @@ async def create_order(
 
 # ==================== Text Input Handler ====================
 
-@router.message(FlowFilter({"search", "new_order", "view", "comment"}), F.text)
+@router.message(FlowFilter({"nlp_search", "nlp_new_order", "nlp_view", "nlp_comment_legacy"}), F.text)
 async def handle_text_input(
     message: Message,
     config: Config,
@@ -1024,7 +1024,7 @@ async def handle_text_input(
         )
     
     # Comment input for new order
-    elif step == "waiting_comment" and flow == "new_order":
+    elif step == "waiting_comment" and flow == "nlp_new_order":
         memory_state.update(
             chat_id,
             user_id,
@@ -1051,7 +1051,7 @@ async def handle_text_input(
         )
     
     # Comment input for existing order
-    elif step == "waiting_comment" and flow == "comment":
+    elif step == "waiting_comment" and flow == "nlp_comment_legacy":
         page_id = data.get("selected_order")
         if not page_id:
             return
@@ -1063,7 +1063,7 @@ async def handle_text_input(
             await message.answer("Failed to save comment", parse_mode="HTML")
             return
         
-        memory_state.update(chat_id, user_id, flow="view", step=None)
+        memory_state.transition(chat_id, user_id, flow="nlp_view", step=None)
         
         await message.answer(
             "💬 Comment saved!",
