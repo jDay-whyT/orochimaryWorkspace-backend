@@ -26,6 +26,7 @@ from app.services import AccountingService, ModelsService
 from app.services.notion import NotionClient
 from app.state import MemoryState, RecentModels
 from app.utils.accounting import format_accounting_progress
+from app.utils.exceptions import NotionAPIError
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -298,6 +299,9 @@ async def _add_files_to_record(query: CallbackQuery, config: Config, memory_stat
             reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
+    except NotionAPIError as e:
+        LOGGER.warning("Error adding files to accounting record")
+        await query.answer(e.user_message, show_alert=True)
     except Exception:
         LOGGER.exception("Error adding files to accounting record")
         await query.answer("Не смог обновить Notion, попробуй позже", show_alert=True)
@@ -341,6 +345,13 @@ async def _process_custom_files(message: Message, config: Config, memory_state: 
                 reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
             )
         memory_state.clear(chat_id, user_id)
+    except NotionAPIError as e:
+        LOGGER.warning("Error adding custom files")
+        if chat_id and msg_id:
+            await message.bot.edit_message_text(
+                e.user_message,
+                chat_id=chat_id, message_id=msg_id, parse_mode="HTML",
+            )
     except Exception:
         LOGGER.exception("Error adding custom files")
         if chat_id and msg_id:
@@ -444,6 +455,9 @@ async def handle_add_files_nlp(
             parse_mode="HTML",
         )
         recent_models.add(message.from_user.id, model_id, model_name)
+    except NotionAPIError as e:
+        LOGGER.warning("Failed to add files: %s", e)
+        await message.answer(e.user_message)
     except Exception:
         LOGGER.exception("Failed to add files")
         await message.answer("❌ Не смог обновить Notion, попробуй позже.")

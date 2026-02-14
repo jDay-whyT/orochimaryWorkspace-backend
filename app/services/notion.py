@@ -5,6 +5,14 @@ from datetime import date
 from typing import Any
 
 import aiohttp
+from app.utils.exceptions import (
+    NotionAuthError,
+    NotionNotFoundError,
+    NotionRateLimitError,
+    NotionUnavailableError,
+    NotionValidationError,
+)
+from app.utils.retry import retry_on_notion_error
 
 NOTION_VERSION = "2022-06-28"
 LOGGER = logging.getLogger(__name__)
@@ -129,38 +137,40 @@ class NotionClient:
         method: str, 
         url: str, 
         json: dict[str, Any] | None = None,
-        retries: int = 2,
     ) -> dict[str, Any]:
         session = await self._get_session()
-        
-        for attempt in range(retries + 1):
-            try:
-                async with session.request(method, url, json=json) as response:
-                    if response.status < 400:
-                        return await response.json()
-                    
-                    payload = (await response.text()).strip()
-                    short_payload = payload[:200] if payload else "<empty>"
-                    
-                    if response.status in {429, 500, 502, 503, 504} and attempt < retries:
-                        LOGGER.warning("Notion API retry %s %s: %s", response.status, url, short_payload)
-                        await asyncio.sleep(0.5 * (attempt + 1))
-                        continue
-                    
-                    LOGGER.error("Notion API error %s %s: %s", response.status, url, short_payload)
-                    raise RuntimeError(f"Notion API error {response.status}")
-                    
-            except aiohttp.ClientError:
-                LOGGER.exception("Notion API request failed %s %s", method, url)
-                raise
-            except asyncio.TimeoutError:
-                LOGGER.exception("Notion API timeout %s %s", method, url)
-                raise
-        
-        raise RuntimeError("Notion API retry limit exceeded")
+        try:
+            async with session.request(method, url, json=json) as response:
+                if response.status < 400:
+                    return await response.json()
+
+                payload = (await response.text()).strip()
+                short_payload = payload[:200] if payload else "<empty>"
+                message = f"Notion API error {response.status}: {short_payload}"
+                LOGGER.error("Notion API error %s %s: %s", response.status, url, short_payload)
+
+                if response.status in {500, 502, 503, 504}:
+                    raise NotionUnavailableError(message)
+                if response.status == 404:
+                    raise NotionNotFoundError(message)
+                if response.status == 400:
+                    raise NotionValidationError(message)
+                if response.status == 429:
+                    raise NotionRateLimitError(message)
+                if response.status in {401, 403}:
+                    raise NotionAuthError(message)
+
+                raise NotionUnavailableError(message)
+        except aiohttp.ClientError as e:
+            LOGGER.exception("Notion API request failed %s %s", method, url)
+            raise NotionUnavailableError(str(e)) from e
+        except asyncio.TimeoutError as e:
+            LOGGER.exception("Notion API timeout %s %s", method, url)
+            raise NotionUnavailableError(str(e)) from e
 
     # ==================== Models ====================
 
+    @retry_on_notion_error
     async def query_models(
         self,
         database_id: str,
@@ -187,21 +197,7 @@ class NotionClient:
 
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
 
-        try:
-            data = await self._request("POST", url, json=payload)
-        except RuntimeError as e:
-            LOGGER.error("Failed to query models database %s: %s", database_id, e)
-            # Log helpful debugging info
-            if "404" in str(e):
-                LOGGER.error(
-                    "Database not found (404). Possible causes:\n"
-                    "  1. DB_MODELS environment variable is not set correctly\n"
-                    "  2. Database ID '%s' doesn't exist\n"
-                    "  3. Notion token doesn't have access to this database\n"
-                    "  4. Database was deleted or moved",
-                    database_id
-                )
-            raise
+        data = await self._request("POST", url, json=payload)
 
         results: list[NotionModel] = []
         for item in data.get("results", []):
@@ -223,6 +219,7 @@ class NotionClient:
         LOGGER.info("Found %d models for query '%s'", len(results), name_query)
         return results
 
+    @retry_on_notion_error
     async def get_model(self, page_id: str) -> NotionModel | None:
         """Get a single model by page ID."""
         url = f"https://api.notion.com/v1/pages/{page_id}"
@@ -239,8 +236,8 @@ class NotionClient:
                 status=_extract_status(data, "status"),
                 winrate=_extract_select(data, "winrate"),
             )
-        except Exception:
-            LOGGER.exception("Failed to get model %s", page_id)
+        except NotionNotFoundError:
+            LOGGER.warning("Model %s not found", page_id)
             return None
 
     async def _extract_model_title(self, page: dict[str, Any]) -> str | None:
@@ -282,6 +279,7 @@ class NotionClient:
 
     # ==================== Orders ====================
 
+    @retry_on_notion_error
     async def query_open_orders(
         self, 
         database_id: str, 
@@ -308,6 +306,7 @@ class NotionClient:
         
         return [_parse_order(item) for item in data.get("results", [])]
 
+    @retry_on_notion_error
     async def create_order(
         self,
         database_id: str,
@@ -349,6 +348,7 @@ class NotionClient:
         data = await self._request("POST", url, json=payload)
         return data["id"]
 
+    @retry_on_notion_error
     async def close_order(self, page_id: str, out_date: date) -> None:
         """Close an order by setting out date and status to Done."""
         payload = {
@@ -360,6 +360,7 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
 
+    @retry_on_notion_error
     async def update_order_comment(self, page_id: str, comment: str) -> None:
         """Update order comment."""
         # Notion rich_text content limit is 2000 chars; truncate as safety net.
@@ -376,6 +377,7 @@ class NotionClient:
 
     # ==================== Planner ====================
 
+    @retry_on_notion_error
     async def query_upcoming_shoots(
         self,
         database_id: str,
@@ -413,6 +415,7 @@ class NotionClient:
         
         return [_parse_planner(item) for item in data.get("results", [])]
 
+    @retry_on_notion_error
     async def create_shoot(
         self,
         database_id: str,
@@ -452,6 +455,7 @@ class NotionClient:
         data = await self._request("POST", url, json=payload)
         return data["id"]
 
+    @retry_on_notion_error
     async def update_shoot_status(self, page_id: str, status: str) -> None:
         """Update shoot status."""
         payload = {
@@ -462,6 +466,7 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
 
+    @retry_on_notion_error
     async def reschedule_shoot(self, page_id: str, new_date: date) -> None:
         """Reschedule a shoot."""
         payload = {
@@ -475,6 +480,7 @@ class NotionClient:
 
     # ==================== Accounting ====================
 
+    @retry_on_notion_error
     async def query_monthly_records(
         self,
         database_id: str,
@@ -546,6 +552,7 @@ class NotionClient:
             LOGGER.debug("query_monthly_records: found via fallback2 ('%s')", yyyy_mm)
         return results_fb2
 
+    @retry_on_notion_error
     async def get_monthly_record(
         self,
         database_id: str,
@@ -565,6 +572,7 @@ class NotionClient:
         # Already sorted by last_edited_time desc
         return records[0]
 
+    @retry_on_notion_error
     async def create_accounting_record(
         self,
         database_id: str,
@@ -613,6 +621,7 @@ class NotionClient:
         response = await self._request("POST", url, json=payload)
         return response["id"]
 
+    @retry_on_notion_error
     async def update_accounting_files(
         self,
         page_id: str,
@@ -627,6 +636,7 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
 
+    @retry_on_notion_error
     async def update_accounting_comment(self, page_id: str, comment: str) -> None:
         """Update accounting Comment."""
         # Notion rich_text content limit is 2000 chars; truncate as safety net.
@@ -641,6 +651,7 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
 
+    @retry_on_notion_error
     async def update_accounting_content(
         self,
         page_id: str,
@@ -655,6 +666,7 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
 
+    @retry_on_notion_error
     async def query_accounting_all_month(
         self,
         database_id: str,
@@ -701,12 +713,14 @@ class NotionClient:
             results.append(accounting)
         return results
 
+    @retry_on_notion_error
     async def update_order(self, page_id: str, properties: dict[str, Any]) -> None:
         """Update order properties."""
         payload = {"properties": properties}
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
 
+    @retry_on_notion_error
     async def get_shoot(self, page_id: str) -> NotionPlanner | None:
         """Get shoot by page ID."""
         try:
@@ -722,10 +736,11 @@ class NotionClient:
             shoot = _parse_planner(data)
             shoot.model_title = model_title
             return shoot
-        except Exception:
-            LOGGER.exception("Failed to get shoot %s", page_id)
+        except NotionNotFoundError:
+            LOGGER.warning("Shoot %s not found", page_id)
             return None
 
+    @retry_on_notion_error
     async def update_shoot_comment(self, page_id: str, comment: str) -> None:
         """Update shoot comment."""
         # Notion rich_text content limit is 2000 chars; truncate as safety net.
@@ -740,6 +755,7 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
 
+    @retry_on_notion_error
     async def update_shoot_content(self, page_id: str, items: list[str]) -> None:
         """Update shoot Content multi-select."""
         payload = {

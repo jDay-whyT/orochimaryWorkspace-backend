@@ -25,6 +25,7 @@ from app.keyboards import (
 from app.roles import is_authorized, can_edit
 from app.services import NotionClient, NotionOrder
 from app.state import MemoryState, RecentModels
+from app.utils.exceptions import NotionAPIError
 from app.utils import (
     format_date_short,
     days_open,
@@ -568,6 +569,10 @@ async def close_order(
     
     try:
         await notion.close_order(page_id, out_date)
+    except NotionAPIError as e:
+        LOGGER.warning("Failed to close order: %s", e)
+        await query.answer(e.user_message, show_alert=True)
+        return
     except Exception as e:
         LOGGER.exception("Failed to close order: %s", e)
         await query.answer("Failed to close order", show_alert=True)
@@ -898,6 +903,10 @@ async def create_order(
                     title=title,
                     comments=comments,
                 )
+    except NotionAPIError as e:
+        LOGGER.warning("Failed to create order: %s", e)
+        await query.answer(e.user_message, show_alert=True)
+        return
     except Exception as e:
         LOGGER.exception("Failed to create order: %s", e)
         await query.answer("Failed to create order", show_alert=True)

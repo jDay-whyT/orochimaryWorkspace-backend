@@ -5,6 +5,7 @@ from typing import Any
 
 from app.services import NotionClient
 from app.services.notion import _extract_title, _extract_multi_select
+from app.utils.exceptions import NotionAPIError
 
 
 LOGGER = logging.getLogger(__name__)
@@ -36,6 +37,9 @@ async def search_model_by_name_or_alias(
 
     try:
         response = await notion._request("POST", url, json=payload)
+    except NotionAPIError as e:
+        LOGGER.warning("Failed to search models: %s", e)
+        return []
     except Exception as e:
         LOGGER.exception("Failed to search models: %s", e)
         return []
