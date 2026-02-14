@@ -9,6 +9,7 @@ from app.filters.topic_access import TopicAccessMessageFilter
 from app.roles import is_authorized
 from app.services import NotionClient
 from app.state import MemoryState, RecentModels
+from app.utils.navigation import format_breadcrumbs
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -33,6 +34,7 @@ async def cmd_start(message: Message, config: Config) -> None:
     LOGGER.info("User %s started bot", user_id)
 
     await message.answer(
+        f"{format_breadcrumbs(['🏠 Меню'])}\n\n"
         "👋 Привет! Это бот для ведение моделей в Notion\n\n"
         "📝 <b>Примеры команд:</b>\n"
         "• три кастома клещ — бот создаст 3 заказа\n"
@@ -42,6 +44,13 @@ async def cmd_start(message: Message, config: Config) -> None:
         reply_markup=ReplyKeyboardRemove(),
         parse_mode="HTML",
     )
+
+
+@router.message(Command("cancel"))
+async def cmd_cancel(message: Message, memory_state: MemoryState) -> None:
+    """Reset current flow and return user to main menu."""
+    memory_state.clear(message.chat.id, message.from_user.id)
+    await message.answer(f"{format_breadcrumbs(['🏠 Меню'])}\n\nТекущий флоу отменен.")
 
 
 # ==================== NLP Router ====================

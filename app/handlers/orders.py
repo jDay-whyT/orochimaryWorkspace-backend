@@ -36,12 +36,18 @@ from app.utils import (
     PAGE_SIZE,
     safe_edit_message,
 )
+from app.utils.navigation import format_breadcrumbs
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
 router.message.filter(TopicAccessMessageFilter())
 router.callback_query.filter(TopicAccessCallbackFilter())
 
+
+
+
+def _crumb(*parts: str) -> str:
+    return format_breadcrumbs(["📦 Orders", *parts])
 
 def _state_ids_from_message(message: Message) -> tuple[int, int]:
     return message.chat.id, message.from_user.id
@@ -58,8 +64,7 @@ def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
 async def show_orders_menu(message: Message, config: Config) -> None:
     """Show orders section menu."""
     await message.answer(
-        "📦 <b>Orders</b>\n\n"
-        "Select an action:",
+        f"{_crumb()}\n\n📦 <b>Orders</b>\n\nSelect an action:",
         reply_markup=orders_menu_keyboard(),
         parse_mode="HTML",
     )
@@ -178,7 +183,7 @@ async def handle_back(
         memory_state.clear(chat_id, user_id)
         await safe_edit_message(
             query,
-            "📦 <b>Orders</b>\n\nSelect an action:",
+            f"{_crumb()}\n\n📦 <b>Orders</b>\n\nSelect an action:",
             reply_markup=orders_menu_keyboard(),
         )
 
@@ -187,7 +192,7 @@ async def handle_back(
         memory_state.clear(chat_id, user_id)
         await safe_edit_message(
             query,
-            "📦 <b>Orders</b>\n\nSelect an action:",
+            f"{_crumb()}\n\n📦 <b>Orders</b>\n\nSelect an action:",
             reply_markup=orders_menu_keyboard(),
         )
 
@@ -195,7 +200,7 @@ async def handle_back(
         memory_state.clear(chat_id, user_id)
         await safe_edit_message(
             query,
-            "📦 <b>Orders</b>\n\nSelect an action:",
+            f"{_crumb()}\n\n📦 <b>Orders</b>\n\nSelect an action:",
             reply_markup=orders_menu_keyboard(),
         )
     
@@ -213,7 +218,7 @@ async def handle_back(
             memory_state.transition(chat_id, user_id, flow="nlp_search", step="waiting_query", k=token)
             await safe_edit_message(
                 query,
-                "🔍 Enter model name to search:",
+                f"{_crumb('Поиск модели')}\n\n🔍 Enter model name to search:",
                 reply_markup=back_cancel_keyboard("orders", token=token),
             )
     
@@ -245,7 +250,7 @@ async def handle_back(
         model_title = data.get("model_title", "")
         await safe_edit_message(
             query,
-            f"➕ <b>New Order</b>\n\n"
+            f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n\n"
             f"Select order type:",
             reply_markup=order_types_keyboard(),
@@ -258,7 +263,7 @@ async def handle_back(
         order_type = data.get("order_type", "")
         await safe_edit_message(
             query,
-            f"➕ <b>New Order</b>\n\n"
+            f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n"
             f"Type: <b>{escape_html(order_type)}</b>\n\n"
             f"Select quantity:",
@@ -273,7 +278,7 @@ async def handle_back(
         qty = data.get("qty", 1)
         await safe_edit_message(
             query,
-            f"➕ <b>New Order</b>\n\n"
+            f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n"
             f"Type: <b>{escape_html(order_type)}</b> × {qty}\n\n"
             f"Select date:",
@@ -289,7 +294,7 @@ async def handle_back(
         in_date = data.get("in_date")
         await safe_edit_message(
             query,
-            f"➕ <b>New Order</b>\n\n"
+            f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n"
             f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
             f"Date: <b>{format_date_short(in_date)}</b>\n\n"
@@ -306,7 +311,7 @@ async def handle_cancel(query: CallbackQuery, memory_state: MemoryState) -> None
     memory_state.clear(chat_id, user_id)
     await safe_edit_message(
         query,
-        "📦 <b>Orders</b>\n\nCancelled.",
+        f"{_crumb()}\n\nCancelled.",
         reply_markup=orders_menu_keyboard(),
     )
     await query.answer()
@@ -327,7 +332,7 @@ async def start_model_search(query: CallbackQuery, memory_state: MemoryState) ->
     )
     await safe_edit_message(
         query,
-        "🔍 Enter model name to search:",
+        f"{_crumb('Поиск модели')}\n\n🔍 Enter model name to search:",
         reply_markup=back_cancel_keyboard("orders", token=token),
     )
     await query.answer()
@@ -374,7 +379,7 @@ async def handle_model_select(
         )
         await safe_edit_message(
             query,
-            f"➕ <b>New Order</b>\n\n"
+            f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n\n"
             f"Select order type:",
             reply_markup=order_types_keyboard(),
@@ -416,7 +421,7 @@ async def show_open_orders_list(
         await safe_edit_message(
             query,
             "📋 <b>Open Orders</b>\n\n"
-            "🔍 Enter model name to search:",
+            f"{_crumb('Поиск модели')}\n\n🔍 Enter model name to search:",
             reply_markup=back_cancel_keyboard("orders", token=token),
         )
         await query.answer()
@@ -655,7 +660,7 @@ async def start_new_order(
     if recent:
         await safe_edit_message(
             query,
-            "➕ <b>New Order</b>\n\n"
+            f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
             "⭐ Recent models:",
             reply_markup=recent_models_keyboard(recent, "orders", token=token),
         )
@@ -663,8 +668,8 @@ async def start_new_order(
         memory_state.update(chat_id, user_id, step="waiting_query")
         await safe_edit_message(
             query,
-            "➕ <b>New Order</b>\n\n"
-            "🔍 Enter model name to search:",
+            f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
+            f"{_crumb('Поиск модели')}\n\n🔍 Enter model name to search:",
             reply_markup=back_cancel_keyboard("orders", token=token),
         )
     
@@ -695,7 +700,7 @@ async def handle_type_select(
 
     await safe_edit_message(
         query,
-        f"➕ <b>New Order</b>\n\n"
+        f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
         f"Model: <b>{escape_html(model_title)}</b>\n"
         f"Type: <b>{escape_html(order_type)}</b>\n\n"
         f"Select quantity:",
@@ -719,7 +724,7 @@ async def handle_qty_select(
         memory_state.update(chat_id, user_id, step="waiting_qty")
         await safe_edit_message(
             query,
-            f"➕ <b>New Order</b>\n\n"
+            f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n"
             f"Type: <b>{escape_html(order_type)}</b>\n\n"
             f"Enter quantity (1-99):",
@@ -745,7 +750,7 @@ async def handle_qty_select(
 
     await safe_edit_message(
         query,
-        f"➕ <b>New Order</b>\n\n"
+        f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
         f"Model: <b>{escape_html(model_title)}</b>\n"
         f"Type: <b>{escape_html(order_type)}</b> × {qty}\n\n"
         f"Select date:",
@@ -781,7 +786,7 @@ async def handle_date_select(
 
     await safe_edit_message(
         query,
-        f"➕ <b>New Order</b>\n\n"
+        f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
         f"Model: <b>{escape_html(model_title)}</b>\n"
         f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
         f"Date: <b>{format_date_short(in_date)}</b>\n\n"
@@ -819,7 +824,7 @@ async def start_order_comment_input(
 
     await safe_edit_message(
         query,
-        f"➕ <b>New Order</b>\n\n"
+        f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
         f"Model: <b>{escape_html(model_title)}</b>\n"
         f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
         f"Date: <b>{format_date_short(in_date)}</b>\n\n"
@@ -848,7 +853,7 @@ async def _show_confirmation(
 
     await safe_edit_message(
         query,
-        f"➕ <b>Confirm Order</b>\n\n"
+        f"{_crumb('Новый заказ', 'Подтверждение')}\n\n➕ <b>Confirm Order</b>\n\n"
         f"Model: <b>{escape_html(model_title)}</b>\n"
         f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
         f"Date: <b>{format_date_short(in_date)}</b>{comments_str}\n\n"
@@ -924,7 +929,7 @@ async def create_order(
 
     await safe_edit_message(
         query,
-        f"✅ <b>Order Created!</b>\n\n"
+        f"{_crumb('Новый заказ', 'Готово')}\n\n✅ <b>Order Created!</b>\n\n"
         f"Model: <b>{escape_html(model_title)}</b>\n"
         f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
         f"Date: <b>{format_date_short(in_date)}</b>",
@@ -1032,7 +1037,7 @@ async def handle_text_input(
         )
         
         await message.answer(
-            f"➕ <b>New Order</b>\n\n"
+            f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n"
             f"Type: <b>{escape_html(order_type)}</b> × {qty}\n\n"
             f"Select date:",
@@ -1058,7 +1063,7 @@ async def handle_text_input(
         comments_str = f"\n💬 {escape_html(text)}" if text else ""
         
         await message.answer(
-            f"➕ <b>Confirm Order</b>\n\n"
+            f"{_crumb('Новый заказ', 'Подтверждение')}\n\n➕ <b>Confirm Order</b>\n\n"
             f"Model: <b>{escape_html(model_title)}</b>\n"
             f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
             f"Date: <b>{format_date_short(in_date)}</b>{comments_str}\n\n"
