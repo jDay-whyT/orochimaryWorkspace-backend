@@ -24,7 +24,7 @@ from app.keyboards.inline import (
 from app.roles import is_authorized, is_editor
 from app.services import AccountingService, ModelsService
 from app.services.notion import NotionClient
-from app.state import MemoryState, RecentModels
+from app.state import MemoryState, RecentModels, generate_token
 from app.utils.accounting import format_accounting_progress
 from app.utils.exceptions import NotionAPIError
 
@@ -42,6 +42,12 @@ def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
     if not query.message:
         return query.from_user.id, query.from_user.id
     return query.message.chat.id, query.from_user.id
+
+
+def _new_token(memory_state: MemoryState, chat_id: int, user_id: int) -> str:
+    token = generate_token()
+    memory_state.update(chat_id, user_id, k=token)
+    return token
 
 
 def _files_display(files: int, status: str | None) -> str:
@@ -77,7 +83,9 @@ async def handle_accounting_callback(
         return
 
     action = parts[1]
-    value = parts[2] if len(parts) > 2 else None
+    token = parts[-1] if len(parts) >= 4 else ""
+    payload = parts[2:-1] if token else parts[2:]
+    value = payload[0] if payload else None
 
     LOGGER.info("Accounting callback: action=%s, value=%s", action, value)
 
@@ -90,9 +98,9 @@ async def handle_accounting_callback(
             await _start_add_files(query, config, memory_state, recent_models)
         elif action in ("model", "select_model"):
             await _select_model(query, config, memory_state, recent_models, value)
-        elif action == "files" and len(parts) >= 4:
-            page_id = parts[2]
-            count = int(parts[3])
+        elif action == "files" and len(payload) >= 2:
+            page_id = payload[0]
+            count = int(payload[1])
             await _add_files_to_record(query, config, memory_state, page_id, count)
         elif action == "back":
             await _handle_back(query, config, memory_state, value)
@@ -142,14 +150,16 @@ async def handle_text_input(
 # ------------------------------------------------------------------ search
 async def _start_model_search(query: CallbackQuery, memory_state: MemoryState) -> None:
     chat_id, user_id = _state_ids_from_query(query)
+    token = generate_token()
     memory_state.set(chat_id, user_id, {
         "flow": "nlp_accounting", "step": "search_model",
         "screen_chat_id": query.message.chat.id,
         "screen_message_id": query.message.message_id,
+        "k": token,
     })
     await query.message.edit_text(
         "🔍 Send model name to search:",
-        reply_markup=back_keyboard("account"),
+        reply_markup=back_keyboard("account", token=token),
         parse_mode="HTML",
     )
 
@@ -169,7 +179,7 @@ async def _process_model_search(message: Message, config: Config, memory_state: 
         await message.bot.edit_message_text(
             "❌ <b>Error searching models</b>",
             chat_id=chat_id, message_id=msg_id,
-            reply_markup=back_keyboard("account"), parse_mode="HTML",
+            reply_markup=back_keyboard("account", token=data.get("k", "")), parse_mode="HTML",
         )
         return
 
@@ -177,7 +187,7 @@ async def _process_model_search(message: Message, config: Config, memory_state: 
         await message.bot.edit_message_text(
             f"🔍 No models found for: {html.escape(query_text)}\n\nTry again:",
             chat_id=chat_id, message_id=msg_id,
-            reply_markup=back_keyboard("account"), parse_mode="HTML",
+            reply_markup=back_keyboard("account", token=data.get("k", "")), parse_mode="HTML",
         )
         return
 
@@ -185,7 +195,7 @@ async def _process_model_search(message: Message, config: Config, memory_state: 
     await message.bot.edit_message_text(
         f"🔍 Found {len(models)} model(s):\n\nSelect one:",
         chat_id=chat_id, message_id=msg_id,
-        reply_markup=models_keyboard("account", model_list), parse_mode="HTML",
+        reply_markup=models_keyboard("account", model_list, token=data.get("k", "")), parse_mode="HTML",
     )
     memory_state.update(chat_id, user_id, step="select_model", search_results=models)
 
@@ -208,7 +218,7 @@ async def _show_current_month(query: CallbackQuery, config: Config, memory_state
                 line = _files_display(files, r.get("status"))
                 text += f"• <b>{html.escape(name)}</b>\n  Files: {line}\n\n"
 
-        await query.message.edit_text(text, reply_markup=accounting_menu_keyboard(), parse_mode="HTML")
+        await query.message.edit_text(text, reply_markup=accounting_menu_keyboard(token=generate_token()), parse_mode="HTML")
         chat_id, user_id = _state_ids_from_query(query)
         memory_state.clear(chat_id, user_id)
     except Exception:
@@ -216,7 +226,7 @@ async def _show_current_month(query: CallbackQuery, config: Config, memory_state
         try:
             await query.message.edit_text(
                 "❌ <b>Error loading accounting data</b>",
-                reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
+                reply_markup=accounting_menu_keyboard(token=generate_token()), parse_mode="HTML",
             )
         except Exception:
             pass
@@ -226,14 +236,16 @@ async def _show_current_month(query: CallbackQuery, config: Config, memory_state
 async def _start_add_files(query: CallbackQuery, config: Config, memory_state: MemoryState, recent_models: RecentModels) -> None:
     chat_id, user_id = _state_ids_from_query(query)
     recent = recent_models.get(user_id)
+    token = generate_token()
     memory_state.set(chat_id, user_id, {
         "flow": "nlp_accounting", "step": "select_model",
         "screen_chat_id": query.message.chat.id,
         "screen_message_id": query.message.message_id,
+        "k": token,
     })
     await query.message.edit_text(
         "💰 <b>Add Files</b>\n\nSelect model:",
-        reply_markup=recent_models_keyboard(recent, "account"),
+        reply_markup=recent_models_keyboard(recent, "account", token=token),
         parse_mode="HTML",
     )
 
@@ -342,7 +354,7 @@ async def _process_custom_files(message: Message, config: Config, memory_state: 
                 f"Total: {_files_display(result['files'], result.get('status'))}\n"
                 f"Added: +{count}",
                 chat_id=chat_id, message_id=msg_id,
-                reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
+                reply_markup=accounting_menu_keyboard(token=generate_token()), parse_mode="HTML",
             )
         memory_state.clear(chat_id, user_id)
     except NotionAPIError as e:

@@ -24,7 +24,7 @@ from app.keyboards import (
 )
 from app.roles import is_authorized, can_edit
 from app.services import NotionClient, NotionOrder
-from app.state import MemoryState, RecentModels
+from app.state import MemoryState, RecentModels, generate_token
 from app.utils.exceptions import NotionAPIError
 from app.utils import (
     format_date_short,
@@ -80,12 +80,13 @@ async def handle_orders_callback(
         await query.answer("Access denied", show_alert=True)
         return
     
-    parts = query.data.split("|", 2)
+    parts = query.data.split("|")
     if len(parts) < 3:
         await query.answer()
         return
-    
-    _, action, value = parts
+
+    action = parts[1]
+    value = parts[2]
     user_id = query.from_user.id
     
     try:
@@ -171,6 +172,7 @@ async def handle_back(
     chat_id, user_id = _state_ids_from_query(query)
     data = memory_state.get(chat_id, user_id) or {}
     flow = data.get("flow")
+    token = data.get("k", "")
     
     if value == "main":
         memory_state.clear(chat_id, user_id)
@@ -204,14 +206,15 @@ async def handle_back(
             await safe_edit_message(
                 query,
                 "Select model:",
-                reply_markup=recent_models_keyboard(recent, "orders"),
+                reply_markup=recent_models_keyboard(recent, "orders", token=token),
             )
         else:
-            memory_state.transition(chat_id, user_id, flow="nlp_search", step="waiting_query")
+            token = generate_token()
+            memory_state.transition(chat_id, user_id, flow="nlp_search", step="waiting_query", k=token)
             await safe_edit_message(
                 query,
                 "🔍 Enter model name to search:",
-                reply_markup=back_cancel_keyboard("orders"),
+                reply_markup=back_cancel_keyboard("orders", token=token),
             )
     
     elif value == "list":
@@ -226,14 +229,14 @@ async def handle_back(
             await safe_edit_message(
                 query,
                 "➕ <b>New Order</b>\n\nSelect model:",
-                reply_markup=recent_models_keyboard(recent, "orders"),
+                reply_markup=recent_models_keyboard(recent, "orders", token=token),
             )
         else:
             memory_state.update(chat_id, user_id, step="waiting_query")
             await safe_edit_message(
                 query,
                 "➕ <b>New Order</b>\n\n🔍 Enter model name:",
-                reply_markup=back_cancel_keyboard("orders"),
+                reply_markup=back_cancel_keyboard("orders", token=token),
             )
     
     elif value == "type":
@@ -314,16 +317,18 @@ async def handle_cancel(query: CallbackQuery, memory_state: MemoryState) -> None
 async def start_model_search(query: CallbackQuery, memory_state: MemoryState) -> None:
     """Start model search flow."""
     chat_id, user_id = _state_ids_from_query(query)
+    token = generate_token()
     memory_state.update(
         chat_id,
         user_id,
         flow="nlp_search",
         step="waiting_query",
+        k=token,
     )
     await safe_edit_message(
         query,
         "🔍 Enter model name to search:",
-        reply_markup=back_cancel_keyboard("orders"),
+        reply_markup=back_cancel_keyboard("orders", token=token),
     )
     await query.answer()
 
@@ -340,6 +345,7 @@ async def handle_model_select(
     chat_id, user_id = _state_ids_from_query(query)
     data = memory_state.get(chat_id, user_id) or {}
     flow = data.get("flow")
+    token = data.get("k", "")
     
     # Get model info
     model_options = data.get("model_options", {})
@@ -411,7 +417,7 @@ async def show_open_orders_list(
             query,
             "📋 <b>Open Orders</b>\n\n"
             "🔍 Enter model name to search:",
-            reply_markup=back_cancel_keyboard("orders"),
+            reply_markup=back_cancel_keyboard("orders", token=token),
         )
         await query.answer()
         return
@@ -637,11 +643,13 @@ async def start_new_order(
     chat_id, user_id = _state_ids_from_query(query)
     recent = recent_models.get(user_id)
     
+    token = generate_token()
     memory_state.update(
         chat_id,
         user_id,
         flow="nlp_new_order",
         step="select_model",
+        k=token,
     )
     
     if recent:
@@ -649,7 +657,7 @@ async def start_new_order(
             query,
             "➕ <b>New Order</b>\n\n"
             "⭐ Recent models:",
-            reply_markup=recent_models_keyboard(recent, "orders"),
+            reply_markup=recent_models_keyboard(recent, "orders", token=token),
         )
     else:
         memory_state.update(chat_id, user_id, step="waiting_query")
@@ -657,7 +665,7 @@ async def start_new_order(
             query,
             "➕ <b>New Order</b>\n\n"
             "🔍 Enter model name to search:",
-            reply_markup=back_cancel_keyboard("orders"),
+            reply_markup=back_cancel_keyboard("orders", token=token),
         )
     
     await query.answer()
