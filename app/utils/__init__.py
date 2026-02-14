@@ -22,6 +22,10 @@ from app.utils.constants import (
 from app.utils.telegram import (
     safe_edit_message,
 )
+from app.utils.navigation import (
+    format_breadcrumbs,
+    build_nav_buttons,
+)
 
 __all__ = [
     "format_date_short",
@@ -42,4 +46,6 @@ __all__ = [
     "safe_edit_message",
     "MAX_COMMENT_LENGTH",
     "format_appended_comment",
+    "format_breadcrumbs",
+    "build_nav_buttons",
 ]

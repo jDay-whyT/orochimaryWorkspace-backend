@@ -3,6 +3,16 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.utils.constants import ORDER_TYPES, PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS, NLP_SHOOT_CONTENT_TYPES, NLP_ACCOUNTING_CONTENT_TYPES
+from app.utils.navigation import build_nav_buttons
+
+
+def _section_label(prefix: str) -> str:
+    return {
+        "orders": "📦 Orders",
+        "planner": "📅 Planner",
+        "account": "💰 Accounting",
+        "summary": "📊 Summary",
+    }.get(prefix, "📦 Раздел")
 
 
 def _with_token(callback_data: str, token: str = "") -> str:
@@ -16,7 +26,7 @@ def _with_token(callback_data: str, token: str = "") -> str:
 def back_keyboard(callback_prefix: str, back_to: str = "main", token: str = "") -> InlineKeyboardMarkup:
     """Simple back button with customizable destination."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Back", callback_data=_with_token(f"{callback_prefix}|back|{back_to}", token))]
+        build_nav_buttons(callback_prefix, _section_label(callback_prefix), back_to=back_to, section_to="menu", menu_to="main", token=token)
     ])
 
 
@@ -33,7 +43,8 @@ def back_cancel_keyboard(callback_prefix: str, token: str = "") -> InlineKeyboar
         [
             InlineKeyboardButton(text="◀️ Back", callback_data=_with_token(f"{callback_prefix}|back|back", token)),
             InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token(f"{callback_prefix}|cancel|cancel", token)),
-        ]
+        ],
+        build_nav_buttons(callback_prefix, _section_label(callback_prefix), token=token),
     ])
 
 
@@ -74,10 +85,7 @@ def models_keyboard(
         ))
     
     if show_back:
-        builder.row(
-            InlineKeyboardButton(text="◀️ Back", callback_data=_with_token(f"{prefix}|back|{back_to}", token)),
-            InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token(f"{prefix}|cancel|cancel", token)),
-        )
+        builder.row(*build_nav_buttons(prefix, _section_label(prefix), back_to=back_to, token=token))
     
     return builder.as_markup()
 
@@ -107,10 +115,8 @@ def recent_models_keyboard(
         builder.row(*row)
     
     # Search and Back
-    builder.row(
-        InlineKeyboardButton(text="🔍 Search", callback_data=_with_token(f"{prefix}|search|search", token)),
-        InlineKeyboardButton(text="◀️ Back", callback_data=_with_token(f"{prefix}|back|menu", token)),
-    )
+    builder.row(InlineKeyboardButton(text="🔍 Search", callback_data=_with_token(f"{prefix}|search|search", token)))
+    builder.row(*build_nav_buttons(prefix, _section_label(prefix), back_to="menu", token=token))
     
     return builder.as_markup()
 
@@ -125,7 +131,7 @@ def orders_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📋 Open", callback_data=_with_token("orders|open|list", token)),
             InlineKeyboardButton(text="➕ New", callback_data=_with_token("orders|new|start", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|main", token))],
+        build_nav_buttons("orders", _section_label("orders"), back_to="main", token=token),
     ])
 
 
@@ -163,10 +169,7 @@ def orders_list_keyboard(
         if pagination:
             builder.row(*pagination)
     
-    builder.row(InlineKeyboardButton(
-        text="◀️ Back list", 
-        callback_data=_with_token("orders|back|model_select", token)
-    ))
+    builder.row(*build_nav_buttons("orders", _section_label("orders"), back_to="model_select", token=token))
     
     return builder.as_markup()
 
@@ -179,7 +182,7 @@ def order_action_keyboard(page_id: str, token: str = "") -> InlineKeyboardMarkup
             InlineKeyboardButton(text="✓ Yesterday", callback_data=_with_token(f"orders|close_yesterday|{page_id}", token)),
             InlineKeyboardButton(text="💬", callback_data=_with_token(f"orders|comment|{page_id}", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back list", callback_data=_with_token("orders|back|list", token))],
+        build_nav_buttons("orders", _section_label("orders"), back_to="list", token=token),
     ])
 
 
@@ -199,10 +202,7 @@ def order_types_keyboard(token: str = "") -> InlineKeyboardMarkup:
     if row:
         builder.row(*row)
     
-    builder.row(
-        InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|model", token)),
-        InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token("orders|cancel|cancel", token)),
-    )
+    builder.row(*build_nav_buttons("orders", _section_label("orders"), back_to="model", token=token))
     
     return builder.as_markup()
 
@@ -219,10 +219,7 @@ def order_qty_keyboard(current_qty: int = 1, token: str = "") -> InlineKeyboardM
         InlineKeyboardButton(text="+", callback_data=_with_token("orders|qty|custom", token)),
     )
     
-    builder.row(
-        InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|type", token)),
-        InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token("orders|cancel|cancel", token)),
-    )
+    builder.row(*build_nav_buttons("orders", _section_label("orders"), back_to="type", token=token))
     
     return builder.as_markup()
 
@@ -238,6 +235,7 @@ def order_date_keyboard(token: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|qty", token)),
             InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token("orders|cancel|cancel", token)),
         ],
+        build_nav_buttons("orders", _section_label("orders"), back_to="qty", token=token),
     ])
 
 
@@ -252,6 +250,7 @@ def order_comment_keyboard(token: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|date", token)),
             InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token("orders|cancel|cancel", token)),
         ],
+        build_nav_buttons("orders", _section_label("orders"), back_to="date", token=token),
     ])
 
 
@@ -263,6 +262,7 @@ def order_confirm_keyboard(token: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|comment", token)),
             InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token("orders|cancel|cancel", token)),
         ],
+        build_nav_buttons("orders", _section_label("orders"), back_to="comment", token=token),
     ])
 
 
@@ -273,7 +273,7 @@ def order_success_keyboard(token: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="➕ New order", callback_data=_with_token("orders|new|start", token)),
             InlineKeyboardButton(text="📋 Open orders", callback_data=_with_token("orders|open|list", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|menu", token))],
+        build_nav_buttons("orders", _section_label("orders"), back_to="menu", token=token),
     ])
 
 
