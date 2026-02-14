@@ -8,6 +8,12 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 - Основные флоу: **Orders** (CRUD заказов), **Planner** (планирование), **Accounting** (учёт), **Summary** (сводка по модели).
 - Cloud Run stateless: без корректных ENV и webhook бот не отвечает.
 
+## Что нового в README
+
+- Обновлена структура проекта под текущее состояние репозитория.
+- Добавлены команды для проверки качества (тесты и линтеры).
+- Добавлен раздел с быстрыми командами для разработки.
+
 ## Требования
 
 - Python **3.12+**
@@ -125,6 +131,8 @@ $env:TELEGRAM_WEBHOOK_SECRET=$env:WEBHOOK_SECRET
 python -m app.server
 ```
 
+Если нужен локальный webhook-тест, можно пробросить порт через `ngrok` и выставить webhook на публичный URL вида `https://<id>.ngrok-free.app/tg/webhook`.
+
 ### Проверка
 
 ```bash
@@ -238,22 +246,52 @@ app/
 ├── config.py              # Конфиг из ENV
 ├── roles.py               # Role-based access control
 ├── server.py              # aiohttp webhook server
+├── keyboards/             # Inline/Reply клавиатуры
+├── middlewares/           # Middleware (в т.ч. проверка webhook secret)
 ├── filters/
 │   └── flow.py            # Flow фильтры
 ├── handlers/
 │   ├── start.py           # /start и меню
+│   ├── models.py          # Карточки и операции по моделям
 │   ├── orders.py          # Orders CRUD
 │   ├── planner.py         # Planner flow
 │   ├── accounting.py      # Accounting flow
+│   ├── reports.py         # Отчёты
+│   ├── nlp_callbacks.py   # NLP callbacks
 │   └── summary.py         # Summary cards
 ├── services/
-│   └── notion.py          # Notion API client
+│   ├── notion.py          # Notion API client
+│   ├── models.py          # Работа с базой Models
+│   ├── orders.py          # Работа с базой Orders
+│   ├── planner.py         # Работа с базой Planner
+│   ├── accounting.py      # Работа с базой Accounting
+│   └── model_card.py      # Агрегация данных карточки модели
 ├── state/
 │   ├── memory.py          # User state storage
 │   └── recent.py          # Recent models
 └── utils/
     ├── constants.py       # Константы
     └── formatting.py      # Форматирование
+```
+
+## Проверки и качество
+
+```bash
+pytest -q
+python -m compileall app
+```
+
+## Быстрые команды разработки
+
+```bash
+# запуск сервера
+python -m app.server
+
+# проверка webhook локально
+curl -X POST http://localhost:8080/tg/webhook
+
+# healthcheck
+curl http://localhost:8080/healthz
 ```
 
 ## Примеры фраз (NLP)
