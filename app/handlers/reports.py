@@ -12,6 +12,7 @@ from app.services import NotionClient
 from app.keyboards.inline import nlp_report_keyboard
 from app.utils import escape_html
 from app.state import MemoryState
+from app.utils.exceptions import NotionAPIError
 from app.utils.accounting import format_accounting_progress
 
 
@@ -45,12 +46,18 @@ async def handle_report_nlp(
         record = await notion.get_monthly_record(
             config.db_accounting, model_id, yyyy_mm,
         )
+    except NotionAPIError as e:
+        LOGGER.warning("Failed to query accounting: %s", e)
+        record = None
     except Exception as e:
         LOGGER.exception("Failed to query accounting: %s", e)
         record = None
 
     try:
         open_orders = await notion.query_open_orders(config.db_orders, model_id)
+    except NotionAPIError as e:
+        LOGGER.warning("Failed to query open orders: %s", e)
+        open_orders = []
     except Exception as e:
         LOGGER.exception("Failed to query open orders: %s", e)
         open_orders = []
