@@ -3,6 +3,21 @@
 from aiogram.types import InlineKeyboardButton
 
 
+MODULE_ICONS = {
+    "orders": "📦",
+    "planner": "📅",
+    "account": "💰",
+    "summary": "📊",
+    "menu": "🏠",
+}
+
+
+def module_label(module: str, fallback: str = "Раздел") -> str:
+    """Return a unified icon + text label for a module."""
+    icon = MODULE_ICONS.get(module, "📁")
+    return f"{icon} {fallback}"
+
+
 def format_breadcrumbs(path: list[str] | tuple[str, ...] | str) -> str:
     """Format breadcrumbs path like: '📦 Orders → Model → #123'."""
     if isinstance(path, str):

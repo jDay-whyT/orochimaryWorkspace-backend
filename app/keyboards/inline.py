@@ -3,16 +3,17 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.utils.constants import ORDER_TYPES, PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS, NLP_SHOOT_CONTENT_TYPES, NLP_ACCOUNTING_CONTENT_TYPES
-from app.utils.navigation import build_nav_buttons
+from app.utils.navigation import MODULE_ICONS, build_nav_buttons
 
 
 def _section_label(prefix: str) -> str:
-    return {
-        "orders": "📦 Orders",
-        "planner": "📅 Planner",
-        "account": "💰 Accounting",
-        "summary": "📊 Summary",
-    }.get(prefix, "📦 Раздел")
+    names = {
+        "orders": "Orders",
+        "planner": "Planner",
+        "account": "Accounting",
+        "summary": "Summary",
+    }
+    return f"{MODULE_ICONS.get(prefix, '📁')} {names.get(prefix, 'Раздел')}"
 
 
 def _with_token(callback_data: str, token: str = "") -> str:
@@ -126,10 +127,10 @@ def recent_models_keyboard(
 def orders_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Orders section menu."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Search model", callback_data=_with_token("orders|search|search", token))],
+        [InlineKeyboardButton(text="🔍 Поиск модели", callback_data=_with_token("orders|search|search", token))],
         [
-            InlineKeyboardButton(text="📋 Open", callback_data=_with_token("orders|open|list", token)),
-            InlineKeyboardButton(text="➕ New", callback_data=_with_token("orders|new|start", token)),
+            InlineKeyboardButton(text="📋 Открытые", callback_data=_with_token("orders|open|list", token)),
+            InlineKeyboardButton(text="➕ Новый заказ", callback_data=_with_token("orders|new|start", token)),
         ],
         build_nav_buttons("orders", _section_label("orders"), back_to="main", token=token),
     ])
@@ -178,10 +179,21 @@ def order_action_keyboard(page_id: str, token: str = "") -> InlineKeyboardMarkup
     """Actions for a selected order."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✓ Today", callback_data=_with_token(f"orders|close_today|{page_id}", token)),
-            InlineKeyboardButton(text="✓ Yesterday", callback_data=_with_token(f"orders|close_yesterday|{page_id}", token)),
-            InlineKeyboardButton(text="💬", callback_data=_with_token(f"orders|comment|{page_id}", token)),
+            InlineKeyboardButton(text="✅ Закрыть сегодня", callback_data=_with_token(f"orders|close_today_confirm|{page_id}", token)),
+            InlineKeyboardButton(text="✅ Закрыть вчера", callback_data=_with_token(f"orders|close_yesterday_confirm|{page_id}", token)),
         ],
+        [
+            InlineKeyboardButton(text="💬 Коммент", callback_data=_with_token(f"orders|comment|{page_id}", token)),
+        ],
+        build_nav_buttons("orders", _section_label("orders"), back_to="list", token=token),
+    ])
+
+
+def order_close_confirm_keyboard(page_id: str, when: str, token: str = "") -> InlineKeyboardMarkup:
+    """Inline confirmation before closing an order."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Да, закрыть", callback_data=_with_token(f"orders|close_{when}|{page_id}", token))],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=_with_token(f"orders|select|{page_id}", token))],
         build_nav_buttons("orders", _section_label("orders"), back_to="list", token=token),
     ])
 
@@ -282,12 +294,12 @@ def order_success_keyboard(token: str = "") -> InlineKeyboardMarkup:
 def planner_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Planner section menu."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Search model", callback_data=_with_token("planner|search|search", token))],
+        [InlineKeyboardButton(text="🔍 Поиск модели", callback_data=_with_token("planner|search|search", token))],
         [
-            InlineKeyboardButton(text="📋 Upcoming", callback_data=_with_token("planner|upcoming|list", token)),
-            InlineKeyboardButton(text="➕ New", callback_data=_with_token("planner|new|start", token)),
+            InlineKeyboardButton(text="📋 Ближайшие", callback_data=_with_token("planner|upcoming|list", token)),
+            InlineKeyboardButton(text="➕ Новая съёмка", callback_data=_with_token("planner|new|start", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("planner|back|main", token))],
+        build_nav_buttons("planner", _section_label("planner"), back_to="main", token=token),
     ])
 
 
@@ -340,15 +352,24 @@ def planner_shoot_keyboard(page_id: str, token: str = "") -> InlineKeyboardMarku
     """Actions for a selected shoot."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✓ Done", callback_data=_with_token(f"planner|done|{page_id}", token)),
-            InlineKeyboardButton(text="📅 Resched", callback_data=_with_token(f"planner|reschedule|{page_id}", token)),
-            InlineKeyboardButton(text="✗ Cancel", callback_data=_with_token(f"planner|cancel_shoot|{page_id}", token)),
+            InlineKeyboardButton(text="✅ Завершить", callback_data=_with_token(f"planner|done|{page_id}", token)),
+            InlineKeyboardButton(text="📅 Перенести", callback_data=_with_token(f"planner|reschedule|{page_id}", token)),
+            InlineKeyboardButton(text="🗑 Отменить", callback_data=_with_token(f"planner|cancel_confirm|{page_id}", token)),
         ],
         [
-            InlineKeyboardButton(text="Edit content", callback_data=_with_token(f"planner|edit_content|{page_id}", token)),
-            InlineKeyboardButton(text="💬 Comment", callback_data=_with_token(f"planner|comment|{page_id}", token)),
+            InlineKeyboardButton(text="🗂 Content", callback_data=_with_token(f"planner|edit_content|{page_id}", token)),
+            InlineKeyboardButton(text="💬 Коммент", callback_data=_with_token(f"planner|comment|{page_id}", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back list", callback_data=_with_token("planner|upcoming|list", token))],
+        [InlineKeyboardButton(text="◀️ К списку", callback_data=_with_token("planner|upcoming|list", token))],
+    ])
+
+
+def planner_cancel_confirm_keyboard(page_id: str, token: str = "") -> InlineKeyboardMarkup:
+    """Inline confirmation before cancelling a shoot."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Да, отменить", callback_data=_with_token(f"planner|cancel_shoot|{page_id}", token))],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=_with_token(f"planner|shoot|{page_id}", token))],
+        [InlineKeyboardButton(text="◀️ К списку", callback_data=_with_token("planner|upcoming|list", token))],
     ])
 
 
@@ -357,12 +378,12 @@ def planner_shoot_keyboard(page_id: str, token: str = "") -> InlineKeyboardMarku
 def accounting_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Accounting section menu."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Search model", callback_data=_with_token("account|search|search", token))],
+        [InlineKeyboardButton(text="🔍 Поиск модели", callback_data=_with_token("account|search|search", token))],
         [
-            InlineKeyboardButton(text="📋 Current", callback_data=_with_token("account|current|list", token)),
-            InlineKeyboardButton(text="➕ Files", callback_data=_with_token("account|add_files|start", token)),
+            InlineKeyboardButton(text="📋 Текущий месяц", callback_data=_with_token("account|current|list", token)),
+            InlineKeyboardButton(text="➕ добавить файлы", callback_data=_with_token("account|add_files|start", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("account|back|main", token))],
+        build_nav_buttons("account", _section_label("account"), back_to="main", token=token),
     ])
 
 
@@ -559,9 +580,9 @@ def nlp_orders_menu_keyboard(
     if has_orders:
         if can_edit:
             rows.append([InlineKeyboardButton(text="✅ Закрыть", callback_data=f"nlp:om:close{s}")])
-        rows.append([InlineKeyboardButton(text="📄 Просмотр заказов", callback_data=f"nlp:om:view{s}")])
+        rows.append([InlineKeyboardButton(text="📄 Список заказов", callback_data=f"nlp:om:view{s}")])
     else:
-        rows.append([InlineKeyboardButton(text="📄 Нет заказов", callback_data="nlp:noop")])
+        rows.append([InlineKeyboardButton(text="📄 Заказов нет", callback_data="nlp:noop")])
     rows.append([nlp_back_button(model_id)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

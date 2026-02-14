@@ -18,6 +18,7 @@ from app.keyboards import (
     order_comment_keyboard,
     order_confirm_keyboard,
     order_success_keyboard,
+    order_close_confirm_keyboard,
     recent_models_keyboard,
     models_keyboard,
     back_cancel_keyboard,
@@ -123,9 +124,15 @@ async def handle_orders_callback(
             await handle_pagination(query, value, memory_state, config, notion)
         
         # Close order
+        elif action == "close_today_confirm":
+            await show_close_order_confirmation(query, value, "today", memory_state)
+
+        elif action == "close_yesterday_confirm":
+            await show_close_order_confirmation(query, value, "yesterday", memory_state)
+
         elif action == "close_today":
             await close_order(query, value, "today", memory_state, config, notion)
-        
+
         elif action == "close_yesterday":
             await close_order(query, value, "yesterday", memory_state, config, notion)
         
@@ -458,7 +465,7 @@ async def _show_orders_for_model(
         await safe_edit_message(
             query,
             f"📋 <b>Open Orders: {escape_html(model_title)}</b>\n\n"
-            f"✅ No open orders!",
+            "📦 Заказов нет. Нажмите «➕ Новый заказ».",
             reply_markup=orders_menu_keyboard(),
         )
         return
@@ -556,6 +563,30 @@ async def show_order_details(
         reply_markup=order_action_keyboard(page_id),
     )
     await query.answer()
+
+
+
+async def show_close_order_confirmation(
+    query: CallbackQuery,
+    page_id: str,
+    when: str,
+    memory_state: MemoryState,
+) -> None:
+    """Ask for confirmation before closing an order."""
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
+    orders = data.get("orders", [])
+    order = next((o for o in orders if o.get("page_id") == page_id), None)
+    order_label = order.get("order_type", "заказ") if order else "заказ"
+    when_label = "сегодня" if when == "today" else "вчера"
+
+    await safe_edit_message(
+        query,
+        f"❓ Закрыть {escape_html(order_label)} {when_label}?",
+        reply_markup=order_close_confirm_keyboard(page_id, when),
+    )
+    await query.answer()
+
 
 
 # ==================== Close Order ====================
