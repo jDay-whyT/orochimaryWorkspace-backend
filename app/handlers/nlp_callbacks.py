@@ -822,7 +822,7 @@ async def _show_orders_menu(
         f"📦 <b>{html.escape(model_name)}</b>\n\n"
         f"Открытых заказов: {len(orders)}"
         if has_orders
-        else f"📦 <b>{html.escape(model_name)}</b>\n\nНет открытых заказов."
+        else f"📦 <b>{html.escape(model_name)}</b>\n\n📦 Заказов нет. Нажмите «➕ Заказ»."
     )
     await _clear_previous_screen_keyboard(query, memory_state)
     msg = await query.message.edit_text(

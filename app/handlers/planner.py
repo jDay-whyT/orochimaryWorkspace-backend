@@ -14,6 +14,7 @@ from app.keyboards.inline import (
     planner_content_keyboard,
     planner_location_keyboard,
     planner_shoot_keyboard,
+    planner_cancel_confirm_keyboard,
     back_keyboard,
 )
 from app.keyboards.calendar import calendar_keyboard, parse_calendar_navigation
@@ -84,6 +85,8 @@ async def handle_planner_callback(
             await _mark_shoot_done(query, config, value)
         elif action == "reschedule":
             await _start_reschedule(query, config, memory_state, value)
+        elif action == "cancel_confirm":
+            await _show_cancel_confirmation(query, value)
         elif action == "cancel_shoot":
             await _cancel_shoot(query, config, value)
         elif action == "edit_content":
@@ -786,6 +789,16 @@ async def _mark_shoot_done(
     
     finally:
         await service.close()
+
+
+
+async def _show_cancel_confirmation(query: CallbackQuery, shoot_id: str) -> None:
+    """Show inline confirmation before shoot cancellation."""
+    await query.message.edit_text(
+        "🗑 Отменить съёмку?",
+        reply_markup=planner_cancel_confirm_keyboard(shoot_id),
+    )
+
 
 
 async def _cancel_shoot(
