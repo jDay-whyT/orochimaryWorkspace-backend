@@ -19,7 +19,7 @@ from app.keyboards.inline import (
 from app.keyboards.calendar import calendar_keyboard, parse_calendar_navigation
 from app.roles import is_authorized, is_editor_or_admin
 from app.services import PlannerService, ModelsService
-from app.state import MemoryState, RecentModels
+from app.state import MemoryState, RecentModels, generate_token
 from app.utils.constants import PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS
 
 LOGGER = logging.getLogger(__name__)
@@ -190,7 +190,7 @@ async def _handle_back(
             recent = recent_models.get(user_id)
             await query.message.edit_text(
                 "📅 <b>New Shoot</b>\n\nStep 1: Select model",
-                reply_markup=models_keyboard("planner", recent, show_search=True),
+                reply_markup=models_keyboard("planner", recent, show_search=True, token=state.get("k", "")),
                 parse_mode="HTML",
             )
             state["step"] = "select_model"
@@ -202,7 +202,7 @@ async def _handle_back(
                 "📅 <b>New Shoot</b>\n\n"
                 f"Step 2: Select content\n\n"
                 f"Selected: {', '.join(selected) if selected else 'none'}",
-                reply_markup=planner_content_keyboard("planner", selected),
+                reply_markup=planner_content_keyboard("planner", selected, token=state.get("k", "")),
                 parse_mode="HTML",
             )
             state["step"] = "select_content"
@@ -211,7 +211,7 @@ async def _handle_back(
         if state:
             await query.message.edit_text(
                 "📅 <b>New Shoot</b>\n\nStep 3: Select location",
-                reply_markup=planner_location_keyboard("planner"),
+                reply_markup=planner_location_keyboard("planner", token=state.get("k", "")),
                 parse_mode="HTML",
             )
             state["step"] = "select_location"
@@ -238,7 +238,7 @@ async def _show_upcoming_shoots(query: CallbackQuery, config: Config) -> None:
             await query.message.edit_text(
                 "📅 <b>Upcoming Shoots</b>\n\n"
                 "No upcoming shoots scheduled.",
-                reply_markup=back_keyboard("planner", "menu"),
+                reply_markup=back_keyboard("planner", "menu", token=generate_token()),
                 parse_mode="HTML",
             )
             return
@@ -286,22 +286,25 @@ async def _start_new_shoot(
         await query.answer("Only editors can create shoots", show_alert=True)
         return
 
+    chat_id, user_id = _state_ids_from_query(query)
+    token = generate_token()
     memory_state.set(
-        *_state_ids_from_query(query),
+        chat_id,
+        user_id,
         {
             "flow": "nlp_planner",
             "step": "select_model",
             "screen_chat_id": query.message.chat.id,
             "screen_message_id": query.message.message_id,
+            "k": token,
         },
     )
     
-    _, user_id = _state_ids_from_query(query)
     recent = recent_models.get(user_id)
     
     await query.message.edit_text(
         "📅 <b>New Shoot</b>\n\nStep 1: Select model",
-        reply_markup=models_keyboard("planner", recent, show_search=True),
+        reply_markup=models_keyboard("planner", recent, show_search=True, token=token),
         parse_mode="HTML",
     )
 
@@ -341,7 +344,7 @@ async def _select_model_for_shoot(
             f"Model: {html.escape(model['name'])}\n\n"
             f"Step 2: Select content\n\n"
             f"Selected: none",
-            reply_markup=planner_content_keyboard("planner", []),
+            reply_markup=planner_content_keyboard("planner", [], token=state.get("k", "")),
             parse_mode="HTML",
         )
     
@@ -362,7 +365,7 @@ async def _start_search(query: CallbackQuery, memory_state: MemoryState) -> None
         "📅 <b>New Shoot</b>\n\n"
         "Step 1: Search model\n\n"
         "Enter model name:",
-        reply_markup=back_keyboard("planner", "select_model"),
+        reply_markup=back_keyboard("planner", "select_model", token=state.get("k", "")),
         parse_mode="HTML",
     )
 
@@ -491,7 +494,7 @@ async def _finish_content_selection(
         f"Model: {html.escape(state.get('model_name', 'Unknown'))}\n"
         f"Content: {', '.join(selected)}\n\n"
         f"Step 3: Select location",
-        reply_markup=planner_location_keyboard("planner"),
+        reply_markup=planner_location_keyboard("planner", token=state.get("k", "")),
         parse_mode="HTML",
     )
 

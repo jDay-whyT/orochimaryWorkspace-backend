@@ -6,6 +6,7 @@ from app.config import Config
 from app.handlers import start, orders, summary, planner, accounting, reports, nlp_callbacks
 from app.services import NotionClient
 from app.state import MemoryState, RecentModels
+from app.middlewares.token_validation import TokenValidationMiddleware
 
 LOGGER = logging.getLogger(__name__)
 
@@ -14,6 +15,7 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, Me
     """Create bot, dispatcher and services."""
     bot = Bot(token=config.telegram_bot_token)
     dp = Dispatcher()
+    dp.callback_query.middleware(TokenValidationMiddleware())
 
     # Register handlers in priority order:
     # 1. Flow-specific routers with FlowFilter (only handle text when their flow is active)

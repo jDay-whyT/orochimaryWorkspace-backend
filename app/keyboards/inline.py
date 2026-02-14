@@ -5,28 +5,34 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.utils.constants import ORDER_TYPES, PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS, NLP_SHOOT_CONTENT_TYPES, NLP_ACCOUNTING_CONTENT_TYPES
 
 
+def _with_token(callback_data: str, token: str = "") -> str:
+    if token:
+        return f"{callback_data}|{token}"
+    return callback_data
+
+
 # ==================== Common ====================
 
-def back_keyboard(callback_prefix: str, back_to: str = "main") -> InlineKeyboardMarkup:
+def back_keyboard(callback_prefix: str, back_to: str = "main", token: str = "") -> InlineKeyboardMarkup:
     """Simple back button with customizable destination."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Back", callback_data=f"{callback_prefix}|back|{back_to}")]
+        [InlineKeyboardButton(text="◀️ Back", callback_data=_with_token(f"{callback_prefix}|back|{back_to}", token))]
     ])
 
 
-def cancel_keyboard(callback_prefix: str) -> InlineKeyboardMarkup:
+def cancel_keyboard(callback_prefix: str, token: str = "") -> InlineKeyboardMarkup:
     """Cancel button."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✖ Cancel", callback_data=f"{callback_prefix}|cancel|cancel")]
+        [InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token(f"{callback_prefix}|cancel|cancel", token))]
     ])
 
 
-def back_cancel_keyboard(callback_prefix: str) -> InlineKeyboardMarkup:
+def back_cancel_keyboard(callback_prefix: str, token: str = "") -> InlineKeyboardMarkup:
     """Back and Cancel buttons."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="◀️ Back", callback_data=f"{callback_prefix}|back|back"),
-            InlineKeyboardButton(text="✖ Cancel", callback_data=f"{callback_prefix}|cancel|cancel"),
+            InlineKeyboardButton(text="◀️ Back", callback_data=_with_token(f"{callback_prefix}|back|back", token)),
+            InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token(f"{callback_prefix}|cancel|cancel", token)),
         ]
     ])
 
@@ -39,6 +45,7 @@ def models_keyboard(
     show_back: bool = True,
     show_search: bool = False,
     back_to: str = "menu",
+    token: str = "",
 ) -> InlineKeyboardMarkup:
     """
     Keyboard with model buttons from recent list.
@@ -52,7 +59,7 @@ def models_keyboard(
         for model_id, title in recent[:9]:
             row.append(InlineKeyboardButton(
                 text=title,
-                callback_data=f"{prefix}|select_model|{model_id}"
+                callback_data=_with_token(f"{prefix}|select_model|{model_id}", token)
             ))
             if len(row) == 3:
                 builder.row(*row)
@@ -63,13 +70,13 @@ def models_keyboard(
     if show_search:
         builder.row(InlineKeyboardButton(
             text="🔍 Search",
-            callback_data=f"{prefix}|search|search"
+            callback_data=_with_token(f"{prefix}|search|search", token)
         ))
     
     if show_back:
         builder.row(
-            InlineKeyboardButton(text="◀️ Back", callback_data=f"{prefix}|back|{back_to}"),
-            InlineKeyboardButton(text="✖ Cancel", callback_data=f"{prefix}|cancel|cancel"),
+            InlineKeyboardButton(text="◀️ Back", callback_data=_with_token(f"{prefix}|back|{back_to}", token)),
+            InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token(f"{prefix}|cancel|cancel", token)),
         )
     
     return builder.as_markup()
@@ -78,6 +85,7 @@ def models_keyboard(
 def recent_models_keyboard(
     recent: list[tuple[str, str]],
     prefix: str,
+    token: str = "",
 ) -> InlineKeyboardMarkup:
     """
     Keyboard with recent models + search button.
@@ -90,7 +98,7 @@ def recent_models_keyboard(
     for model_id, title in recent[:9]:
         row.append(InlineKeyboardButton(
             text=title,
-            callback_data=f"{prefix}|model|{model_id}"
+            callback_data=_with_token(f"{prefix}|model|{model_id}", token)
         ))
         if len(row) == 3:
             builder.row(*row)
@@ -100,8 +108,8 @@ def recent_models_keyboard(
     
     # Search and Back
     builder.row(
-        InlineKeyboardButton(text="🔍 Search", callback_data=f"{prefix}|search|search"),
-        InlineKeyboardButton(text="◀️ Back", callback_data=f"{prefix}|back|menu"),
+        InlineKeyboardButton(text="🔍 Search", callback_data=_with_token(f"{prefix}|search|search", token)),
+        InlineKeyboardButton(text="◀️ Back", callback_data=_with_token(f"{prefix}|back|menu", token)),
     )
     
     return builder.as_markup()
@@ -109,15 +117,15 @@ def recent_models_keyboard(
 
 # ==================== Orders ====================
 
-def orders_menu_keyboard() -> InlineKeyboardMarkup:
+def orders_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Orders section menu."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Search model", callback_data="orders|search|search")],
+        [InlineKeyboardButton(text="🔍 Search model", callback_data=_with_token("orders|search|search", token))],
         [
-            InlineKeyboardButton(text="📋 Open", callback_data="orders|open|list"),
-            InlineKeyboardButton(text="➕ New", callback_data="orders|new|start"),
+            InlineKeyboardButton(text="📋 Open", callback_data=_with_token("orders|open|list", token)),
+            InlineKeyboardButton(text="➕ New", callback_data=_with_token("orders|new|start", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back", callback_data="orders|back|main")],
+        [InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|main", token))],
     ])
 
 
@@ -125,6 +133,7 @@ def orders_list_keyboard(
     orders: list[dict[str, str]],
     page: int,
     total_pages: int,
+    token: str = "",
 ) -> InlineKeyboardMarkup:
     """
     List of open orders with pagination.
@@ -135,7 +144,7 @@ def orders_list_keyboard(
     for order in orders:
         builder.row(InlineKeyboardButton(
             text=order["label"],
-            callback_data=f"orders|select|{order['page_id']}"
+            callback_data=_with_token(f"orders|select|{order['page_id']}", token)
         ))
     
     # Pagination
@@ -144,37 +153,37 @@ def orders_list_keyboard(
         if page > 1:
             pagination.append(InlineKeyboardButton(
                 text="◀ Prev", 
-                callback_data=f"orders|page|{page - 1}"
+                callback_data=_with_token(f"orders|page|{page - 1}", token)
             ))
         if page < total_pages:
             pagination.append(InlineKeyboardButton(
                 text="Next ▶", 
-                callback_data=f"orders|page|{page + 1}"
+                callback_data=_with_token(f"orders|page|{page + 1}", token)
             ))
         if pagination:
             builder.row(*pagination)
     
     builder.row(InlineKeyboardButton(
         text="◀️ Back list", 
-        callback_data="orders|back|model_select"
+        callback_data=_with_token("orders|back|model_select", token)
     ))
     
     return builder.as_markup()
 
 
-def order_action_keyboard(page_id: str) -> InlineKeyboardMarkup:
+def order_action_keyboard(page_id: str, token: str = "") -> InlineKeyboardMarkup:
     """Actions for a selected order."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✓ Today", callback_data=f"orders|close_today|{page_id}"),
-            InlineKeyboardButton(text="✓ Yesterday", callback_data=f"orders|close_yesterday|{page_id}"),
-            InlineKeyboardButton(text="💬", callback_data=f"orders|comment|{page_id}"),
+            InlineKeyboardButton(text="✓ Today", callback_data=_with_token(f"orders|close_today|{page_id}", token)),
+            InlineKeyboardButton(text="✓ Yesterday", callback_data=_with_token(f"orders|close_yesterday|{page_id}", token)),
+            InlineKeyboardButton(text="💬", callback_data=_with_token(f"orders|comment|{page_id}", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back list", callback_data="orders|back|list")],
+        [InlineKeyboardButton(text="◀️ Back list", callback_data=_with_token("orders|back|list", token))],
     ])
 
 
-def order_types_keyboard() -> InlineKeyboardMarkup:
+def order_types_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Order type selection."""
     builder = InlineKeyboardBuilder()
     
@@ -182,7 +191,7 @@ def order_types_keyboard() -> InlineKeyboardMarkup:
     for order_type in ORDER_TYPES:
         row.append(InlineKeyboardButton(
             text=order_type,
-            callback_data=f"orders|type|{order_type}"
+            callback_data=_with_token(f"orders|type|{order_type}", token)
         ))
         if len(row) == 2:
             builder.row(*row)
@@ -191,98 +200,98 @@ def order_types_keyboard() -> InlineKeyboardMarkup:
         builder.row(*row)
     
     builder.row(
-        InlineKeyboardButton(text="◀️ Back", callback_data="orders|back|model"),
-        InlineKeyboardButton(text="✖ Cancel", callback_data="orders|cancel|cancel"),
+        InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|model", token)),
+        InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token("orders|cancel|cancel", token)),
     )
     
     return builder.as_markup()
 
 
-def order_qty_keyboard(current_qty: int = 1) -> InlineKeyboardMarkup:
+def order_qty_keyboard(current_qty: int = 1, token: str = "") -> InlineKeyboardMarkup:
     """Quantity selection for orders."""
     builder = InlineKeyboardBuilder()
     
     builder.row(
-        InlineKeyboardButton(text="1", callback_data="orders|qty|1"),
-        InlineKeyboardButton(text="2", callback_data="orders|qty|2"),
-        InlineKeyboardButton(text="3", callback_data="orders|qty|3"),
-        InlineKeyboardButton(text="5", callback_data="orders|qty|5"),
-        InlineKeyboardButton(text="+", callback_data="orders|qty|custom"),
+        InlineKeyboardButton(text="1", callback_data=_with_token("orders|qty|1", token)),
+        InlineKeyboardButton(text="2", callback_data=_with_token("orders|qty|2", token)),
+        InlineKeyboardButton(text="3", callback_data=_with_token("orders|qty|3", token)),
+        InlineKeyboardButton(text="5", callback_data=_with_token("orders|qty|5", token)),
+        InlineKeyboardButton(text="+", callback_data=_with_token("orders|qty|custom", token)),
     )
     
     builder.row(
-        InlineKeyboardButton(text="◀️ Back", callback_data="orders|back|type"),
-        InlineKeyboardButton(text="✖ Cancel", callback_data="orders|cancel|cancel"),
+        InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|type", token)),
+        InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token("orders|cancel|cancel", token)),
     )
     
     return builder.as_markup()
 
 
-def order_date_keyboard() -> InlineKeyboardMarkup:
+def order_date_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Date selection for order creation."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="Today", callback_data="orders|date|today"),
-            InlineKeyboardButton(text="Yesterday", callback_data="orders|date|yesterday"),
+            InlineKeyboardButton(text="Today", callback_data=_with_token("orders|date|today", token)),
+            InlineKeyboardButton(text="Yesterday", callback_data=_with_token("orders|date|yesterday", token)),
         ],
         [
-            InlineKeyboardButton(text="◀️ Back", callback_data="orders|back|qty"),
-            InlineKeyboardButton(text="✖ Cancel", callback_data="orders|cancel|cancel"),
+            InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|qty", token)),
+            InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token("orders|cancel|cancel", token)),
         ],
     ])
 
 
-def order_comment_keyboard() -> InlineKeyboardMarkup:
+def order_comment_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Comment prompt for order creation."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="Skip", callback_data="orders|comment_skip|skip"),
-            InlineKeyboardButton(text="Add 💬", callback_data="orders|comment_add|add"),
+            InlineKeyboardButton(text="Skip", callback_data=_with_token("orders|comment_skip|skip", token)),
+            InlineKeyboardButton(text="Add 💬", callback_data=_with_token("orders|comment_add|add", token)),
         ],
         [
-            InlineKeyboardButton(text="◀️ Back", callback_data="orders|back|date"),
-            InlineKeyboardButton(text="✖ Cancel", callback_data="orders|cancel|cancel"),
+            InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|date", token)),
+            InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token("orders|cancel|cancel", token)),
         ],
     ])
 
 
-def order_confirm_keyboard() -> InlineKeyboardMarkup:
+def order_confirm_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Confirmation before creating order."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✓ Create", callback_data="orders|confirm|create")],
+        [InlineKeyboardButton(text="✓ Create", callback_data=_with_token("orders|confirm|create", token))],
         [
-            InlineKeyboardButton(text="◀️ Back", callback_data="orders|back|comment"),
-            InlineKeyboardButton(text="✖ Cancel", callback_data="orders|cancel|cancel"),
+            InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|comment", token)),
+            InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token("orders|cancel|cancel", token)),
         ],
     ])
 
 
-def order_success_keyboard() -> InlineKeyboardMarkup:
+def order_success_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """After successful order creation."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="➕ New order", callback_data="orders|new|start"),
-            InlineKeyboardButton(text="📋 Open orders", callback_data="orders|open|list"),
+            InlineKeyboardButton(text="➕ New order", callback_data=_with_token("orders|new|start", token)),
+            InlineKeyboardButton(text="📋 Open orders", callback_data=_with_token("orders|open|list", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back", callback_data="orders|back|menu")],
+        [InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("orders|back|menu", token))],
     ])
 
 
 # ==================== Planner ====================
 
-def planner_menu_keyboard() -> InlineKeyboardMarkup:
+def planner_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Planner section menu."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Search model", callback_data="planner|search|search")],
+        [InlineKeyboardButton(text="🔍 Search model", callback_data=_with_token("planner|search|search", token))],
         [
-            InlineKeyboardButton(text="📋 Upcoming", callback_data="planner|upcoming|list"),
-            InlineKeyboardButton(text="➕ New", callback_data="planner|new|start"),
+            InlineKeyboardButton(text="📋 Upcoming", callback_data=_with_token("planner|upcoming|list", token)),
+            InlineKeyboardButton(text="➕ New", callback_data=_with_token("planner|new|start", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back", callback_data="planner|back|main")],
+        [InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("planner|back|main", token))],
     ])
 
 
-def planner_content_keyboard(prefix: str, selected: list[str]) -> InlineKeyboardMarkup:
+def planner_content_keyboard(prefix: str, selected: list[str], token: str = "") -> InlineKeyboardMarkup:
     """Multi-select content for shoots."""
     builder = InlineKeyboardBuilder()
     
@@ -291,7 +300,7 @@ def planner_content_keyboard(prefix: str, selected: list[str]) -> InlineKeyboard
         mark = "✓ " if option in selected else ""
         row.append(InlineKeyboardButton(
             text=f"{mark}{option}",
-            callback_data=f"{prefix}|content_toggle|{option}"
+            callback_data=_with_token(f"{prefix}|content_toggle|{option}", token)
         ))
         if len(row) == 3:
             builder.row(*row)
@@ -299,74 +308,74 @@ def planner_content_keyboard(prefix: str, selected: list[str]) -> InlineKeyboard
     if row:
         builder.row(*row)
     
-    builder.row(InlineKeyboardButton(text="Next →", callback_data=f"{prefix}|content_done|done"))
+    builder.row(InlineKeyboardButton(text="Next →", callback_data=_with_token(f"{prefix}|content_done|done", token)))
     builder.row(
-        InlineKeyboardButton(text="◀️ Back", callback_data=f"{prefix}|back|select_model"),
-        InlineKeyboardButton(text="✖ Cancel", callback_data=f"{prefix}|cancel|cancel"),
+        InlineKeyboardButton(text="◀️ Back", callback_data=_with_token(f"{prefix}|back|select_model", token)),
+        InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token(f"{prefix}|cancel|cancel", token)),
     )
     
     return builder.as_markup()
 
 
-def planner_location_keyboard(prefix: str) -> InlineKeyboardMarkup:
+def planner_location_keyboard(prefix: str, token: str = "") -> InlineKeyboardMarkup:
     """Location selection for shoots."""
     builder = InlineKeyboardBuilder()
     
     for loc in PLANNER_LOCATION_OPTIONS:
         builder.add(InlineKeyboardButton(
             text=loc,
-            callback_data=f"{prefix}|location|{loc}"
+            callback_data=_with_token(f"{prefix}|location|{loc}", token)
         ))
     builder.adjust(2)
     
     builder.row(
-        InlineKeyboardButton(text="◀️ Back", callback_data=f"{prefix}|back|content"),
-        InlineKeyboardButton(text="✖ Cancel", callback_data=f"{prefix}|cancel|cancel"),
+        InlineKeyboardButton(text="◀️ Back", callback_data=_with_token(f"{prefix}|back|content", token)),
+        InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token(f"{prefix}|cancel|cancel", token)),
     )
     
     return builder.as_markup()
 
 
-def planner_shoot_keyboard(page_id: str) -> InlineKeyboardMarkup:
+def planner_shoot_keyboard(page_id: str, token: str = "") -> InlineKeyboardMarkup:
     """Actions for a selected shoot."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✓ Done", callback_data=f"planner|done|{page_id}"),
-            InlineKeyboardButton(text="📅 Resched", callback_data=f"planner|reschedule|{page_id}"),
-            InlineKeyboardButton(text="✗ Cancel", callback_data=f"planner|cancel_shoot|{page_id}"),
+            InlineKeyboardButton(text="✓ Done", callback_data=_with_token(f"planner|done|{page_id}", token)),
+            InlineKeyboardButton(text="📅 Resched", callback_data=_with_token(f"planner|reschedule|{page_id}", token)),
+            InlineKeyboardButton(text="✗ Cancel", callback_data=_with_token(f"planner|cancel_shoot|{page_id}", token)),
         ],
         [
-            InlineKeyboardButton(text="Edit content", callback_data=f"planner|edit_content|{page_id}"),
-            InlineKeyboardButton(text="💬 Comment", callback_data=f"planner|comment|{page_id}"),
+            InlineKeyboardButton(text="Edit content", callback_data=_with_token(f"planner|edit_content|{page_id}", token)),
+            InlineKeyboardButton(text="💬 Comment", callback_data=_with_token(f"planner|comment|{page_id}", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back list", callback_data="planner|upcoming|list")],
+        [InlineKeyboardButton(text="◀️ Back list", callback_data=_with_token("planner|upcoming|list", token))],
     ])
 
 
 # ==================== Accounting ====================
 
-def accounting_menu_keyboard() -> InlineKeyboardMarkup:
+def accounting_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Accounting section menu."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Search model", callback_data="account|search|search")],
+        [InlineKeyboardButton(text="🔍 Search model", callback_data=_with_token("account|search|search", token))],
         [
-            InlineKeyboardButton(text="📋 Current", callback_data="account|current|list"),
-            InlineKeyboardButton(text="➕ Files", callback_data="account|add_files|start"),
+            InlineKeyboardButton(text="📋 Current", callback_data=_with_token("account|current|list", token)),
+            InlineKeyboardButton(text="➕ Files", callback_data=_with_token("account|add_files|start", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back", callback_data="account|back|main")],
+        [InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("account|back|main", token))],
     ])
 
 
-def accounting_quick_files_keyboard(page_id: str, current: int) -> InlineKeyboardMarkup:
+def accounting_quick_files_keyboard(page_id: str, current: int, token: str = "") -> InlineKeyboardMarkup:
     """Quick file count buttons."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="5", callback_data=f"account|files|{page_id}|5"),
-            InlineKeyboardButton(text="10", callback_data=f"account|files|{page_id}|10"),
-            InlineKeyboardButton(text="15", callback_data=f"account|files|{page_id}|15"),
-            InlineKeyboardButton(text="20", callback_data=f"account|files|{page_id}|20"),
+            InlineKeyboardButton(text="5", callback_data=_with_token(f"account|files|{page_id}|5", token)),
+            InlineKeyboardButton(text="10", callback_data=_with_token(f"account|files|{page_id}|10", token)),
+            InlineKeyboardButton(text="15", callback_data=_with_token(f"account|files|{page_id}|15", token)),
+            InlineKeyboardButton(text="20", callback_data=_with_token(f"account|files|{page_id}|20", token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back", callback_data="account|back|list")],
+        [InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("account|back|list", token))],
     ])
 
 
