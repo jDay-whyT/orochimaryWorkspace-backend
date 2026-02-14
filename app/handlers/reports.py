@@ -64,11 +64,12 @@ async def handle_report_nlp(
     orders_str = f"{len(open_orders)} открытых"
 
     if memory_state:
-        memory_state.set(message.chat.id, message.from_user.id, {
-            "flow": "nlp_report",
-            "model_id": model_id,
-            "model_name": model_name,
-        })
+        memory_state.transition(
+            message.chat.id, message.from_user.id,
+            flow="nlp_report",
+            model_id=model_id,
+            model_name=model_name,
+        )
 
     sent = await message.answer(
         f"📊 <b>{escape_html(model_name)}</b> · {yyyy_mm}\n\n"

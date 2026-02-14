@@ -106,7 +106,7 @@ async def handle_accounting_callback(
     await query.answer()
 
 
-@router.message(FlowFilter({"accounting"}), F.text)
+@router.message(FlowFilter({"nlp_accounting"}), F.text)
 async def handle_text_input(
     message: Message,
     config: Config,
@@ -142,7 +142,7 @@ async def handle_text_input(
 async def _start_model_search(query: CallbackQuery, memory_state: MemoryState) -> None:
     chat_id, user_id = _state_ids_from_query(query)
     memory_state.set(chat_id, user_id, {
-        "flow": "accounting", "step": "search_model",
+        "flow": "nlp_accounting", "step": "search_model",
         "screen_chat_id": query.message.chat.id,
         "screen_message_id": query.message.message_id,
     })
@@ -226,7 +226,7 @@ async def _start_add_files(query: CallbackQuery, config: Config, memory_state: M
     chat_id, user_id = _state_ids_from_query(query)
     recent = recent_models.get(user_id)
     memory_state.set(chat_id, user_id, {
-        "flow": "accounting", "step": "select_model",
+        "flow": "nlp_accounting", "step": "select_model",
         "screen_chat_id": query.message.chat.id,
         "screen_message_id": query.message.message_id,
     })

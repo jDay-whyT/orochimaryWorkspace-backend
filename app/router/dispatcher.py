@@ -127,8 +127,8 @@ async def route_message(
     # nlp_* flows are handled via callbacks (buttons), not text —
     # if user sends text while in nlp_* flow, we must respond, not stay silent.
     _FLOW_FILTER_FLOWS = {
-        "search", "new_order", "view", "comment",
-        "summary", "planner", "accounting",
+        "nlp_search", "nlp_new_order", "nlp_view", "nlp_comment_legacy",
+        "nlp_summary", "nlp_planner", "nlp_accounting",
     }
 
     user_state = memory_state.get(chat_id, user_id)
@@ -211,12 +211,13 @@ async def route_message(
             m = resolution["model"]
             k = generate_token()
             # Store intent in memory (keyboard only carries model_id)
-            memory_state.set(chat_id, user_id, {
-                "flow": "nlp_disambiguate",
-                "intent": intent.value,
-                "entities_raw": text,
-                "k": k,
-            })
+            memory_state.transition(
+                chat_id, user_id,
+                flow="nlp_disambiguate",
+                intent=intent.value,
+                entities_raw=text,
+                k=k,
+            )
             await message.answer(
                 f"🔍 Вы имели в виду <b>{html.escape(m['name'])}</b>?",
                 reply_markup=nlp_confirm_model_keyboard(m["id"], m["name"], k),
@@ -230,12 +231,13 @@ async def route_message(
 
             k = generate_token()
             # Store intent in memory (keyboard only carries model_id)
-            memory_state.set(chat_id, user_id, {
-                "flow": "nlp_disambiguate",
-                "intent": intent.value,
-                "entities_raw": text,
-                "k": k,
-            })
+            memory_state.transition(
+                chat_id, user_id,
+                flow="nlp_disambiguate",
+                intent=intent.value,
+                entities_raw=text,
+                k=k,
+            )
             await message.answer(
                 f"🔍 Уточните модель '{html.escape(entities.model_name)}':",
                 reply_markup=nlp_model_selection_keyboard(resolution["models"], k),
@@ -250,12 +252,13 @@ async def route_message(
                     from app.keyboards.inline import nlp_not_found_keyboard
                     k = generate_token()
                     # Store intent in memory for when user picks a recent model
-                    memory_state.set(chat_id, user_id, {
-                        "flow": "nlp_disambiguate",
-                        "intent": intent.value,
-                        "entities_raw": text,
-                        "k": k,
-                    })
+                    memory_state.transition(
+                        chat_id, user_id,
+                        flow="nlp_disambiguate",
+                        intent=intent.value,
+                        entities_raw=text,
+                        k=k,
+                    )
                     await message.answer(
                         f"❌ Модель '{html.escape(entities.model_name)}' не найдена.\n\n"
                         "Последние модели:",
@@ -401,12 +404,13 @@ async def _execute_handler(
             from app.keyboards.inline import model_card_keyboard
             from app.services.model_card import build_model_card
             k = generate_token()
-            memory_state.set(message.chat.id, message.from_user.id, {
-                "flow": "nlp_actions",
-                "model_id": model["id"],
-                "model_name": model["name"],
-                "k": k,
-            })
+            memory_state.transition(
+                message.chat.id, message.from_user.id,
+                flow="nlp_actions",
+                model_id=model["id"],
+                model_name=model["name"],
+                k=k,
+            )
             card_text, _ = await build_model_card(
                 model["id"], model["name"], config, notion,
             )
@@ -490,13 +494,14 @@ async def _handle_shoot_create(message, model, entities, config, notion, memory_
         # No date — ask for date
         from app.keyboards.inline import nlp_shoot_date_keyboard
         k = generate_token()
-        memory_state.set(chat_id, message.from_user.id, {
-            "flow": "nlp_shoot",
-            "step": "awaiting_date",
-            "model_id": model_id,
-            "model_name": model_name,
-            "k": k,
-        })
+        memory_state.transition(
+            chat_id, message.from_user.id,
+            flow="nlp_shoot",
+            step="awaiting_date",
+            model_id=model_id,
+            model_name=model_name,
+            k=k,
+        )
         await _clear_previous_screen_keyboard(message, memory_state)
         sent = await message.answer(
             f"📅 <b>{html.escape(model_name)}</b> · Дата съемки:",
@@ -611,15 +616,16 @@ async def _handle_shoot_reschedule(message, model, entities, config, notion, mem
             shoot = shoots[0]
             from app.keyboards.inline import nlp_shoot_date_keyboard
             k = generate_token()
-            memory_state.set(chat_id, message.from_user.id, {
-                "flow": "nlp_shoot",
-                "step": "awaiting_new_date",
-                "shoot_id": shoot.page_id,
-                "model_id": model_id,
-                "model_name": model_name,
-                "old_date": shoot.date,
-                "k": k,
-            })
+            memory_state.transition(
+                chat_id, message.from_user.id,
+                flow="nlp_shoot",
+                step="awaiting_new_date",
+                shoot_id=shoot.page_id,
+                model_id=model_id,
+                model_name=model_name,
+                old_date=shoot.date,
+                k=k,
+            )
             date_str = shoot.date[:10] if shoot.date else "?"
             await _clear_previous_screen_keyboard(message, memory_state)
             sent = await message.answer(
@@ -667,13 +673,14 @@ async def _handle_create_orders_general(message, model, entities, config, memory
     from app.keyboards.inline import nlp_order_type_keyboard
     k = generate_token()
     chat_id = message.chat.id
-    memory_state.set(chat_id, message.from_user.id, {
-        "flow": "nlp_order",
-        "step": "awaiting_type",
-        "model_id": model["id"],
-        "model_name": model["name"],
-        "k": k,
-    })
+    memory_state.transition(
+        chat_id, message.from_user.id,
+        flow="nlp_order",
+        step="awaiting_type",
+        model_id=model["id"],
+        model_name=model["name"],
+        k=k,
+    )
     await _clear_previous_screen_keyboard(message, memory_state)
     sent = await message.answer(
         f"📦 <b>{html.escape(model['name'])}</b> · Тип заказа:",
@@ -733,14 +740,15 @@ async def _handle_close_orders(message, model, entities, config, notion, memory_
         page_orders = orders[:PAGE_SIZE]
 
         from app.keyboards.inline import nlp_close_order_select_keyboard
-        memory_state.set(chat_id, message.from_user.id, {
-            "flow": "nlp_close_picker",
-            "step": "selecting",
-            "model_id": model_id,
-            "model_name": model_name,
-            "orders": orders,
-            "page": page,
-        })
+        memory_state.transition(
+            chat_id, message.from_user.id,
+            flow="nlp_close_picker",
+            step="selecting",
+            model_id=model_id,
+            model_name=model_name,
+            orders=orders,
+            page=page,
+        )
         await _clear_previous_screen_keyboard(message, memory_state)
         sent = await message.answer(
             f"📦 <b>{html.escape(model_name)}</b> · Выберите заказ:",
@@ -793,14 +801,15 @@ async def _handle_add_comment(message, model, entities, config, notion, memory_s
         from app.keyboards.inline import nlp_comment_target_keyboard
         k = generate_token()
         chat_id = message.chat.id
-        memory_state.set(chat_id, message.from_user.id, {
-            "flow": "nlp_comment",
-            "step": "awaiting_target",
-            "model_id": model["id"],
-            "model_name": model["name"],
-            "comment_text": entities.comment_text,
-            "k": k,
-        })
+        memory_state.transition(
+            chat_id, message.from_user.id,
+            flow="nlp_comment",
+            step="awaiting_target",
+            model_id=model["id"],
+            model_name=model["name"],
+            comment_text=entities.comment_text,
+            k=k,
+        )
         await _clear_previous_screen_keyboard(message, memory_state)
         sent = await message.answer(
             "Что комментировать?",
@@ -833,13 +842,14 @@ async def _add_comment_to_order(message, model, entities, config, notion, memory
             from app.keyboards.inline import nlp_comment_order_select_keyboard
             k = generate_token()
             chat_id = message.chat.id
-            memory_state.set(chat_id, message.from_user.id, {
-                "flow": "nlp_comment",
-                "step": "awaiting_order_selection",
-                "model_id": model["id"],
-                "comment_text": entities.comment_text,
-                "k": k,
-            })
+            memory_state.transition(
+                chat_id, message.from_user.id,
+                flow="nlp_comment",
+                step="awaiting_order_selection",
+                model_id=model["id"],
+                comment_text=entities.comment_text,
+                k=k,
+            )
             await _clear_previous_screen_keyboard(message, memory_state)
             sent = await message.answer(
                 "Выберите заказ:",
@@ -875,13 +885,14 @@ async def _add_comment_to_shoot(message, model, entities, config, notion, memory
             from app.keyboards.inline import nlp_shoot_select_keyboard
             k = generate_token()
             chat_id = message.chat.id
-            memory_state.set(chat_id, message.from_user.id, {
-                "flow": "nlp_comment",
-                "step": "awaiting_shoot_selection",
-                "model_id": model["id"],
-                "comment_text": entities.comment_text,
-                "k": k,
-            })
+            memory_state.transition(
+                chat_id, message.from_user.id,
+                flow="nlp_comment",
+                step="awaiting_shoot_selection",
+                model_id=model["id"],
+                comment_text=entities.comment_text,
+                k=k,
+            )
             await _clear_previous_screen_keyboard(message, memory_state)
             sent = await message.answer(
                 "Выберите съемку:",
@@ -1012,12 +1023,13 @@ async def _handle_ambiguous(message, model, entities, config, memory_state):
 
     k = generate_token()
     # Store model_id in memory for disambiguation callbacks
-    memory_state.set(message.chat.id, message.from_user.id, {
-        "flow": "nlp_disambiguate",
-        "model_id": model["id"],
-        "model_name": model["name"],
-        "k": k,
-    })
+    memory_state.transition(
+        message.chat.id, message.from_user.id,
+        flow="nlp_disambiguate",
+        model_id=model["id"],
+        model_name=model["name"],
+        k=k,
+    )
 
     await message.answer(
         f"Что сделать с {number}?",

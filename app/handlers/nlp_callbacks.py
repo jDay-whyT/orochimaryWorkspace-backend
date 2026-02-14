@@ -450,15 +450,16 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
         k = generate_token()
         # Map internal order_type to callback-safe value for storage
         cb_order_type = ORDER_TYPE_CB_REVERSE.get(entities.order_type, entities.order_type)
-        memory_state.set(chat_id, user_id, {
-            "flow": "nlp_order",
-            "step": "awaiting_date",
-            "model_id": model_id,
-            "model_name": model_data.title,
-            "order_type": entities.order_type,
-            "count": count,
-            "k": k,
-        })
+        memory_state.transition(
+            chat_id, user_id,
+            flow="nlp_order",
+            step="awaiting_date",
+            model_id=model_id,
+            model_name=model_data.title,
+            order_type=entities.order_type,
+            count=count,
+            k=k,
+        )
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
             msg = await query.message.edit_text(

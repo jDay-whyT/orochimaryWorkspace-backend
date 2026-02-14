@@ -105,7 +105,7 @@ async def handle_summary_callback(
         await query.answer(f"Error: {str(e)}", show_alert=True)
 
 
-@router.message(FlowFilter({"summary"}), F.text)
+@router.message(FlowFilter({"nlp_summary"}), F.text)
 async def handle_text_input(
     message: Message,
     config: Config,
@@ -174,7 +174,7 @@ async def _start_search(query: CallbackQuery, memory_state: MemoryState) -> None
         chat_id,
         user_id,
         {
-            "flow": "summary",
+            "flow": "nlp_summary",
             "step": "search_model",
             "screen_chat_id": query.message.chat.id,
             "screen_message_id": query.message.message_id,

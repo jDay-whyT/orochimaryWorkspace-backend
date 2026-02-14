@@ -1,10 +1,13 @@
 """Flow filter for text message routing."""
 
+import logging
 from typing import Set
 from aiogram.filters import BaseFilter
 from aiogram.types import Message
 
 from app.state import MemoryState
+
+LOGGER = logging.getLogger(__name__)
 
 
 class FlowFilter(BaseFilter):
@@ -16,8 +19,16 @@ class FlowFilter(BaseFilter):
 
         Args:
             allowed_flows: Set of flow names that should pass this filter.
-                          Example: {"search", "new_order", "view", "comment"}
+                          All flow names must start with 'nlp_' prefix.
+                          Example: {"nlp_search", "nlp_new_order", "nlp_view", "nlp_comment"}
         """
+        # Validate that all flows have nlp_ prefix
+        invalid_flows = {f for f in allowed_flows if not f.startswith("nlp_")}
+        if invalid_flows:
+            raise ValueError(
+                f"Invalid flow names detected: {invalid_flows}. "
+                f"All flows must start with 'nlp_' prefix."
+            )
         self.allowed_flows = allowed_flows
 
     async def __call__(self, message: Message, memory_state: MemoryState) -> bool:
