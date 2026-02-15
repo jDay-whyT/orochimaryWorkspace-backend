@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery
 
 LOGGER = logging.getLogger(__name__)
 
-_MANAGED_PREFIXES = ("orders|", "planner|", "account|", "order:", "planner:", "files:", "menu")
+_MANAGED_PREFIXES = ("orders|", "planner|", "account|", "files|", "order:", "planner:", "menu")
 _ALLOWED_STALE_ACTIONS = {"back", "cancel", "menu"}
 
 
@@ -26,7 +26,7 @@ class TokenValidationMiddleware(BaseMiddleware):
         # token is passed as suffix: "<payload>|<token>"
         payload, _, callback_token = callback_data.partition("|")
 
-        if payload.startswith(("orders|", "planner|", "account|")):
+        if payload.startswith(("orders|", "planner|", "account|", "files|")):
             parts = payload.split("|")
             if len(parts) < 3:
                 return await handler(event, data)
