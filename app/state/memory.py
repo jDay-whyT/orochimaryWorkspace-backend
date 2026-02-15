@@ -15,7 +15,7 @@ class StateEntry:
 @dataclass
 class MemoryState:
     """In-memory user state storage with TTL."""
-    ttl_seconds: int = 1800  # 30 minutes
+    ttl_seconds: int = 7200  # 2 hours (increased from 30 minutes)
     _storage: dict[tuple[int, int], StateEntry] = field(default_factory=dict)
     _last_chat_id_by_user: dict[int, int] = field(default_factory=dict)
 

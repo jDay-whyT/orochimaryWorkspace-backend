@@ -1,5 +1,7 @@
 import logging
 import os
+import time
+from collections import OrderedDict
 
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -14,6 +16,39 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 
 GIT_SHA = os.environ.get("GIT_SHA", "unknown")
+
+# Simple in-memory deduplication cache for update_ids
+# Format: {update_id: timestamp}
+_processed_updates: OrderedDict[int, float] = OrderedDict()
+_DEDUP_TTL = 300  # 5 minutes
+_MAX_CACHE_SIZE = 1000
+
+
+def _is_duplicate_update(update_id: int | None) -> bool:
+    """Check if update was recently processed and add to cache if new."""
+    if update_id is None:
+        return False
+
+    now = time.time()
+
+    # Clean old entries
+    cutoff = now - _DEDUP_TTL
+    while _processed_updates and next(iter(_processed_updates.values())) < cutoff:
+        _processed_updates.popitem(last=False)
+
+    # Check for duplicate
+    if update_id in _processed_updates:
+        LOGGER.warning("Duplicate update detected: update_id=%s", update_id)
+        return True
+
+    # Add to cache
+    _processed_updates[update_id] = now
+
+    # Prevent unbounded growth
+    if len(_processed_updates) > _MAX_CACHE_SIZE:
+        _processed_updates.popitem(last=False)
+
+    return False
 
 
 async def create_app() -> web.Application:
@@ -47,8 +82,10 @@ async def create_app() -> web.Application:
         return web.Response(text="ok")
 
     async def telegram_webhook(request: web.Request) -> web.StreamResponse:
+        update_id = None
         try:
             body = await request.json()
+            update_id = body.get("update_id")
             update_type = (
                 "message" if "message" in body
                 else "callback_query" if "callback_query" in body
@@ -57,8 +94,14 @@ async def create_app() -> web.Application:
             )
             LOGGER.info(
                 "Webhook request received: update_id=%s type=%s",
-                body.get("update_id"), update_type,
+                update_id, update_type,
             )
+
+            # Check for duplicate updates
+            if _is_duplicate_update(update_id):
+                LOGGER.info("Skipping duplicate update: update_id=%s", update_id)
+                return web.Response(status=200, text="ok")
+
         except Exception:
             LOGGER.info("Webhook request received (non-JSON body)")
         secret = config.telegram_webhook_secret

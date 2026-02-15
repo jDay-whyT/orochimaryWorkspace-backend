@@ -159,7 +159,7 @@ async def handle_planner_callback(
         elif action == "cancel":
             await _cancel_flow(query, memory_state)
         elif action == "upcoming":
-            await _show_upcoming_shoots(query, config)
+            await _show_upcoming_shoots(query, config, memory_state)
         elif action == "new":
             await _start_new_shoot(query, config, memory_state, recent_models)
         elif action == "shoot":
@@ -326,12 +326,16 @@ async def _cancel_flow(query: CallbackQuery, memory_state: MemoryState) -> None:
     )
 
 
-async def _show_upcoming_shoots(query: CallbackQuery, config: Config) -> None:
-    """Show upcoming shoots list."""
+async def _show_upcoming_shoots(query: CallbackQuery, config: Config, memory_state: MemoryState) -> None:
+    """Show upcoming shoots list, filtered by selected model if available."""
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id) or {}
+    model_id = state.get("model_id")
+
     service = PlannerService(config)
-    
+
     try:
-        shoots = await service.get_upcoming_shoots()
+        shoots = await service.get_upcoming_shoots(model_id=model_id)
         
         if not shoots:
             await query.message.edit_text(

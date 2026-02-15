@@ -28,9 +28,12 @@ class PlannerService:
             LOGGER.warning("Failed to resolve planner model title for %s", model_id)
         return "—"
 
-    async def get_upcoming_shoots(self) -> list[dict[str, Any]]:
-        """Get upcoming shoots (planned/scheduled/rescheduled)"""
-        shoots = await self.notion.query_upcoming_shoots(self.config.db_planner)
+    async def get_upcoming_shoots(self, model_id: str | None = None) -> list[dict[str, Any]]:
+        """Get upcoming shoots (planned/scheduled/rescheduled), optionally filtered by model"""
+        shoots = await self.notion.query_upcoming_shoots(
+            self.config.db_planner,
+            model_page_id=model_id
+        )
         results: list[dict[str, Any]] = []
         for s in shoots:
             model_name = await self._resolve_model_name(s.model_id, s.model_title)
