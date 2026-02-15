@@ -753,12 +753,12 @@ async def start_new_order(
     model_id = state.get("model_id")
     model_title = state.get("model_name") or state.get("model_title")
 
-    if not model_id:
+    if not model_id or not model_title:
         await query.answer("Сначала выберите модель через /трико", show_alert=True)
         return
 
     token = generate_token()
-    memory_state.update(
+    memory_state.transition(
         chat_id,
         user_id,
         flow="nlp_new_order",

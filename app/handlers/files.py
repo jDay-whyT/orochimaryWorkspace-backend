@@ -5,6 +5,7 @@ from app.config import Config
 from app.filters.flow import FlowFilter
 from app.keyboards.inline import (
     build_accounting_content_keyboard,
+    build_files_confirm_content_keyboard,
     build_files_menu_keyboard,
     build_quantity_input_keyboard,
 )
@@ -30,6 +31,41 @@ async def _open_content_selector(call: CallbackQuery, memory_state: MemoryState,
     await call.message.edit_text(
         "🏠 > 📁 Файлы\n\nВыберите типы контента:",
         reply_markup=build_accounting_content_keyboard(selected, token=token),
+    )
+
+
+async def _add_files_and_prompt_content_update(
+    call: CallbackQuery,
+    config: Config,
+    memory_state: MemoryState,
+    qty: int,
+) -> None:
+    chat_id, user_id = _state_ids_from_query(call)
+    state = memory_state.get(chat_id, user_id) or {}
+    model_id = state.get("model_id")
+    model_name = state.get("model_name") or "—"
+
+    if not model_id:
+        await call.answer("Сначала выберите модель через /трико", show_alert=True)
+        return
+
+    service = AccountingService(config)
+    try:
+        await service.add_files(model_id=model_id, model_name=model_name, files_to_add=qty)
+    finally:
+        await service.close()
+
+    token = generate_token()
+    memory_state.transition(
+        chat_id,
+        user_id,
+        flow="nlp_files_confirm_content",
+        files_quantity=qty,
+        k=token,
+    )
+    await call.message.edit_text(
+        "Обновить категории контента?",
+        reply_markup=build_files_confirm_content_keyboard(token=token),
     )
 
 
@@ -68,8 +104,23 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
             memory_state.transition(chat_id, user_id, flow="nlp_files_quantity_input", k=token)
             await call.message.edit_text("Введите количество файлов числом:")
         else:
-            memory_state.update(chat_id, user_id, files_quantity=int(qty), content_types=[])
+            await _add_files_and_prompt_content_update(call, config, memory_state, int(qty))
+
+    elif action == "confirm_content":
+        decision = parts[2] if len(parts) > 2 else ""
+        if decision == "yes":
+            memory_state.update(chat_id, user_id, content_types=[])
             await _open_content_selector(call, memory_state, "nlp_files_add_content")
+        elif decision == "skip":
+            token = generate_token()
+            memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
+            await call.message.edit_text(
+                f"✅ Данные по файлам обновлены\nМодель: {model_name}",
+                reply_markup=build_files_menu_keyboard(token=token),
+            )
+        else:
+            await call.answer()
+            return
 
     elif action == "toggle_content":
         if len(parts) < 3:
@@ -102,9 +153,6 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
             content_types = state.get("content_types", [])
 
             if flow == "nlp_files_add_content":
-                qty = int(state.get("files_quantity", 0) or 0)
-                await service.add_files(model_id=model_id, model_name=model_name, files_to_add=qty)
-                record = await service.get_monthly_record(model_id)
                 if record:
                     await service.update_content(record.page_id, content_types)
 
@@ -143,19 +191,31 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
 
 
 @router.message(FlowFilter({"nlp_files_quantity_input"}), F.text)
-async def handle_quantity_input(msg: Message, memory_state: MemoryState) -> None:
+async def handle_quantity_input(msg: Message, config: Config, memory_state: MemoryState) -> None:
     chat_id, user_id = msg.chat.id, msg.from_user.id
     value = (msg.text or "").strip()
     if not value.isdigit():
         await msg.answer("Введите целое число")
         return
     qty = int(value)
-    memory_state.update(chat_id, user_id, files_quantity=qty, content_types=[])
+    state = memory_state.get(chat_id, user_id) or {}
+    model_id = state.get("model_id")
+    model_name = state.get("model_name") or "—"
+    if not model_id:
+        await msg.answer("Сначала выберите модель через /трико")
+        return
+
+    service = AccountingService(config)
+    try:
+        await service.add_files(model_id=model_id, model_name=model_name, files_to_add=qty)
+    finally:
+        await service.close()
+
     token = generate_token()
-    memory_state.transition(chat_id, user_id, flow="nlp_files_add_content", k=token)
+    memory_state.transition(chat_id, user_id, flow="nlp_files_confirm_content", files_quantity=qty, k=token)
     await msg.answer(
-        "Выберите типы контента:",
-        reply_markup=build_accounting_content_keyboard([], token=token),
+        "Обновить категории контента?",
+        reply_markup=build_files_confirm_content_keyboard(token=token),
     )
 
 
