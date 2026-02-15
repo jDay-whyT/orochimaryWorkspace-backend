@@ -135,6 +135,25 @@ async def show_orders_menu(message: Message, config: Config) -> None:
     )
 
 
+async def show_orders_menu_from_nlp(message: Message, model: dict, memory_state: MemoryState) -> None:
+    """Show unified orders menu from NLP intent routing."""
+    token = generate_token()
+    memory_state.transition(
+        message.chat.id,
+        message.from_user.id,
+        flow="nlp_idle",
+        model_id=model["id"],
+        model_name=model["name"],
+        model_title=model["name"],
+        k=token,
+    )
+    await message.answer(
+        f"🏠 > 📦 Заказы\nМодель: {escape_html(model['name'])}",
+        reply_markup=build_orders_menu_keyboard(token=token),
+        parse_mode="HTML",
+    )
+
+
 # ==================== Callback Handlers ====================
 
 @router.callback_query(F.data.startswith("orders|"))

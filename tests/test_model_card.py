@@ -5,7 +5,7 @@ Test cases:
 1. "мелиса" -> SEARCH_MODEL intent, response contains 📌 and buttons
 2. callback_data format is <64 bytes for model_card_keyboard
 3. model_card_keyboard has correct 3-module layout
-4. 📦 Заказы callback -> nlp:act:orders with token
+4. 📦 Заказы callback -> ui:model:orders|token
 5. 📁 Файлы callback -> shows +15/+30/+50/Ввод keyboard
 6. build_model_card_text with Notion data returns correct format
 7. build_model_card_text with Notion failure returns "—" placeholders
@@ -124,22 +124,22 @@ class TestModelCardKeyboard:
         assert all("Меню" not in text for text in texts)
 
     def test_orders_button_callback(self):
-        """📦 Заказы -> nlp:act:orders:{k}."""
+        """📦 Заказы -> ui:model:orders|{k}."""
         kb = model_card_keyboard("abc123")
         row1 = kb.inline_keyboard[0]
-        assert row1[0].callback_data == "nlp:act:orders:abc123"
+        assert row1[0].callback_data == "ui:model:orders|abc123"
 
     def test_files_button_callback(self):
-        """📁 Файлы -> nlp:act:files:{k}."""
+        """📁 Файлы -> ui:model:files|{k}."""
         kb = model_card_keyboard("abc123")
         row1 = kb.inline_keyboard[0]
-        assert row1[2].callback_data == "nlp:act:files:abc123"
+        assert row1[2].callback_data == "ui:model:files|abc123"
 
     def test_shoot_button_callback(self):
-        """📅 Съёмка -> nlp:act:shoot:{k}."""
+        """📅 Съёмка -> ui:model:shoot|{k}."""
         kb = model_card_keyboard("abc123")
         row1 = kb.inline_keyboard[0]
-        assert row1[1].callback_data == "nlp:act:shoot:abc123"
+        assert row1[1].callback_data == "ui:model:shoot|abc123"
 
     def test_all_callbacks_under_64_bytes(self):
         """All callback_data in model_card_keyboard must be <64 bytes."""

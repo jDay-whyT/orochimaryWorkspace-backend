@@ -4,6 +4,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.utils.constants import ORDER_TYPES, PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS, NLP_SHOOT_CONTENT_TYPES, NLP_ACCOUNTING_CONTENT_TYPES
 from app.utils.navigation import MODULE_ICONS, build_nav_buttons
+from app.utils.ui_callbacks import build_ui_callback
 
 
 def _section_label(prefix: str) -> str:
@@ -697,12 +698,11 @@ def model_card_keyboard(k: str = "") -> InlineKeyboardMarkup:
 
     Row 1: 📦 Заказы | 📅 Съёмка | 📁 Файлы
     """
-    s = f":{k}" if k else ""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📦 Заказы", callback_data=f"nlp:act:orders{s}"),
-            InlineKeyboardButton(text="📅 Съёмка", callback_data=f"nlp:act:shoot{s}"),
-            InlineKeyboardButton(text="📁 Файлы", callback_data=f"nlp:act:files{s}"),
+            InlineKeyboardButton(text="📦 Заказы", callback_data=build_ui_callback("model", "orders", token=k)),
+            InlineKeyboardButton(text="📅 Съёмка", callback_data=build_ui_callback("model", "shoot", token=k)),
+            InlineKeyboardButton(text="📁 Файлы", callback_data=build_ui_callback("model", "files", token=k)),
         ],
         [InlineKeyboardButton(text="♻️ Сброс", callback_data="nlp:x:c")],
     ])

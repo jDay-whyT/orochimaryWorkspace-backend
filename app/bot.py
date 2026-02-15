@@ -3,7 +3,7 @@ import logging
 from aiogram import Bot, Dispatcher
 
 from app.config import Config
-from app.handlers import start, orders, summary, planner, accounting, reports, nlp_callbacks, files
+from app.handlers import start, orders, summary, planner, accounting, reports, ui_callbacks, nlp_callbacks, files
 from app.services import NotionClient
 from app.state import MemoryState, RecentModels
 from app.middlewares.token_validation import TokenValidationMiddleware
@@ -23,7 +23,9 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, Me
     dp.include_router(summary.router)      # FlowFilter({"summary"})
     dp.include_router(planner.router)      # FlowFilter({"planner"})
     dp.include_router(accounting.router)   # FlowFilter({"accounting"})
-    # NLP callback router (handles nlp: prefixed callbacks, including report detail)
+    # Unified UI callback router (ui:* namespace)
+    dp.include_router(ui_callbacks.router)
+    # NLP callback router (legacy nlp:* callbacks, including report detail)
     dp.include_router(nlp_callbacks.router)
     dp.include_router(files.router)
     # 2. Fallback router (NLP + /start) - handles all unmatched text messages
