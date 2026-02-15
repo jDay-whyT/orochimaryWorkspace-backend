@@ -14,8 +14,7 @@ from app.keyboards.inline import (
 from app.services import NotionClient
 from app.services.accounting import AccountingService
 from app.services.model_card import build_model_card
-from app.state import MemoryState, generate_token, get_active_token
-from app.utils.constants import NLP_ACCOUNTING_CONTENT_TYPES
+from app.state import MemoryState, get_active_token
 from app.utils import safe_edit_message
 
 router = Router()
@@ -59,7 +58,7 @@ async def _ask_select_model(target: CallbackQuery | Message, memory_state: Memor
         return
 
     chat_id, user_id = target.chat.id, target.from_user.id
-    token = generate_token()
+    token = get_active_token(memory_state, chat_id, user_id)
     memory_state.transition(chat_id, user_id, flow="nlp_view", step="select_model", return_to=return_to, k=token)
     await target.answer(
         "Сначала выберите модель.\n\nВведите имя модели обычным текстом:",
@@ -106,6 +105,7 @@ async def _add_files_and_prompt_content_update(
 async def files_menu_router(call: CallbackQuery, config: Config, notion: NotionClient, memory_state: MemoryState) -> None:
     parts = (call.data or "").split("|")
     action = parts[1] if len(parts) > 1 else "menu"
+    value = parts[2] if len(parts) > 2 else ""
     chat_id, user_id = _state_ids_from_query(call)
     state = memory_state.get(chat_id, user_id) or {}
     callback_token = _callback_token(parts)
@@ -129,60 +129,38 @@ async def files_menu_router(call: CallbackQuery, config: Config, notion: NotionC
         )
 
     elif action == "qty":
-        if len(parts) < 3:
-            await call.answer()
+        if not value:
+            await call.answer("Экран устарел, открой заново", show_alert=True)
             return
-        qty = parts[2]
-        if qty == "custom":
+        if value == "custom":
             token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
             memory_state.transition(chat_id, user_id, flow="nlp_files_quantity_input", k=token)
             await call.message.edit_text("Введите количество файлов числом:")
         else:
-            await _add_files_and_prompt_content_update(call, config, memory_state, int(qty))
+            await _add_files_and_prompt_content_update(call, config, memory_state, int(value))
 
     elif action == "confirm_content":
-        decision = parts[2] if len(parts) > 2 else ""
+        decision = value
         if decision == "yes":
-            memory_state.update(chat_id, user_id, content_types=[])
+            token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
+            memory_state.transition(chat_id, user_id, flow="nlp_files_add_content", k=token)
             await _open_content_selector(call, memory_state, "nlp_files_add_content")
-        elif decision == "skip":
-            qty = int(state.get("files_quantity") or 0)
-            total_files = qty
-            if model_id:
-                service = AccountingService(config)
-                try:
-                    record = await service.get_monthly_record(model_id)
-                    if record and record.files is not None:
-                        total_files = record.files
-                finally:
-                    await service.close()
+        else:
             token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
             memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
             await call.message.edit_text(
-                f"✅ Добавлено {qty} файлов → {model_name}\n"
-                f"📊 Всего: {total_files} | ⚠️ Категории не указаны",
+                f"🏠 > 📁 Файлы\nМодель: {model_name}",
                 reply_markup=build_files_menu_keyboard(token=token),
             )
-        else:
-            await call.answer()
-            return
 
     elif action == "toggle_content":
-        if len(parts) < 3:
-            await call.answer()
-            return
-        content_type = parts[2]
-        if content_type not in NLP_ACCOUNTING_CONTENT_TYPES:
-            await call.answer("Неизвестный тип", show_alert=True)
-            return
         selected = set(state.get("content_types", []))
-        if content_type in selected:
-            selected.remove(content_type)
+        if value in selected:
+            selected.remove(value)
         else:
-            selected.add(content_type)
-        memory_state.update(chat_id, user_id, content_types=sorted(selected))
+            selected.add(value)
         token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
-        memory_state.update(chat_id, user_id, k=token)
+        memory_state.update(chat_id, user_id, content_types=sorted(selected), k=token)
         await call.message.edit_reply_markup(
             reply_markup=build_accounting_content_keyboard(sorted(selected), token=token),
         )
@@ -207,7 +185,6 @@ async def files_menu_router(call: CallbackQuery, config: Config, notion: NotionC
                     f"✅ Добавлено {qty_added} файлов → {model_name}\n"
                     f"📊 Всего: {total_files} | 🗂 {content_str}"
                 )
-
             elif flow == "nlp_files_edit_content":
                 if record:
                     await service.update_content(record.page_id, content_types)
@@ -244,11 +221,19 @@ async def files_menu_router(call: CallbackQuery, config: Config, notion: NotionC
 
     elif action == "back":
         token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
-        memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
-        await call.message.edit_text(
-            f"🏠 > 📁 Файлы\nМодель: {model_name}",
-            reply_markup=build_files_menu_keyboard(token=token),
-        )
+        if value == "card":
+            if not model_id or not model_name or model_name == "—":
+                await call.answer("Экран устарел, открой заново", show_alert=True)
+                return
+            card_text, _ = await build_model_card(model_id, model_name, config, notion)
+            memory_state.transition(chat_id, user_id, flow="nlp_idle", model_id=model_id, model_name=model_name, k=token)
+            await call.message.edit_text(card_text, reply_markup=model_card_keyboard(token), parse_mode="HTML")
+        else:
+            memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
+            await call.message.edit_text(
+                f"🏠 > 📁 Файлы\nМодель: {model_name}",
+                reply_markup=build_files_menu_keyboard(token=token),
+            )
 
     elif action == "cancel":
         token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
@@ -257,6 +242,10 @@ async def files_menu_router(call: CallbackQuery, config: Config, notion: NotionC
             f"🏠 > 📁 Файлы\nМодель: {model_name}",
             reply_markup=build_files_menu_keyboard(token=token),
         )
+
+    else:
+        await call.answer("Экран устарел, открой заново", show_alert=True)
+        return
 
     await call.answer()
 
@@ -282,7 +271,7 @@ async def handle_quantity_input(msg: Message, config: Config, memory_state: Memo
     finally:
         await service.close()
 
-    token = generate_token()
+    token = get_active_token(memory_state, chat_id, user_id)
     memory_state.transition(chat_id, user_id, flow="nlp_files_confirm_content", files_quantity=qty, k=token)
     await msg.answer(
         f"✅ Добавлено файлов: {qty}\n\nОбновить категории контента?",
@@ -308,7 +297,7 @@ async def handle_edit_comment(msg: Message, config: Config, memory_state: Memory
     finally:
         await service.close()
 
-    token = generate_token()
+    token = get_active_token(memory_state, chat_id, user_id)
     memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
     await msg.answer(
         f"✅ Комментарий обновлён → {model_name}\n💬 \"{msg.text.strip()[:50]}{'...' if len(msg.text.strip()) > 50 else ''}\"",

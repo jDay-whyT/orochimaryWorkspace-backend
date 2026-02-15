@@ -9,7 +9,7 @@ from app.filters.topic_access import TopicAccessMessageFilter
 from app.roles import is_authorized
 from app.services import NotionClient, ModelsService
 from app.services.model_card import build_model_card
-from app.state import MemoryState, RecentModels, generate_token
+from app.state import MemoryState, RecentModels, generate_token, get_active_token
 from app.utils.navigation import format_breadcrumbs
 from app.keyboards.inline import model_card_keyboard, models_keyboard
 
@@ -40,8 +40,7 @@ async def cmd_start(message: Message, config: Config, memory_state: MemoryState)
 
     LOGGER.info("User %s started bot", user_id)
 
-    token = generate_token()
-    memory_state.transition(message.chat.id, message.from_user.id, flow="nlp_idle", k=token)
+    memory_state.transition(message.chat.id, message.from_user.id, flow="nlp_idle")
     await message.answer(
         "👋 <b>Привет!</b>\n\n"
         "Я готов к работе. Напишите запрос обычным текстом, например:\n"
@@ -65,7 +64,7 @@ async def cmd_select_model(message: Message, config: Config, memory_state: Memor
         await service.close()
 
     recent = [(m["id"], m["name"]) for m in models[:9]]
-    token = generate_token()
+    token = get_active_token(memory_state, message.chat.id, message.from_user.id)
     memory_state.transition(message.chat.id, message.from_user.id, flow="nlp_select_model", k=token)
     await message.answer(
         f"{format_breadcrumbs(['🏠 Главное меню', '🤖 Выбор модели'])}\n\nВыберите модель:",

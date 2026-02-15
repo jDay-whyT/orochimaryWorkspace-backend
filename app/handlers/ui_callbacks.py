@@ -9,7 +9,7 @@ from app.keyboards.inline import build_files_menu_keyboard, build_orders_menu_ke
 from app.roles import is_authorized
 from app.services import NotionClient
 from app.services.model_card import build_model_card
-from app.state import MemoryState, get_active_token
+from app.state import MemoryState, generate_token, get_active_token
 from app.utils.telegram import safe_edit_message
 from app.utils.ui_callbacks import parse_ui_callback
 
@@ -44,6 +44,7 @@ async def handle_ui_callback(
 
     if parsed.action == "reset":
         memory_state.clear(chat_id, user_id)
+        token = generate_token()
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await safe_edit_message(
             query,
