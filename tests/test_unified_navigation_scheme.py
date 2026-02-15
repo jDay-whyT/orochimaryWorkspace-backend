@@ -19,7 +19,7 @@ def test_main_menu_has_three_modules():
 
 def test_orders_menu_buttons():
     kb = build_orders_menu_keyboard("tok")
-    assert _texts(kb) == ["➕ Новый заказ", "📂 Открытые", "🏠 Главное меню"]
+    assert _texts(kb) == ["➕ Новый заказ", "📂 Открытые", "◀️ К карточке"]
 
 
 def test_order_card_navigation_buttons_present():
@@ -32,7 +32,7 @@ def test_order_card_navigation_buttons_present():
 
 def test_planner_menu_buttons():
     kb = build_planner_menu_keyboard("tok")
-    assert _texts(kb) == ["➕ Съёмка", "🖊️ Редактировать", "🏠 Главное меню"]
+    assert _texts(kb) == ["➕ Съёмка", "🖊️ Редактировать", "◀️ К карточке"]
 
 
 def test_planner_shoot_edit_keyboard():
@@ -43,7 +43,7 @@ def test_planner_shoot_edit_keyboard():
         "💬 Комментарий",
         "✅ Закрыть",
         "◀️ Назад",
-        "🏠 Главное меню",
+        "◀️ К карточке",
     ]
 
 
@@ -53,5 +53,5 @@ def test_files_menu_buttons():
         "➕ Добавить файлы",
         "📂 Тип (контент)",
         "💬 Обновить комментарий",
-        "🏠 Главное меню",
+        "◀️ К карточке",
     ]

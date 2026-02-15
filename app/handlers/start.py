@@ -8,9 +8,10 @@ from app.config import Config
 from app.filters.topic_access import TopicAccessMessageFilter
 from app.roles import is_authorized
 from app.services import NotionClient, ModelsService
+from app.services.model_card import build_model_card
 from app.state import MemoryState, RecentModels, generate_token
 from app.utils.navigation import format_breadcrumbs
-from app.keyboards.inline import build_main_menu_keyboard, models_keyboard
+from app.keyboards.inline import model_card_keyboard, models_keyboard
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -74,7 +75,7 @@ async def cmd_select_model(message: Message, config: Config, memory_state: Memor
 
 
 @router.callback_query(F.data.startswith("main|select_model|"))
-async def main_select_model_callback(call: CallbackQuery, config: Config, memory_state: MemoryState) -> None:
+async def main_select_model_callback(call: CallbackQuery, config: Config, notion: NotionClient, memory_state: MemoryState) -> None:
     parts = (call.data or "").split("|")
     model_id = parts[2] if len(parts) > 2 else ""
 
@@ -97,32 +98,19 @@ async def main_select_model_callback(call: CallbackQuery, config: Config, memory
         model_name=model["name"],
         k=token,
     )
+    card_text, _ = await build_model_card(model["id"], model["name"], config, notion)
     await call.message.edit_text(
-        f"{_main_menu_text(model['name'])}\n\nВыберите раздел:",
-        reply_markup=build_main_menu_keyboard(token=token),
+        card_text,
+        reply_markup=model_card_keyboard(token),
         parse_mode="HTML",
     )
     await call.answer()
 
 
 @router.callback_query(F.data.startswith("menu"))
-async def menu_callback(call: CallbackQuery, memory_state: MemoryState) -> None:
-    """Open unified main menu from inline navigation."""
-    state = memory_state.get(call.message.chat.id, call.from_user.id) or {}
-    token = generate_token()
-    memory_state.transition(
-        call.message.chat.id,
-        call.from_user.id,
-        flow="nlp_idle",
-        model_id=state.get("model_id"),
-        model_name=state.get("model_name"),
-        k=token,
-    )
-    await call.message.edit_text(
-        f"{_main_menu_text(state.get('model_name'))}\n\nВыберите раздел:",
-        reply_markup=build_main_menu_keyboard(token=token),
-    )
-    await call.answer()
+async def menu_callback(call: CallbackQuery) -> None:
+    """Legacy callback kept for backward compatibility."""
+    await call.answer("Экран устарел, открой модель заново", show_alert=True)
 
 
 @router.message(Command("cancel"))

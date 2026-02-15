@@ -263,7 +263,7 @@ async def _cancel_flow(query: CallbackQuery, memory_state: MemoryState) -> None:
     chat_id, user_id = _state_ids_from_query(query)
     memory_state.clear(chat_id, user_id)
     await query.message.edit_text(
-        "📅 <b>Planner</b>\n\nCancelled.",
+        "Сценарий сброшен. Открой модель заново обычным текстом.",
         parse_mode="HTML",
     )
 
@@ -293,9 +293,9 @@ async def _show_upcoming_shoots(query: CallbackQuery, config: Config) -> None:
         builder = InlineKeyboardBuilder()
         
         for shoot in shoots[:10]:  # Limit to 10
-            model_name = shoot.get("model_name", "Unknown")
-            shoot_date = shoot.get("date", "No date")
-            status = shoot.get("status", "")
+            model_name = shoot.get("model_name") or shoot.get("title") or "—"
+            shoot_date = shoot.get("date") or "—"
+            status = shoot.get("status") or ""
             
             builder.row(InlineKeyboardButton(
                 text=f"📅 {model_name} · {shoot_date}",
@@ -508,7 +508,7 @@ async def _toggle_content(
     
     await query.message.edit_text(
         f"📅 <b>New Shoot</b>\n\n"
-        f"Model: {html.escape(state.get('model_name', 'Unknown'))}\n\n"
+        f"Model: {html.escape(state.get('model_name') or '—')}\n\n"
         f"Step 2: Select content\n\n"
         f"Selected: {', '.join(selected) if selected else 'none'}",
         reply_markup=planner_content_keyboard("planner", selected),
@@ -536,7 +536,7 @@ async def _finish_content_selection(
     
     await query.message.edit_text(
         f"📅 <b>New Shoot</b>\n\n"
-        f"Model: {html.escape(state.get('model_name', 'Unknown'))}\n"
+        f"Model: {html.escape(state.get('model_name') or '—')}\n"
         f"Content: {', '.join(selected)}\n\n"
         f"Step 3: Select location",
         reply_markup=planner_location_keyboard("planner", token=state.get("k", "")),
@@ -566,7 +566,7 @@ async def _select_location(
     
     await query.message.edit_text(
         f"📅 <b>New Shoot</b>\n\n"
-        f"Model: {html.escape(state.get('model_name', 'Unknown'))}\n"
+        f"Model: {html.escape(state.get('model_name') or '—')}\n"
         f"Content: {', '.join(state.get('content', []))}\n"
         f"Location: {location}\n\n"
         f"Step 4: Select date",
@@ -615,7 +615,7 @@ async def _select_date(
     state["step"] = "confirm"
     
     # Show confirmation with option to add comment
-    model_name = state.get("model_name", "Unknown")
+    model_name = state.get("model_name") or "—"
     content = ", ".join(state.get("content", []))
     location = state.get("location", "")
     
@@ -682,7 +682,7 @@ async def _handle_comment_text(
     state["step"] = "confirm"
     
     # Update screen with comment added
-    model_name = state.get("model_name", "Unknown")
+    model_name = state.get("model_name") or "—"
     content = ", ".join(state.get("content", []))
     location = state.get("location", "")
     date_str = state.get("date", "")
@@ -786,12 +786,12 @@ async def _show_shoot_details(
             await query.answer("Shoot not found", show_alert=True)
             return
         
-        model_name = shoot.get("model_name", "Unknown")
-        shoot_date = shoot.get("date", "No date")
-        status = shoot.get("status", "")
+        model_name = shoot.get("model_name") or shoot.get("title") or "—"
+        shoot_date = shoot.get("date") or "—"
+        status = shoot.get("status") or ""
         location = shoot.get("location", "")
-        content = ", ".join(shoot.get("content", []))
-        comments = shoot.get("comments", "")
+        content = ", ".join(shoot.get("content") or [])
+        comments = shoot.get("comments") or ""
         
         text = (
             f"📅 <b>{html.escape(model_name)} · {shoot_date}</b>\n\n"

@@ -25,6 +25,7 @@ from app.roles import is_authorized, is_editor
 from app.services import AccountingService, ModelsService
 from app.services.notion import NotionClient
 from app.state import MemoryState, RecentModels, generate_token
+from app.utils.ui_callbacks import parse_ui_callback
 from app.utils.accounting import format_accounting_progress
 from app.utils.exceptions import NotionAPIError
 
@@ -65,7 +66,7 @@ async def show_accounting_menu(message: Message, config: Config) -> None:
     )
 
 
-@router.callback_query(F.data.startswith("account|"))
+@router.callback_query((F.data.startswith("account|")) | (F.data.startswith("ui:account:")))
 async def handle_accounting_callback(
     query: CallbackQuery,
     config: Config,
@@ -77,17 +78,29 @@ async def handle_accounting_callback(
         await query.answer("Access denied", show_alert=True)
         return
 
-    parts = query.data.split("|")
-    if len(parts) < 3:
-        await query.answer()
-        return
-
-    action = parts[1]
-    token = parts[-1] if len(parts) >= 4 else ""
-    payload = parts[2:-1] if token else parts[2:]
-    value = payload[0] if payload else None
+    parsed = parse_ui_callback(query.data)
+    action = ""
+    value = None
+    if parsed and parsed.module == "account":
+        action = parsed.action
+        value = parsed.value or None
+    else:
+        parts = query.data.split("|")
+        if len(parts) < 3:
+            await query.answer()
+            return
+        action = parts[1]
+        token = parts[-1] if len(parts) >= 4 else ""
+        payload = parts[2:-1] if token else parts[2:]
+        value = payload[0] if payload else None
 
     LOGGER.info("Accounting callback: action=%s, value=%s", action, value)
+
+    if parsed and action in {"files", "back"}:
+        state = memory_state.get(query.message.chat.id, query.from_user.id) or {}
+        if not state:
+            await query.answer("Сессия истекла, открой модель заново", show_alert=True)
+            return
 
     try:
         if action == "search":
@@ -98,9 +111,16 @@ async def handle_accounting_callback(
             await _start_add_files(query, config, memory_state, recent_models)
         elif action in ("model", "select_model"):
             await _select_model(query, config, memory_state, recent_models, value)
-        elif action == "files" and len(payload) >= 2:
-            page_id = payload[0]
-            count = int(payload[1])
+        elif action == "files":
+            if parsed and value:
+                page_id, _, count_str = value.partition(":")
+                count = int(count_str or "0")
+            elif "payload" in locals() and len(payload) >= 2:
+                page_id = payload[0]
+                count = int(payload[1])
+            else:
+                await query.answer("Некорректные данные", show_alert=True)
+                return
             await _add_files_to_record(query, config, memory_state, page_id, count)
         elif action == "back":
             await _handle_back(query, config, memory_state, value)
