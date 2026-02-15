@@ -49,14 +49,14 @@ def cancel_keyboard(callback_prefix: str, token: str = "") -> InlineKeyboardMark
     ])
 
 
-def back_cancel_keyboard(callback_prefix: str, token: str = "") -> InlineKeyboardMarkup:
-    """Back and Cancel buttons."""
+def back_cancel_keyboard(return_to: str, token: str = "") -> InlineKeyboardMarkup:
+    """Back and Cancel buttons with dynamic back destination."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="◀️ Back", callback_data=_with_token(f"{callback_prefix}|back|back", token)),
-            InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token(f"{callback_prefix}|cancel|cancel", token)),
+            InlineKeyboardButton(text="◀️ Back", callback_data=_with_token(f"{return_to}|back|{return_to}", token)),
+            InlineKeyboardButton(text="✖ Cancel", callback_data=_with_token(f"{return_to}|cancel|cancel", token)),
         ],
-        build_nav_buttons(callback_prefix, _section_label(callback_prefix), token=token),
+        build_nav_buttons(return_to, _section_label(return_to), token=token),
     ])
 
 

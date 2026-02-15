@@ -231,6 +231,22 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
         memory_state.transition(chat_id, user_id, flow="nlp_files_edit_comment", k=token)
         await call.message.edit_text("Введите новый комментарий для файлов:")
 
+    elif action == "back":
+        token = generate_token()
+        memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
+        await call.message.edit_text(
+            f"🏠 > 📁 Файлы\nМодель: {model_name}",
+            reply_markup=build_files_menu_keyboard(token=token),
+        )
+
+    elif action == "cancel":
+        token = generate_token()
+        memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
+        await call.message.edit_text(
+            f"🏠 > 📁 Файлы\nМодель: {model_name}",
+            reply_markup=build_files_menu_keyboard(token=token),
+        )
+
     await call.answer()
 
 
