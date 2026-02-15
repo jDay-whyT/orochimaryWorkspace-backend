@@ -98,13 +98,7 @@ async def handle_unified_orders_menu(
         return
 
     if action == "new":
-        token = generate_token()
-        memory_state.transition(chat_id, user_id, flow="nlp_new_order", step="waiting_query", k=token)
-        await safe_edit_message(
-            query,
-            f"{_crumb('Новый заказ')}\n\n🔍 Введите имя модели обычным текстом:",
-            reply_markup=back_cancel_keyboard("orders", token=token),
-        )
+        await _ask_select_model(query, memory_state, return_to="orders")
         await query.answer()
         return
 
