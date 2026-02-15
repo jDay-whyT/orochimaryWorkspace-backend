@@ -83,10 +83,10 @@ async def handle_planner_callback(
         return
     
     parts = query.data.split("|")
-    if len(parts) < 3:
+    if len(parts) < 2:
         await query.answer()
         return
-    
+
     action = parts[1]
     value = parts[2] if len(parts) > 2 else None
     user_id = query.from_user.id
