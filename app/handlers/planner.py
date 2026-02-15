@@ -48,6 +48,13 @@ def _strip_token(callback_data: str) -> str:
     return (callback_data or "").split("|", 1)[0]
 
 
+def _callback_token(callback_data: str | None) -> str | None:
+    parts = (callback_data or "").split("|")
+    if len(parts) >= 4:
+        return parts[-1]
+    return None
+
+
 def _content_preview(items: list[str]) -> str:
     preview = ", ".join(items[:3])
     if len(items) > 3:
@@ -97,7 +104,7 @@ async def handle_planner_callback(
     try:
         if action == "menu":
             state = memory_state.get(query.message.chat.id, query.from_user.id) or {}
-            callback_token = parts[3] if len(parts) > 3 else None
+            callback_token = _callback_token(query.data)
             token = get_active_token(memory_state, query.message.chat.id, query.from_user.id, fallback_from_callback=callback_token)
             memory_state.transition(
                 query.message.chat.id,
@@ -158,7 +165,7 @@ async def handle_planner_callback(
         elif action == "confirm":
             await _create_shoot(query, config, memory_state, recent_models)
         else:
-            await query.answer("Unknown action", show_alert=True)
+            await query.answer("Экран устарел, открой заново", show_alert=True)
         
         await query.answer()
     
@@ -273,12 +280,15 @@ async def _handle_back(
 
 
 async def _cancel_flow(query: CallbackQuery, memory_state: MemoryState) -> None:
-    """Cancel current flow."""
+    """Cancel current flow and return to planner module screen."""
     chat_id, user_id = _state_ids_from_query(query)
-    memory_state.clear(chat_id, user_id)
+    state = memory_state.get(chat_id, user_id) or {}
+    token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
+    model_name = state.get("model_name") or "—"
+    memory_state.transition(chat_id, user_id, flow="nlp_planner", step="menu", model_id=state.get("model_id"), model_name=model_name, k=token)
     await query.message.edit_text(
-        "Сценарий сброшен. Открой модель заново обычным текстом.",
-        parse_mode="HTML",
+        f"🏠 > 📂 Планер\nМодель: {model_name}",
+        reply_markup=build_planner_menu_keyboard(token=token),
     )
 
 
@@ -307,17 +317,17 @@ async def _show_upcoming_shoots(query: CallbackQuery, config: Config) -> None:
         builder = InlineKeyboardBuilder()
         
         for shoot in shoots[:10]:  # Limit to 10
-            model_name = shoot.get("model_name") or shoot.get("title") or "—"
+            model_name = shoot.get("model_name") or shoot.get("title") or shoot.get("model") or "—"
             shoot_date = shoot.get("date") or "—"
             status = shoot.get("status") or ""
             
             builder.row(InlineKeyboardButton(
                 text=f"📅 {model_name} · {shoot_date}",
-                callback_data=f"planner|shoot|{shoot['id']}"
+                callback_data=f"planner|shoot|{shoot['id']}|{_callback_token(query.data) or ""}"
             ))
         
         builder.row(
-            InlineKeyboardButton(text="◀️ Back", callback_data="planner|back|menu")
+            InlineKeyboardButton(text="◀️ Back", callback_data=f"planner|back|menu|{_callback_token(query.data) or ""}")
         )
         
         await query.message.edit_text(
@@ -465,12 +475,12 @@ async def _handle_search_results(
         for model in results:
             builder.row(InlineKeyboardButton(
                 text=model["name"],
-                callback_data=f"planner|select_model|{model['id']}"
+                callback_data=f"planner|select_model|{model['id']}|{state.get("k", "")}"
             ))
 
         builder.row(
-            InlineKeyboardButton(text="◀️ Back", callback_data="planner|back|select_model"),
-            InlineKeyboardButton(text="✖ Cancel", callback_data="planner|cancel|cancel"),
+            InlineKeyboardButton(text="◀️ Back", callback_data=f"planner|back|select_model|{state.get("k", "")}"),
+            InlineKeyboardButton(text="✖ Cancel", callback_data=f"planner|cancel|cancel|{state.get("k", "")}"),
         )
 
         # Update screen message
@@ -639,12 +649,12 @@ async def _select_date(
     
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="💬 Add Comment", callback_data="planner|comment|shoot"),
-        InlineKeyboardButton(text="Skip →", callback_data="planner|confirm|create"),
+        InlineKeyboardButton(text="💬 Add Comment", callback_data=f"planner|comment|shoot|{state.get("k", "")}"),
+        InlineKeyboardButton(text="Skip →", callback_data=f"planner|confirm|create|{state.get("k", "")}"),
     )
     builder.row(
-        InlineKeyboardButton(text="◀️ Back", callback_data="planner|back|location"),
-        InlineKeyboardButton(text="✖ Cancel", callback_data="planner|cancel|cancel"),
+        InlineKeyboardButton(text="◀️ Back", callback_data=f"planner|back|location|{state.get("k", "")}"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data=f"planner|cancel|cancel|{state.get("k", "")}"),
     )
     
     await query.message.edit_text(
@@ -676,7 +686,7 @@ async def _start_add_comment(
     await query.message.edit_text(
         "📅 <b>Add Comment</b>\n\n"
         "Enter your comment:",
-        reply_markup=back_keyboard("planner", "confirm"),
+        reply_markup=back_keyboard("planner", "confirm", token=state.get("k", "")),
         parse_mode="HTML",
     )
 
@@ -707,11 +717,11 @@ async def _handle_comment_text(
     
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="✓ Create", callback_data="planner|confirm|create"),
+        InlineKeyboardButton(text="✓ Create", callback_data=f"planner|confirm|create|{state.get("k", "")}"),
     )
     builder.row(
-        InlineKeyboardButton(text="◀️ Back", callback_data="planner|back|location"),
-        InlineKeyboardButton(text="✖ Cancel", callback_data="planner|cancel|cancel"),
+        InlineKeyboardButton(text="◀️ Back", callback_data=f"planner|back|location|{state.get("k", "")}"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data=f"planner|cancel|cancel|{state.get("k", "")}"),
     )
     
     chat_id = state.get("screen_chat_id")
@@ -728,7 +738,7 @@ async def _handle_comment_text(
                  f"Date: {date_str}\n"
                  f"Location: {location}\n"
                  f"Content: {content}\n"
-                 f"Comment: {html.escape(comment)}\n\n"
+                 f"Comment: {html.escape(comment or "")}\n\n"
                  f"Ready to create?",
             reply_markup=builder.as_markup(),
             parse_mode="HTML",
@@ -759,13 +769,10 @@ async def _create_shoot(
     
     service = PlannerService(config)
     try:
-        shoot_id = await service.create_shoot(
-            model_id=model_id,
-            shoot_date=date_str,
-            content=content,
-            location=location,
-            comment=comment,
-        )
+        create_kwargs = dict(model_id=model_id, shoot_date=date_str, content=content, location=location)
+        if comment:
+            create_kwargs["comment"] = comment
+        shoot_id = await service.create_shoot(**create_kwargs)
         
         memory_state.clear(chat_id, user_id)
 
@@ -863,7 +870,7 @@ async def _show_cancel_confirmation(query: CallbackQuery, shoot_id: str) -> None
     """Show inline confirmation before shoot cancellation."""
     await query.message.edit_text(
         "🗑 Отменить съёмку?",
-        reply_markup=planner_cancel_confirm_keyboard(shoot_id),
+        reply_markup=planner_cancel_confirm_keyboard(shoot_id, token=_callback_token(query.data) or ""),
     )
 
 
@@ -894,9 +901,8 @@ async def _cancel_shoot(
         # Return to menu
         await query.message.edit_text(
             "📅 <b>Planner</b>\n\n"
-            "Shoot cancelled.\n\n"
-            "Select an action:",
-            reply_markup=build_planner_menu_keyboard(),
+            f"Модель: {model_name}",
+            reply_markup=build_planner_menu_keyboard(token=_callback_token(query.data) or ""),
             parse_mode="HTML",
         )
 

@@ -75,7 +75,7 @@ def _callback_token(callback_data: str | None) -> str | None:
 
 async def _ask_select_model(call: CallbackQuery, memory_state: MemoryState, return_to: str = "orders") -> None:
     chat_id, user_id = _state_ids_from_query(call)
-    token = generate_token()
+    token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(call.data))
     memory_state.transition(chat_id, user_id, flow="nlp_view", step="select_model", return_to=return_to, k=token)
     await safe_edit_message(
         call,
@@ -304,7 +304,7 @@ async def handle_orders_callback(
             await create_order(query, memory_state, config, notion, recent_models)
         
         else:
-            await query.answer()
+            await query.answer("Экран устарел, открой заново", show_alert=True)
     
     except Exception as e:
         LOGGER.exception("Error in orders callback: %s", e)
@@ -325,7 +325,7 @@ async def handle_back(
     chat_id, user_id = _state_ids_from_query(query)
     data = memory_state.get(chat_id, user_id) or {}
     flow = data.get("flow")
-    token = data.get("k", "")
+    token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
     
     if value == "main":
         memory_state.clear(chat_id, user_id)
@@ -495,7 +495,7 @@ async def handle_cancel(query: CallbackQuery, memory_state: MemoryState) -> None
 async def start_model_search(query: CallbackQuery, memory_state: MemoryState) -> None:
     """Start model search flow."""
     chat_id, user_id = _state_ids_from_query(query)
-    token = generate_token()
+    token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
     memory_state.update(
         chat_id,
         user_id,
@@ -523,7 +523,7 @@ async def handle_model_select(
     chat_id, user_id = _state_ids_from_query(query)
     data = memory_state.get(chat_id, user_id) or {}
     flow = data.get("flow")
-    token = data.get("k", "")
+    token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
     
     # Get model info
     model_options = data.get("model_options", {})
@@ -849,7 +849,7 @@ async def start_new_order(
         await query.answer()
         return
 
-    token = generate_token()
+    token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
     memory_state.transition(
         chat_id,
         user_id,
