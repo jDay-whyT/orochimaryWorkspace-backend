@@ -42,8 +42,11 @@ async def cmd_start(message: Message, config: Config, memory_state: MemoryState)
     token = generate_token()
     memory_state.transition(message.chat.id, message.from_user.id, flow="nlp_idle", k=token)
     await message.answer(
-        f"{_main_menu_text()}\n\nВыберите раздел:",
-        reply_markup=build_main_menu_keyboard(token=token),
+        "👋 <b>Привет!</b>\n\n"
+        "Я готов к работе. Напишите запрос обычным текстом, например:\n"
+        "• <code>трико заказы</code>\n"
+        "• <code>трико файлы 30</code>\n"
+        "• <code>съемка трико завтра</code>",
         parse_mode="HTML",
     )
 
