@@ -114,8 +114,8 @@ jobs:
             DB_ACCOUNTING=${{ secrets.DB_ACCOUNTING }}
             TIMEZONE=${{ vars.TIMEZONE }}
             ALLOWED_EDITORS=${{ vars.ALLOWED_EDITORS }}
-            FILES_TARGET_WORK=${{ vars.FILES_TARGET_WORK }}
-            FILES_TARGET_NEW=${{ vars.FILES_TARGET_NEW }}
+            FILES_PER_MONTH_WORK=${{ vars.FILES_PER_MONTH_WORK }}
+            FILES_PER_MONTH_NEW=${{ vars.FILES_PER_MONTH_NEW }}
             CRM_TOPIC_THREAD_ID=${{ vars.CRM_TOPIC_THREAD_ID }}
 
       
