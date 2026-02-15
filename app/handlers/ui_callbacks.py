@@ -9,7 +9,7 @@ from app.keyboards.inline import build_files_menu_keyboard, build_orders_menu_ke
 from app.roles import is_authorized
 from app.services import NotionClient
 from app.services.model_card import build_model_card
-from app.state import MemoryState, generate_token
+from app.state import MemoryState, get_active_token
 from app.utils.telegram import safe_edit_message
 from app.utils.ui_callbacks import parse_ui_callback
 
@@ -36,7 +36,7 @@ async def handle_ui_callback(
     chat_id = query.message.chat.id
     user_id = query.from_user.id
     state = memory_state.get(chat_id, user_id) or {}
-    token = parsed.token or generate_token()
+    token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=parsed.token)
 
     if parsed.module != "model":
         await query.answer("Экран устарел, открой заново", show_alert=True)

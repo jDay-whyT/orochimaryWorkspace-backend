@@ -6,8 +6,31 @@ from aiogram.types import CallbackQuery
 
 LOGGER = logging.getLogger(__name__)
 
-_MANAGED_PREFIXES = ("orders|", "planner|", "account|", "files|", "order:", "planner:", "menu")
+_MANAGED_PREFIXES = ("ui:", "orders|", "planner|", "account|", "files|", "order:", "planner:", "menu")
 _ALLOWED_STALE_ACTIONS = {"back", "cancel", "menu"}
+
+
+def _extract_payload_token_action(callback_data: str) -> tuple[str, str, str]:
+    payload, sep, callback_token = callback_data.rpartition("|")
+    if not sep:
+        payload = callback_data
+        callback_token = ""
+
+    if payload.startswith(("orders|", "planner|", "account|", "files|")):
+        parts = payload.split("|")
+        action = parts[1] if len(parts) > 1 else ""
+        if not callback_token and len(parts) > 2:
+            callback_token = parts[-1]
+    elif payload.startswith("ui:"):
+        parts = payload.split(":")
+        action = parts[2] if len(parts) > 2 else ""
+    elif payload.startswith("menu"):
+        action = "menu"
+    else:
+        parts = payload.split(":")
+        action = parts[1] if len(parts) > 1 else ""
+
+    return payload, callback_token, action
 
 
 class TokenValidationMiddleware(BaseMiddleware):
@@ -23,19 +46,7 @@ class TokenValidationMiddleware(BaseMiddleware):
         if not callback_data.startswith(_MANAGED_PREFIXES):
             return await handler(event, data)
 
-        # token is passed as suffix: "<payload>|<token>"
-        payload, _, callback_token = callback_data.rpartition("|")
-
-        if payload.startswith(("orders|", "planner|", "account|", "files|")):
-            parts = payload.split("|")
-            if len(parts) < 3:
-                return await handler(event, data)
-            action = parts[1]
-        elif payload.startswith("menu"):
-            action = "menu"
-        else:
-            parts = payload.split(":")
-            action = parts[1] if len(parts) > 1 else ""
+        _, callback_token, action = _extract_payload_token_action(callback_data)
 
         if action in _ALLOWED_STALE_ACTIONS:
             return await handler(event, data)
@@ -63,5 +74,5 @@ class TokenValidationMiddleware(BaseMiddleware):
             action,
             callback_data,
         )
-        await event.answer("Сессия устарела, откройте меню заново", show_alert=True)
+        await event.answer("Экран устарел, открой заново", show_alert=True)
         return None

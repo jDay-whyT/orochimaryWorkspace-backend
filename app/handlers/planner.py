@@ -16,11 +16,13 @@ from app.keyboards.inline import (
     back_keyboard,
     build_planner_menu_keyboard,
     build_planner_shoot_edit_keyboard,
+    model_card_keyboard,
 )
 from app.keyboards.calendar import calendar_keyboard, parse_calendar_navigation
 from app.roles import is_authorized, is_editor_or_admin
-from app.services import PlannerService, ModelsService
-from app.state import MemoryState, RecentModels, generate_token
+from app.services import PlannerService, ModelsService, NotionClient
+from app.services.model_card import build_model_card
+from app.state import MemoryState, RecentModels, get_active_token
 from app.utils.constants import PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS
 from app.utils import format_date_short, escape_html
 
@@ -74,6 +76,7 @@ async def show_planner_menu(message: Message, config: Config) -> None:
 async def handle_planner_callback(
     query: CallbackQuery,
     config: Config,
+    notion: NotionClient,
     memory_state: MemoryState,
     recent_models: RecentModels,
 ) -> None:
@@ -94,7 +97,8 @@ async def handle_planner_callback(
     try:
         if action == "menu":
             state = memory_state.get(query.message.chat.id, query.from_user.id) or {}
-            token = generate_token()
+            callback_token = parts[3] if len(parts) > 3 else None
+            token = get_active_token(memory_state, query.message.chat.id, query.from_user.id, fallback_from_callback=callback_token)
             memory_state.transition(
                 query.message.chat.id,
                 query.from_user.id,
@@ -110,7 +114,7 @@ async def handle_planner_callback(
                 reply_markup=build_planner_menu_keyboard(token=token),
             )
         elif action == "back":
-            await _handle_back(query, config, memory_state, recent_models, value)
+            await _handle_back(query, config, notion, memory_state, recent_models, value)
         elif action == "cancel":
             await _cancel_flow(query, memory_state)
         elif action == "upcoming":
@@ -201,6 +205,7 @@ async def handle_text_input(
 async def _handle_back(
     query: CallbackQuery,
     config: Config,
+    notion: NotionClient,
     memory_state: MemoryState,
     recent_models: RecentModels,
     value: str,
@@ -225,6 +230,15 @@ async def _handle_back(
             reply_markup=build_planner_menu_keyboard(),
             parse_mode="HTML",
         )
+    elif value == "card":
+        state = memory_state.get(chat_id, user_id) or {}
+        model_id = state.get("model_id")
+        model_name = state.get("model_name")
+        if not model_id or not model_name:
+            await query.answer("Экран устарел, открой заново", show_alert=True)
+            return
+        card_text, _ = await build_model_card(model_id, model_name, config, notion)
+        await query.message.edit_text(card_text, reply_markup=model_card_keyboard(state.get("k", "")), parse_mode="HTML")
     elif value == "select_model":
         state = memory_state.get(chat_id, user_id)
         if state:
@@ -279,7 +293,7 @@ async def _show_upcoming_shoots(query: CallbackQuery, config: Config) -> None:
             await query.message.edit_text(
                 "📅 <b>Upcoming Shoots</b>\n\n"
                 "No upcoming shoots scheduled.",
-                reply_markup=back_keyboard("planner", "menu", token=generate_token()),
+                reply_markup=back_keyboard("planner", "menu", token=(query.data or "").split("|")[-1] if "|" in (query.data or "") else ""),
                 parse_mode="HTML",
             )
             return
@@ -329,7 +343,8 @@ async def _start_new_shoot(
 
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id) or {}
-    token = generate_token()
+    callback_token = (query.data or "").split("|")[-1] if len((query.data or "").split("|")) > 3 else None
+    token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
     memory_state.set(
         chat_id,
         user_id,
