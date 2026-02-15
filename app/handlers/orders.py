@@ -276,7 +276,7 @@ async def handle_back(
             reply_markup=orders_menu_keyboard(),
         )
 
-    elif value == "back":
+    elif value in {"back", "orders"}:
         # Generic back from back_cancel_keyboard - return to menu
         memory_state.clear(chat_id, user_id)
         await safe_edit_message(
