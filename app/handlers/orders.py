@@ -698,12 +698,17 @@ async def close_order(
     orders = data.get("orders", [])
     order = next((o for o in orders if o.get("page_id") == page_id), None)
     
+    model_title = (order or {}).get("model_title") or (order or {}).get("model_name") or data.get("model_title") or "—"
+    order_type = (order or {}).get("order_type") or "—"
     in_date = order.get("in_date") if order else None
     if in_date:
         days = (out_date - date.fromisoformat(in_date)).days + 1
-        message = f"✅ Order closed in {days} days!"
+        message = (
+            f"✅ Заказ закрыт → {model_title}\n"
+            f"📦 {order_type} | ⏱ Обработан за {days} дн."
+        )
     else:
-        message = "✅ Order closed!"
+        message = f"✅ Заказ закрыт → {model_title}"
     
     await query.answer(message, show_alert=True)
     
@@ -1031,12 +1036,15 @@ async def create_order(
     
     memory_state.clear(chat_id, user_id)
 
+    comment_preview = ""
+    if comments:
+        comment_preview = comments[:30] + ("..." if len(comments) > 30 else "")
+
+    comment_part = f' | 💬 "{escape_html(comment_preview)}"' if comment_preview else ""
     await safe_edit_message(
         query,
-        f"{_crumb('Новый заказ', 'Готово')}\n\n✅ <b>Order Created!</b>\n\n"
-        f"Model: <b>{escape_html(model_title)}</b>\n"
-        f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
-        f"Date: <b>{format_date_short(in_date)}</b>",
+        f"✅ Заказ создан → {escape_html(model_title)}\n"
+        f"📦 {escape_html(order_type)} × {qty} | 📅 {format_date_short(in_date)}{comment_part}",
         reply_markup=order_success_keyboard(),
     )
     await query.answer("Order created!")
@@ -1192,7 +1200,8 @@ async def handle_text_input(
         memory_state.transition(chat_id, user_id, flow="nlp_view", step=None)
         
         await message.answer(
-            "💬 Comment saved!",
+            f"✅ Комментарий обновлён → {escape_html(data.get('model_title') or data.get('model_name') or '—')}\n"
+            f"💬 \"{escape_html(text[:40] + ('...' if len(text) > 40 else ''))}\"",
             reply_markup=orders_menu_keyboard(),
             parse_mode="HTML",
         )
