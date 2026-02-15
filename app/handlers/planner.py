@@ -510,7 +510,9 @@ async def _handle_search_results(
         for model in results:
             builder.row(InlineKeyboardButton(
                 text=model["name"],
-                callback_data=f"planner|select_model|{model['id']}|{state.get("k", "")}"
+                k = state.get("k", "")
+                callback_data = f"planner|select_model|{model['id']}|{k}"
+
             ))
 
         builder.row(
