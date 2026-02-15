@@ -1,9 +1,11 @@
+import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.state.memory import MemoryState
 from app.handlers.nlp_callbacks import _handle_back_to_card, handle_nlp_callback
 from app.router.dispatcher import _handle_custom_files_input, _handle_custom_date_input
+from app.handlers.orders import show_orders_menu_from_nlp
 
 
 def _make_query(user_id=1, data="nlp:bk:model-1"):
@@ -137,3 +139,32 @@ async def test_reset_from_model_card():
         message_id=query.message.message_id,
         reply_markup=None,
     )
+
+
+def test_show_orders_menu_from_nlp_clears_previous_keyboard_for_message_target():
+    memory_state = MemoryState()
+    message = _make_message(text="трико заказы")
+    memory_state.set(message.chat.id, message.from_user.id, {"screen_message_id": 999})
+
+    model = {"id": "m-1", "name": "Triko"}
+
+    asyncio.run(show_orders_menu_from_nlp(message, model, memory_state))
+
+    message.bot.edit_message_reply_markup.assert_called_with(
+        chat_id=message.chat.id,
+        message_id=999,
+        reply_markup=None,
+    )
+    message.answer.assert_called_once()
+
+
+def test_show_orders_menu_from_nlp_skips_keyboard_cleanup_without_saved_screen():
+    memory_state = MemoryState()
+    message = _make_message(text="трико заказы")
+
+    model = {"id": "m-1", "name": "Triko"}
+
+    asyncio.run(show_orders_menu_from_nlp(message, model, memory_state))
+
+    message.bot.edit_message_reply_markup.assert_not_called()
+    message.answer.assert_called_once()

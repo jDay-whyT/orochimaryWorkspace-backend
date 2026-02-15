@@ -71,6 +71,7 @@ def test_model_reset_callback_clears_state() -> None:
     assert state.get("flow") == "nlp_idle"
     assert state.get("k") == "tok1"
     assert state.get("model_id") is None
+    assert state.get("model_name") is None
 
 def test_legacy_unknown_nlp_callback_is_graceful_alert() -> None:
     from app.handlers.nlp_callbacks import handle_nlp_callback

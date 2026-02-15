@@ -47,7 +47,8 @@ async def handle_ui_callback(
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await safe_edit_message(
             query,
-            "♻️ Сброс выполнен.\n\nМодель не выбрана — откройте карточку модели заново.",
+            "Введите имя модели обычным текстом.\n"
+            "Можно сразу с действием: «трико заказы», «трико файлы 30».",
         )
         await query.answer()
         return
