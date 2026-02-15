@@ -349,6 +349,7 @@ async def _show_upcoming_shoots(query: CallbackQuery, config: Config) -> None:
         from aiogram.utils.keyboard import InlineKeyboardBuilder
         
         builder = InlineKeyboardBuilder()
+        callback_token = _callback_token(query.data) or ""
         
         for shoot in shoots[:10]:  # Limit to 10
             model_name = shoot.get("model_name") or shoot.get("title") or shoot.get("model") or "—"
@@ -357,11 +358,11 @@ async def _show_upcoming_shoots(query: CallbackQuery, config: Config) -> None:
             
             builder.row(InlineKeyboardButton(
                 text=f"📅 {model_name} · {shoot_date}",
-                callback_data=f"planner|shoot|{shoot['id']}|{_callback_token(query.data) or ""}"
+                callback_data=f"planner|shoot|{shoot['id']}|{callback_token}"
             ))
         
         builder.row(
-            InlineKeyboardButton(text="◀️ Back", callback_data=f"planner|back|menu|{_callback_token(query.data) or ""}")
+            InlineKeyboardButton(text="◀️ Back", callback_data=f"planner|back|menu|{callback_token}")
         )
         
         await query.message.edit_text(
@@ -764,6 +765,7 @@ async def _handle_comment_text(
     if chat_id and message_id:
         from aiogram import Bot
         bot = message.bot
+        comment_text = html.escape(comment or "")
         await bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
@@ -772,7 +774,7 @@ async def _handle_comment_text(
                  f"Date: {date_str}\n"
                  f"Location: {location}\n"
                  f"Content: {content}\n"
-                 f"Comment: {html.escape(comment or "")}\n\n"
+                 f"Comment: {comment_text}\n\n"
                  f"Ready to create?",
             reply_markup=builder.as_markup(),
             parse_mode="HTML",
