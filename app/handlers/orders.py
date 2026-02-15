@@ -316,7 +316,7 @@ async def handle_back(
     data = memory_state.get(chat_id, user_id) or {}
     flow = data.get("flow")
     token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
-    
+
     if value == "main":
         memory_state.clear(chat_id, user_id)
         await safe_edit_message(
@@ -326,8 +326,16 @@ async def handle_back(
         )
 
     elif value in {"back", "orders"}:
-        # Generic back from back_cancel_keyboard - return to menu
-        memory_state.clear(chat_id, user_id)
+        # Generic back from back_cancel_keyboard - preserve model info
+        memory_state.transition(
+            chat_id,
+            user_id,
+            flow="nlp_orders",
+            step="menu",
+            model_id=data.get("model_id"),
+            model_name=data.get("model_name"),
+            k=token,
+        )
         await safe_edit_message(
             query,
             f"{_crumb()}\n\n📦 <b>Orders</b>\n\nSelect an action:",
@@ -335,7 +343,16 @@ async def handle_back(
         )
 
     elif value == "menu":
-        memory_state.clear(chat_id, user_id)
+        # Preserve model info when returning to menu
+        memory_state.transition(
+            chat_id,
+            user_id,
+            flow="nlp_orders",
+            step="menu",
+            model_id=data.get("model_id"),
+            model_name=data.get("model_name"),
+            k=token,
+        )
         await safe_edit_message(
             query,
             f"{_crumb()}\n\n📦 <b>Orders</b>\n\nSelect an action:",
@@ -1060,20 +1077,30 @@ async def create_order(
     if not can_edit(query.from_user.id, config):
         await query.answer("You don't have permission to create orders", show_alert=True)
         return
-    
+
     chat_id, user_id = _state_ids_from_query(query)
     data = memory_state.get(chat_id, user_id) or {}
-    
+    token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
+
     model_id = data.get("model_id")
     model_title = data.get("model_title", "")
     order_type = data.get("order_type")
     qty = data.get("qty", 1)
     in_date_str = data.get("in_date")
     comments = data.get("comments")
-    
+
     if not all([model_id, order_type, in_date_str]):
         await query.answer("Missing data. Please start over.", show_alert=True)
-        memory_state.clear(chat_id, user_id)
+        # Preserve model info even on error
+        memory_state.transition(
+            chat_id,
+            user_id,
+            flow="nlp_orders",
+            step="menu",
+            model_id=data.get("model_id"),
+            model_name=data.get("model_name"),
+            k=token,
+        )
         return
     
     in_date = date.fromisoformat(in_date_str)
@@ -1111,8 +1138,18 @@ async def create_order(
         LOGGER.exception("Failed to create order: %s", e)
         await query.answer("Failed to create order", show_alert=True)
         return
-    
-    memory_state.clear(chat_id, user_id)
+
+    # Preserve model info after order creation
+    model_name = data.get("model_name", "—")
+    memory_state.transition(
+        chat_id,
+        user_id,
+        flow="nlp_orders",
+        step="menu",
+        model_id=model_id,
+        model_name=model_name,
+        k=token,
+    )
 
     comment_preview = ""
     if comments:

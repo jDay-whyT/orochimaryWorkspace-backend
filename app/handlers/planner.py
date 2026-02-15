@@ -253,22 +253,44 @@ async def _handle_back(
 ) -> None:
     """Handle back navigation."""
     chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id) or {}
+
     if value == "main":
         memory_state.clear(chat_id, user_id)
         await query.message.delete()
     elif value == "back":
         # Generic back from back_cancel_keyboard - return to menu
-        memory_state.clear(chat_id, user_id)
+        # Preserve model_id and model_name instead of full clear
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
+        memory_state.transition(
+            chat_id,
+            user_id,
+            flow="nlp_planner",
+            step="menu",
+            model_id=state.get("model_id"),
+            model_name=state.get("model_name"),
+            k=token,
+        )
         await query.message.edit_text(
             "📅 <b>Planner</b>\n\nSelect an action:",
-            reply_markup=build_planner_menu_keyboard(),
+            reply_markup=build_planner_menu_keyboard(token=token),
             parse_mode="HTML",
         )
     elif value == "menu":
-        memory_state.clear(chat_id, user_id)
+        # Preserve model_id and model_name instead of full clear
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
+        memory_state.transition(
+            chat_id,
+            user_id,
+            flow="nlp_planner",
+            step="menu",
+            model_id=state.get("model_id"),
+            model_name=state.get("model_name"),
+            k=token,
+        )
         await query.message.edit_text(
             "📅 <b>Planner</b>\n\nSelect an action:",
-            reply_markup=build_planner_menu_keyboard(),
+            reply_markup=build_planner_menu_keyboard(token=token),
             parse_mode="HTML",
         )
     elif value == "card":
@@ -814,10 +836,20 @@ async def _create_shoot(
         if comment:
             create_kwargs["comments"] = comment
         shoot_id = await service.create_shoot(**create_kwargs)
-        
-        memory_state.clear(chat_id, user_id)
 
+        # Preserve model_id and model_name after shoot creation
         model_name = state.get("model_name") or "—"
+        model_id = state.get("model_id")
+        memory_state.transition(
+            chat_id,
+            user_id,
+            flow="nlp_planner",
+            step="menu",
+            model_id=model_id,
+            model_name=model_name,
+            k=state.get("k", ""),
+        )
+
         content_str = _content_preview(content)
         location_str = location or "—"
         comment_part = _comment_preview(comment, limit=30)
