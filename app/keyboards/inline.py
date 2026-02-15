@@ -487,6 +487,14 @@ def build_accounting_content_keyboard(selected: list[str], token: str = "") -> I
     return builder.as_markup()
 
 
+def build_files_confirm_content_keyboard(token: str = "") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Да", callback_data=_with_token("files|confirm_content|yes", token))],
+        [InlineKeyboardButton(text="❌ Пропустить", callback_data=_with_token("files|confirm_content|skip", token))],
+        [InlineKeyboardButton(text="🏠 Меню", callback_data=_with_token("files|menu", token))],
+    ])
+
+
 def build_planner_keyboard(token: str = "") -> InlineKeyboardMarkup:
     return build_planner_menu_keyboard(token=token)
 
