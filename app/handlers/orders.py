@@ -23,10 +23,11 @@ from app.keyboards import (
     models_keyboard,
     back_cancel_keyboard,
 )
-from app.keyboards.inline import build_orders_menu_keyboard, build_order_card_keyboard_final
+from app.keyboards.inline import build_orders_menu_keyboard, build_order_card_keyboard_final, model_card_keyboard
 from app.roles import is_authorized, can_edit
 from app.services import NotionClient, NotionOrder
-from app.state import MemoryState, RecentModels, generate_token
+from app.services.model_card import build_model_card
+from app.state import MemoryState, RecentModels, generate_token, get_active_token
 from app.utils.exceptions import NotionAPIError
 from app.utils import (
     format_date_short,
@@ -65,6 +66,13 @@ def _strip_token(callback_data: str) -> str:
     return (callback_data or "").split("|", 1)[0]
 
 
+def _callback_token(callback_data: str | None) -> str | None:
+    parts = (callback_data or "").split("|")
+    if len(parts) >= 4:
+        return parts[-1]
+    return None
+
+
 async def _ask_select_model(call: CallbackQuery, memory_state: MemoryState, return_to: str = "orders") -> None:
     chat_id, user_id = _state_ids_from_query(call)
     token = generate_token()
@@ -88,7 +96,7 @@ async def handle_unified_orders_menu(
     chat_id, user_id = _state_ids_from_query(query)
 
     if action == "menu":
-        token = generate_token()
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await query.message.edit_text(
             "🏠 > 📦 Заказы\n\n📦 Заказы",
@@ -103,7 +111,7 @@ async def handle_unified_orders_menu(
         return
 
     if action == "list":
-        token = generate_token()
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await query.message.edit_text(
             "🏠 > 📦 Заказы > 📂 Открытые\n\nВыберите заказ:",
@@ -115,7 +123,7 @@ async def handle_unified_orders_menu(
     if action in {"info", "edit"}:
         order_id = parts[2] if len(parts) > 2 else "temp"
         title = "📊 Информация" if action == "info" else "✏️ Редактирование"
-        token = generate_token()
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await query.message.edit_text(
             f"🏠 > 📦 Заказы > #{order_id}\n\n{title}",
@@ -215,7 +223,7 @@ async def handle_orders_callback(
         if action == "menu":
             chat_id, user_id = _state_ids_from_query(query)
             state = memory_state.get(chat_id, user_id) or {}
-            token = generate_token()
+            token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
             memory_state.transition(
                 chat_id,
                 user_id,
@@ -354,7 +362,7 @@ async def handle_back(
                 reply_markup=recent_models_keyboard(recent, "orders", token=token),
             )
         else:
-            token = generate_token()
+            token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
             memory_state.transition(chat_id, user_id, flow="nlp_search", step="waiting_query", k=token)
             await safe_edit_message(
                 query,
@@ -362,6 +370,20 @@ async def handle_back(
                 reply_markup=back_cancel_keyboard("orders", token=token),
             )
     
+    elif value == "card":
+        model_id = data.get("model_id")
+        model_name = data.get("model_name") or data.get("model_title")
+        if not model_id or not model_name:
+            await query.answer("Экран устарел, открой заново", show_alert=True)
+            return
+        card_text, _ = await build_model_card(model_id, model_name, config, notion)
+        await safe_edit_message(
+            query,
+            card_text,
+            reply_markup=model_card_keyboard(token),
+            parse_mode="HTML",
+        )
+
     elif value == "list":
         # Back to orders list
         await show_open_orders_list(query, memory_state, config, notion)
@@ -448,11 +470,22 @@ async def handle_back(
 async def handle_cancel(query: CallbackQuery, memory_state: MemoryState) -> None:
     """Handle cancel action."""
     chat_id, user_id = _state_ids_from_query(query)
-    memory_state.clear(chat_id, user_id)
+    state = memory_state.get(chat_id, user_id) or {}
+    token = state.get("k", "")
+    model_name = state.get("model_name") or state.get("model_title") or "—"
+    memory_state.transition(
+        chat_id,
+        user_id,
+        flow="nlp_idle",
+        model_id=state.get("model_id"),
+        model_name=model_name,
+        model_title=model_name,
+        k=token,
+    )
     await safe_edit_message(
         query,
-        f"{_crumb()}\n\nCancelled.",
-        reply_markup=orders_menu_keyboard(),
+        f"🏠 > 📦 Заказы\nМодель: {model_name}",
+        reply_markup=build_orders_menu_keyboard(token=token),
     )
     await query.answer()
 

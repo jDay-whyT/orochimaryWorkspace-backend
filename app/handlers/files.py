@@ -9,9 +9,12 @@ from app.keyboards.inline import (
     build_files_confirm_content_keyboard,
     build_files_menu_keyboard,
     build_quantity_input_keyboard,
+    model_card_keyboard,
 )
+from app.services import NotionClient
 from app.services.accounting import AccountingService
-from app.state import MemoryState, generate_token
+from app.services.model_card import build_model_card
+from app.state import MemoryState, generate_token, get_active_token
 from app.utils.constants import NLP_ACCOUNTING_CONTENT_TYPES
 from app.utils import safe_edit_message
 
@@ -24,10 +27,16 @@ def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
     return query.message.chat.id, query.from_user.id
 
 
+def _callback_token(parts: list[str]) -> str | None:
+    if len(parts) >= 4:
+        return parts[-1]
+    return None
+
+
 async def _open_content_selector(call: CallbackQuery, memory_state: MemoryState, flow: str) -> None:
     chat_id, user_id = _state_ids_from_query(call)
     state = memory_state.get(chat_id, user_id) or {}
-    token = generate_token()
+    token = get_active_token(memory_state, chat_id, user_id)
     memory_state.transition(chat_id, user_id, flow=flow, k=token)
     selected = state.get("content_types", [])
     await call.message.edit_text(
@@ -39,7 +48,8 @@ async def _open_content_selector(call: CallbackQuery, memory_state: MemoryState,
 async def _ask_select_model(target: CallbackQuery | Message, memory_state: MemoryState, return_to: str = "files") -> None:
     if isinstance(target, CallbackQuery):
         chat_id, user_id = _state_ids_from_query(target)
-        token = generate_token()
+        callback_token = _callback_token((target.data or "").split("|"))
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
         memory_state.transition(chat_id, user_id, flow="nlp_view", step="select_model", return_to=return_to, k=token)
         await safe_edit_message(
             target,
@@ -78,7 +88,7 @@ async def _add_files_and_prompt_content_update(
     finally:
         await service.close()
 
-    token = generate_token()
+    token = get_active_token(memory_state, chat_id, user_id)
     memory_state.transition(
         chat_id,
         user_id,
@@ -93,16 +103,17 @@ async def _add_files_and_prompt_content_update(
 
 
 @router.callback_query(F.data.startswith("files|"))
-async def files_menu_router(call: CallbackQuery, config: Config, memory_state: MemoryState) -> None:
+async def files_menu_router(call: CallbackQuery, config: Config, notion: NotionClient, memory_state: MemoryState) -> None:
     parts = (call.data or "").split("|")
     action = parts[1] if len(parts) > 1 else "menu"
     chat_id, user_id = _state_ids_from_query(call)
     state = memory_state.get(chat_id, user_id) or {}
+    callback_token = _callback_token(parts)
     model_id = state.get("model_id")
     model_name = state.get("model_name") or "—"
 
     if action == "menu":
-        token = generate_token()
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await call.message.edit_text(
             f"🏠 > 📁 Файлы\nМодель: {model_name}",
@@ -110,7 +121,7 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
         )
 
     elif action == "add_files":
-        token = generate_token()
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
         memory_state.transition(chat_id, user_id, flow="nlp_files_add_quantity", k=token)
         await call.message.edit_text(
             "🏠 > 📁 Файлы > ➕ Добавить\n\nВыберите количество:",
@@ -123,7 +134,7 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
             return
         qty = parts[2]
         if qty == "custom":
-            token = generate_token()
+            token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
             memory_state.transition(chat_id, user_id, flow="nlp_files_quantity_input", k=token)
             await call.message.edit_text("Введите количество файлов числом:")
         else:
@@ -145,7 +156,7 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
                         total_files = record.files
                 finally:
                     await service.close()
-            token = generate_token()
+            token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
             memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
             await call.message.edit_text(
                 f"✅ Добавлено {qty} файлов → {model_name}\n"
@@ -170,7 +181,7 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
         else:
             selected.add(content_type)
         memory_state.update(chat_id, user_id, content_types=sorted(selected))
-        token = generate_token()
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
         memory_state.update(chat_id, user_id, k=token)
         await call.message.edit_reply_markup(
             reply_markup=build_accounting_content_keyboard(sorted(selected), token=token),
@@ -206,7 +217,7 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
         finally:
             await service.close()
 
-        token = generate_token()
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await call.message.edit_text(
             success_text,
@@ -227,12 +238,12 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
         await _open_content_selector(call, memory_state, "nlp_files_edit_content")
 
     elif action == "edit_comment":
-        token = generate_token()
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
         memory_state.transition(chat_id, user_id, flow="nlp_files_edit_comment", k=token)
         await call.message.edit_text("Введите новый комментарий для файлов:")
 
     elif action == "back":
-        token = generate_token()
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await call.message.edit_text(
             f"🏠 > 📁 Файлы\nМодель: {model_name}",
@@ -240,7 +251,7 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
         )
 
     elif action == "cancel":
-        token = generate_token()
+        token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await call.message.edit_text(
             f"🏠 > 📁 Файлы\nМодель: {model_name}",

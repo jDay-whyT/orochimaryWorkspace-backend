@@ -308,7 +308,7 @@ def build_orders_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="➕ Новый заказ", callback_data=_with_token("orders|new|start", token)),
             InlineKeyboardButton(text="📂 Открытые", callback_data=_with_token("orders|open|list", token)),
         ],
-        [InlineKeyboardButton(text="◀️ К карточке", callback_data=build_ui_callback("model", "card", token=token))],
+        [InlineKeyboardButton(text="◀️ К карточке", callback_data=_with_token("orders|back|card", token))],
     ])
 
 
@@ -322,7 +322,7 @@ def build_order_card_keyboard_final(order_id: str, token: str = "") -> InlineKey
         [InlineKeyboardButton(text="✅ Закрыть", callback_data=_with_token(f"orders|close_today_confirm|{order_id}", token))],
         [
             InlineKeyboardButton(text="◀️ К списку", callback_data=_with_token("orders|open|list", token)),
-            InlineKeyboardButton(text="◀️ К карточке", callback_data=build_ui_callback("model", "card", token=token)),
+            InlineKeyboardButton(text="◀️ К карточке", callback_data=_with_token("orders|back|card", token)),
         ],
     ])
 
@@ -426,7 +426,7 @@ def build_planner_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="➕ Съёмка", callback_data=_with_token("planner|new|start", token)),
             InlineKeyboardButton(text="🖊️ Редактировать", callback_data=_with_token("planner|upcoming|list", token)),
         ],
-        [InlineKeyboardButton(text="◀️ К карточке", callback_data=build_ui_callback("model", "card", token=token))],
+        [InlineKeyboardButton(text="◀️ К карточке", callback_data=_with_token("planner|back|card", token))],
     ])
 
 
@@ -441,7 +441,7 @@ def build_planner_shoot_edit_keyboard(shoot_id: str, token: str = "") -> InlineK
         [InlineKeyboardButton(text="✅ Закрыть", callback_data=_with_token(f"planner|done|{shoot_id}", token))],
         [
             InlineKeyboardButton(text="◀️ Назад", callback_data=_with_token("planner|upcoming|list", token)),
-            InlineKeyboardButton(text="◀️ К карточке", callback_data=build_ui_callback("model", "card", token=token)),
+            InlineKeyboardButton(text="◀️ К карточке", callback_data=_with_token("planner|back|card", token)),
         ],
     ])
 
@@ -452,7 +452,7 @@ def build_files_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="➕ Добавить файлы", callback_data=_with_token("files|add_files", token))],
         [InlineKeyboardButton(text="📂 Тип (контент)", callback_data=_with_token("files|edit_content", token))],
         [InlineKeyboardButton(text="💬 Обновить комментарий", callback_data=_with_token("files|edit_comment", token))],
-        [InlineKeyboardButton(text="◀️ К карточке", callback_data=build_ui_callback("model", "card", token=token))],
+        [InlineKeyboardButton(text="◀️ К карточке", callback_data=_with_token("files|back|card", token))],
     ])
 
 
