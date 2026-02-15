@@ -65,6 +65,17 @@ def _strip_token(callback_data: str) -> str:
     return (callback_data or "").split("|", 1)[0]
 
 
+async def _ask_select_model(call: CallbackQuery, memory_state: MemoryState, return_to: str = "orders") -> None:
+    chat_id, user_id = _state_ids_from_query(call)
+    token = generate_token()
+    memory_state.transition(chat_id, user_id, flow="nlp_view", step="select_model", return_to=return_to, k=token)
+    await safe_edit_message(
+        call,
+        f"{_crumb('Поиск модели')}\n\n🔍 Введите имя модели обычным текстом:",
+        reply_markup=back_cancel_keyboard("orders", token=token),
+    )
+
+
 @router.callback_query(F.data.startswith("order:"))
 async def handle_unified_orders_menu(
     query: CallbackQuery,
@@ -87,8 +98,13 @@ async def handle_unified_orders_menu(
         return
 
     if action == "new":
-        memory_state.transition(chat_id, user_id, flow="nlp_new_order", k=generate_token())
-        await query.message.answer("Введите данные нового заказа:")
+        token = generate_token()
+        memory_state.transition(chat_id, user_id, flow="nlp_new_order", step="waiting_query", k=token)
+        await safe_edit_message(
+            query,
+            f"{_crumb('Новый заказ')}\n\n🔍 Введите имя модели обычным текстом:",
+            reply_markup=back_cancel_keyboard("orders", token=token),
+        )
         await query.answer()
         return
 
@@ -494,15 +510,7 @@ async def show_open_orders_list(
     
     if not model_id:
         # Need to select model first
-        from app.state import RecentModels
-        # This is a simplified path - normally we'd inject recent_models
-        memory_state.transition(chat_id, user_id, flow="nlp_view", step="select_model")
-        await safe_edit_message(
-            query,
-            "📋 <b>Open Orders</b>\n\n"
-            f"{_crumb('Поиск модели')}\n\n🔍 Enter model name to search:",
-            reply_markup=back_cancel_keyboard("orders", token=token),
-        )
+        await _ask_select_model(query, memory_state, return_to="orders")
         await query.answer()
         return
     
@@ -759,7 +767,8 @@ async def start_new_order(
     model_title = state.get("model_name") or state.get("model_title")
 
     if not model_id or not model_title:
-        await query.answer("Сначала выберите модель через /трико", show_alert=True)
+        await _ask_select_model(query, memory_state, return_to="orders")
+        await query.answer()
         return
 
     token = generate_token()
