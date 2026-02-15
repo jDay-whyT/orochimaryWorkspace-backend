@@ -105,6 +105,10 @@ class AccountingService:
         """Update Comment for an accounting record."""
         await self.notion.update_accounting_comment(record_id, comment)
 
+    async def update_content(self, page_id: str, content_types: list[str]) -> None:
+        """Update Content multi-select for an accounting record."""
+        await self.notion.update_accounting_content(page_id, content_types)
+
     async def close(self):
         """Close connections."""
         await self.notion.close()

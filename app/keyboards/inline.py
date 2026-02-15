@@ -26,9 +26,9 @@ def build_main_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Unified bot main menu."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📦 Заказы", callback_data=_with_token("order:menu", token)),
-            InlineKeyboardButton(text="📂 Планер", callback_data=_with_token("planner:menu", token)),
-            InlineKeyboardButton(text="📁 Файлы", callback_data=_with_token("files:menu", token)),
+            InlineKeyboardButton(text="📦 Заказы", callback_data=_with_token("orders|menu", token)),
+            InlineKeyboardButton(text="📂 Планер", callback_data=_with_token("planner|menu", token)),
+            InlineKeyboardButton(text="📁 Файлы", callback_data=_with_token("files|menu", token)),
         ]
     ])
 
@@ -300,27 +300,38 @@ def order_success_keyboard(token: str = "") -> InlineKeyboardMarkup:
     ])
 
 
-def build_orders_keyboard(token: str = "") -> InlineKeyboardMarkup:
+def build_orders_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Final simplified orders menu."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="➕ Новый заказ", callback_data=_with_token("order:new", token)),
-            InlineKeyboardButton(text="📂 Открытые", callback_data=_with_token("order:list", token)),
+            InlineKeyboardButton(text="➕ Новый заказ", callback_data=_with_token("orders|new|start", token)),
+            InlineKeyboardButton(text="📂 Открытые", callback_data=_with_token("orders|open|list", token)),
         ],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token))],
     ])
 
 
-def build_order_card_keyboard(order_id: str, token: str = "") -> InlineKeyboardMarkup:
+def build_order_card_keyboard_final(order_id: str, token: str = "") -> InlineKeyboardMarkup:
     """Order card actions for the new navigation scheme."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Информация", callback_data=_with_token(f"order:info:{order_id}", token))],
-        [InlineKeyboardButton(text="✏️ Редактировать", callback_data=_with_token(f"order:edit:{order_id}", token))],
         [
-            InlineKeyboardButton(text="◀️ К списку", callback_data=_with_token("order:list", token)),
+            InlineKeyboardButton(text="📊 Информация", callback_data=_with_token(f"orders|select|{order_id}", token)),
+            InlineKeyboardButton(text="✏️ Редактировать", callback_data=_with_token(f"orders|comment|{order_id}", token)),
+        ],
+        [InlineKeyboardButton(text="✅ Закрыть", callback_data=_with_token(f"orders|close_today_confirm|{order_id}", token))],
+        [
+            InlineKeyboardButton(text="◀️ К списку", callback_data=_with_token("orders|open|list", token)),
             InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token)),
         ],
     ])
+
+
+def build_orders_keyboard(token: str = "") -> InlineKeyboardMarkup:
+    return build_orders_menu_keyboard(token=token)
+
+
+def build_order_card_keyboard(order_id: str, token: str = "") -> InlineKeyboardMarkup:
+    return build_order_card_keyboard_final(order_id=order_id, token=token)
 
 
 # ==================== Planner ====================
@@ -407,71 +418,93 @@ def planner_cancel_confirm_keyboard(page_id: str, token: str = "") -> InlineKeyb
     ])
 
 
-def build_planner_keyboard(token: str = "") -> InlineKeyboardMarkup:
+def build_planner_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Главное меню планера."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="➕ Съёмка", callback_data=_with_token("planner:new", token)),
-            InlineKeyboardButton(text="🖊️ Редактировать", callback_data=_with_token("planner:edit", token)),
+            InlineKeyboardButton(text="➕ Съёмка", callback_data=_with_token("planner|new|start", token)),
+            InlineKeyboardButton(text="🖊️ Редактировать", callback_data=_with_token("planner|upcoming|list", token)),
         ],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token))],
     ])
+
+
+def build_planner_shoot_edit_keyboard(shoot_id: str, token: str = "") -> InlineKeyboardMarkup:
+    """Меню редактирования съёмки."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Перенести", callback_data=_with_token(f"planner|reschedule|{shoot_id}", token))],
+        [
+            InlineKeyboardButton(text="🗂 Content", callback_data=_with_token(f"planner|edit_content|{shoot_id}", token)),
+            InlineKeyboardButton(text="💬 Комментарий", callback_data=_with_token(f"planner|comment|{shoot_id}", token)),
+        ],
+        [InlineKeyboardButton(text="✅ Закрыть", callback_data=_with_token(f"planner|done|{shoot_id}", token))],
+        [
+            InlineKeyboardButton(text="◀️ Назад", callback_data=_with_token("planner|upcoming|list", token)),
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token)),
+        ],
+    ])
+
+
+def build_files_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
+    """Главное меню файлов."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Добавить файлы", callback_data=_with_token("files|add_files", token))],
+        [InlineKeyboardButton(text="📂 Тип (контент)", callback_data=_with_token("files|edit_content", token))],
+        [InlineKeyboardButton(text="💬 Обновить комментарий", callback_data=_with_token("files|edit_comment", token))],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token))],
+    ])
+
+
+def build_quantity_input_keyboard(token: str = "") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="+15", callback_data=_with_token("files|qty|15", token)),
+            InlineKeyboardButton(text="+30", callback_data=_with_token("files|qty|30", token)),
+            InlineKeyboardButton(text="+50", callback_data=_with_token("files|qty|50", token)),
+        ],
+        [InlineKeyboardButton(text="Ввод", callback_data=_with_token("files|qty|custom", token))],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data=_with_token("files|menu", token))],
+    ])
+
+
+def build_accounting_content_keyboard(selected: list[str], token: str = "") -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    row: list[InlineKeyboardButton] = []
+    selected_set = set(selected)
+    for content_type in NLP_ACCOUNTING_CONTENT_TYPES:
+        mark = "✅ " if content_type in selected_set else "⬜ "
+        row.append(InlineKeyboardButton(
+            text=f"{mark}{content_type}",
+            callback_data=_with_token(f"files|toggle_content|{content_type}", token),
+        ))
+        if len(row) == 2:
+            builder.row(*row)
+            row = []
+    if row:
+        builder.row(*row)
+    builder.row(InlineKeyboardButton(text="✅ Готово", callback_data=_with_token("files|content_done", token)))
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data=_with_token("files|menu", token)))
+    return builder.as_markup()
+
+
+def build_planner_keyboard(token: str = "") -> InlineKeyboardMarkup:
+    return build_planner_menu_keyboard(token=token)
 
 
 def build_planner_edit_keyboard(shoot_id: str, token: str = "") -> InlineKeyboardMarkup:
-    """Меню редактирования съёмки."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="📋 Перенести", callback_data=_with_token(f"planner:move:{shoot_id}", token)),
-            InlineKeyboardButton(text="🎨 Синтез", callback_data=_with_token(f"planner:synth:{shoot_id}", token)),
-        ],
-        [
-            InlineKeyboardButton(text="💬 Комментарий", callback_data=_with_token(f"planner:comment:{shoot_id}", token)),
-            InlineKeyboardButton(text="✅ Закрыть", callback_data=_with_token(f"planner:close:{shoot_id}", token)),
-        ],
-        [
-            InlineKeyboardButton(text="◀️ Назад", callback_data=_with_token("planner:menu", token)),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token)),
-        ],
-    ])
+    return build_planner_shoot_edit_keyboard(shoot_id=shoot_id, token=token)
 
 
 def build_files_keyboard(token: str = "") -> InlineKeyboardMarkup:
-    """Главное меню файлов."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="📊 Тек. месяц", callback_data=_with_token("files:stats", token)),
-            InlineKeyboardButton(text="➕ Добавить", callback_data=_with_token("files:add", token)),
-        ],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token))],
-    ])
+    return build_files_menu_keyboard(token=token)
 
 
 def build_files_add_keyboard(token: str = "") -> InlineKeyboardMarkup:
-    """Меню добавления файла."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 Загрузка файлов", callback_data=_with_token("files:upload", token))],
-        [InlineKeyboardButton(text="📂 Подбор типа", callback_data=_with_token("files:select_type", token))],
-        [
-            InlineKeyboardButton(text="◀️ Назад", callback_data=_with_token("files:menu", token)),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token)),
-        ],
-    ])
+    return build_quantity_input_keyboard(token=token)
 
 
 def build_file_type_keyboard(token: str = "") -> InlineKeyboardMarkup:
-    """Выбор типа файла."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="custom", callback_data=_with_token("files:type:custom", token)),
-            InlineKeyboardButton(text="short", callback_data=_with_token("files:type:short", token)),
-        ],
-        [
-            InlineKeyboardButton(text="reel", callback_data=_with_token("files:type:reel", token)),
-            InlineKeyboardButton(text="story", callback_data=_with_token("files:type:story", token)),
-        ],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data=_with_token("files:add", token))],
-    ])
+    return build_accounting_content_keyboard([], token=token)
 
 
 # ==================== Accounting ====================

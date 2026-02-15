@@ -23,6 +23,8 @@ PLANNER_ACTIVE_STATUSES = [
 
 # Planner content options
 PLANNER_CONTENT_OPTIONS = [
+    "basic",
+    "event",
     "new main",
     "posting",
     "main pack",
@@ -31,7 +33,7 @@ PLANNER_CONTENT_OPTIONS = [
     "snapchat",
     "fansly",
     "reddit",
-    "event",
+    "main",
 ]
 
 # Planner location options
