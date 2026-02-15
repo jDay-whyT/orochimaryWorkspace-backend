@@ -24,7 +24,7 @@ class TokenValidationMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         # token is passed as suffix: "<payload>|<token>"
-        payload, _, callback_token = callback_data.partition("|")
+        payload, _, callback_token = callback_data.rpartition("|")
 
         if payload.startswith(("orders|", "planner|", "account|", "files|")):
             parts = payload.split("|")
