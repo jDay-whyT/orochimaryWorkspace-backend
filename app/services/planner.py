@@ -15,22 +15,39 @@ class PlannerService:
         self.config = config
         self.notion = NotionClient(config.notion_token)
 
+    async def _resolve_model_name(self, model_id: str | None, fallback: str | None = None) -> str:
+        if fallback:
+            return fallback
+        if not model_id:
+            return "—"
+        try:
+            model = await self.notion.get_model(model_id)
+            if model and model.title:
+                return model.title
+        except Exception:
+            LOGGER.warning("Failed to resolve planner model title for %s", model_id)
+        return "—"
+
     async def get_upcoming_shoots(self) -> list[dict[str, Any]]:
         """Get upcoming shoots (planned/scheduled/rescheduled)"""
         shoots = await self.notion.query_upcoming_shoots(self.config.db_planner)
-        return [
-            {
-                "id": s.page_id,
-                "model_id": s.model_id,
-                "model_name": s.model_title or "Unknown",
-                "date": s.date,
-                "status": s.status,
-                "content": s.content or [],
-                "location": s.location,
-                "comments": s.comments,
-            }
-            for s in shoots
-        ]
+        results: list[dict[str, Any]] = []
+        for s in shoots:
+            model_name = await self._resolve_model_name(s.model_id, s.model_title)
+            results.append(
+                {
+                    "id": s.page_id,
+                    "model_id": s.model_id,
+                    "model_name": model_name,
+                    "date": s.date,
+                    "status": s.status,
+                    "content": s.content or [],
+                    "location": s.location,
+                    "comments": s.comments,
+                    "title": s.title,
+                }
+            )
+        return results
 
     async def get_shoot_by_id(self, shoot_id: str) -> dict[str, Any] | None:
         """Get shoot by ID"""
@@ -38,15 +55,17 @@ class PlannerService:
             shoot = await self.notion.get_shoot(shoot_id)
             if not shoot:
                 return None
+            model_name = await self._resolve_model_name(shoot.model_id, shoot.model_title)
             return {
                 "id": shoot.page_id,
                 "model_id": shoot.model_id,
-                "model_name": shoot.model_title or "Unknown",
+                "model_name": model_name,
                 "date": shoot.date,
                 "status": shoot.status,
                 "content": shoot.content or [],
                 "location": shoot.location,
                 "comments": shoot.comments,
+                "title": shoot.title,
             }
         except Exception as e:
             LOGGER.exception(f"Failed to get shoot {shoot_id}")
@@ -61,13 +80,16 @@ class PlannerService:
         comment: str | None = None,
     ) -> str:
         """Create new shoot"""
+        shoot_date_obj = date.fromisoformat(shoot_date)
+        title = f"Shoot · {shoot_date_obj.isoformat()}"
         return await self.notion.create_shoot(
             database_id=self.config.db_planner,
             model_page_id=model_id,
-            shoot_date=shoot_date,
+            shoot_date=shoot_date_obj,
             content=content,
             location=location,
-            comment=comment,
+            title=title,
+            comments=comment,
         )
 
     async def mark_done(self, shoot_id: str) -> None:

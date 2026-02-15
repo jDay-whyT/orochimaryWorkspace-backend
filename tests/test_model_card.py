@@ -114,7 +114,7 @@ class TestModelCardKeyboard:
         row2 = kb.inline_keyboard[1]
         assert len(row2) == 1
         assert "Сброс" in row2[0].text
-        assert row2[0].callback_data == "nlp:x:c"
+        assert row2[0].callback_data == "ui:model:reset|test1"
 
     def test_no_report_or_menu_buttons(self):
         """Model card should not include Report/Menu buttons."""

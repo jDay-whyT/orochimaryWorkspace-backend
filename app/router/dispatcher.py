@@ -412,7 +412,7 @@ async def _execute_handler(
             k = generate_token()
             memory_state.transition(
                 message.chat.id, message.from_user.id,
-                flow="nlp_actions",
+                flow="nlp_idle",
                 model_id=model["id"],
                 model_name=model["name"],
                 k=k,

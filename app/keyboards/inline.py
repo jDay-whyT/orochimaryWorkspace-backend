@@ -308,7 +308,7 @@ def build_orders_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="➕ Новый заказ", callback_data=_with_token("orders|new|start", token)),
             InlineKeyboardButton(text="📂 Открытые", callback_data=_with_token("orders|open|list", token)),
         ],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token))],
+        [InlineKeyboardButton(text="◀️ К карточке", callback_data=build_ui_callback("model", "card", token=token))],
     ])
 
 
@@ -322,7 +322,7 @@ def build_order_card_keyboard_final(order_id: str, token: str = "") -> InlineKey
         [InlineKeyboardButton(text="✅ Закрыть", callback_data=_with_token(f"orders|close_today_confirm|{order_id}", token))],
         [
             InlineKeyboardButton(text="◀️ К списку", callback_data=_with_token("orders|open|list", token)),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token)),
+            InlineKeyboardButton(text="◀️ К карточке", callback_data=build_ui_callback("model", "card", token=token)),
         ],
     ])
 
@@ -426,7 +426,7 @@ def build_planner_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="➕ Съёмка", callback_data=_with_token("planner|new|start", token)),
             InlineKeyboardButton(text="🖊️ Редактировать", callback_data=_with_token("planner|upcoming|list", token)),
         ],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token))],
+        [InlineKeyboardButton(text="◀️ К карточке", callback_data=build_ui_callback("model", "card", token=token))],
     ])
 
 
@@ -441,7 +441,7 @@ def build_planner_shoot_edit_keyboard(shoot_id: str, token: str = "") -> InlineK
         [InlineKeyboardButton(text="✅ Закрыть", callback_data=_with_token(f"planner|done|{shoot_id}", token))],
         [
             InlineKeyboardButton(text="◀️ Назад", callback_data=_with_token("planner|upcoming|list", token)),
-            InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token)),
+            InlineKeyboardButton(text="◀️ К карточке", callback_data=build_ui_callback("model", "card", token=token)),
         ],
     ])
 
@@ -452,7 +452,7 @@ def build_files_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="➕ Добавить файлы", callback_data=_with_token("files|add_files", token))],
         [InlineKeyboardButton(text="📂 Тип (контент)", callback_data=_with_token("files|edit_content", token))],
         [InlineKeyboardButton(text="💬 Обновить комментарий", callback_data=_with_token("files|edit_comment", token))],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data=_with_token("menu", token))],
+        [InlineKeyboardButton(text="◀️ К карточке", callback_data=build_ui_callback("model", "card", token=token))],
     ])
 
 
@@ -521,12 +521,12 @@ def build_file_type_keyboard(token: str = "") -> InlineKeyboardMarkup:
 def accounting_menu_keyboard(token: str = "") -> InlineKeyboardMarkup:
     """Accounting section menu."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Поиск модели", callback_data=_with_token("account|search|search", token))],
+        [InlineKeyboardButton(text="🔍 Поиск модели", callback_data=build_ui_callback("account", "search", token=token))],
         [
-            InlineKeyboardButton(text="📋 Текущий месяц", callback_data=_with_token("account|current|list", token)),
-            InlineKeyboardButton(text="➕ добавить файлы", callback_data=_with_token("account|add_files|start", token)),
+            InlineKeyboardButton(text="📋 Текущий месяц", callback_data=build_ui_callback("account", "current", token=token)),
+            InlineKeyboardButton(text="➕ Добавить файлы", callback_data=build_ui_callback("account", "add_files", token=token)),
         ],
-        build_nav_buttons("account", _section_label("account"), back_to="main", token=token),
+        [InlineKeyboardButton(text="◀️ К карточке", callback_data=build_ui_callback("model", "card", token=token))],
     ])
 
 
@@ -534,12 +534,12 @@ def accounting_quick_files_keyboard(page_id: str, current: int, token: str = "")
     """Quick file count buttons."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="5", callback_data=_with_token(f"account|files|{page_id}|5", token)),
-            InlineKeyboardButton(text="10", callback_data=_with_token(f"account|files|{page_id}|10", token)),
-            InlineKeyboardButton(text="15", callback_data=_with_token(f"account|files|{page_id}|15", token)),
-            InlineKeyboardButton(text="20", callback_data=_with_token(f"account|files|{page_id}|20", token)),
+            InlineKeyboardButton(text="5", callback_data=build_ui_callback("account", "files", value=f"{page_id}:5", token=token)),
+            InlineKeyboardButton(text="10", callback_data=build_ui_callback("account", "files", value=f"{page_id}:10", token=token)),
+            InlineKeyboardButton(text="15", callback_data=build_ui_callback("account", "files", value=f"{page_id}:15", token=token)),
+            InlineKeyboardButton(text="20", callback_data=build_ui_callback("account", "files", value=f"{page_id}:20", token=token)),
         ],
-        [InlineKeyboardButton(text="◀️ Back", callback_data=_with_token("account|back|list", token))],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data=build_ui_callback("account", "back", value="list", token=token))],
     ])
 
 
