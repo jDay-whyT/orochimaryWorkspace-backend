@@ -36,9 +36,20 @@ async def handle_ui_callback(
     chat_id = query.message.chat.id
     user_id = query.from_user.id
     state = memory_state.get(chat_id, user_id) or {}
+    token = parsed.token or generate_token()
 
     if parsed.module != "model":
         await query.answer("Экран устарел, открой заново", show_alert=True)
+        return
+
+    if parsed.action == "reset":
+        memory_state.clear(chat_id, user_id)
+        memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
+        await safe_edit_message(
+            query,
+            "♻️ Сброс выполнен.\n\nМодель не выбрана — откройте карточку модели заново.",
+        )
+        await query.answer()
         return
 
     model_id = state.get("model_id")
@@ -46,8 +57,6 @@ async def handle_ui_callback(
     if not model_id or not model_name:
         await query.answer("Сессия истекла, открой модель заново", show_alert=True)
         return
-
-    token = generate_token()
 
     if parsed.action == "orders":
         memory_state.transition(chat_id, user_id, flow="nlp_idle", model_id=model_id, model_name=model_name, k=token)

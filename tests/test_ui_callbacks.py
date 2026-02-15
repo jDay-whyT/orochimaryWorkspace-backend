@@ -45,6 +45,33 @@ def test_model_orders_callback_opens_orders_menu() -> None:
     assert "📦 Заказы" in text
 
 
+
+def test_ui_callback_parse_value_with_colons() -> None:
+    data = build_ui_callback("model", "open", value="part1:part2:part3", token="tok")
+    parsed = parse_ui_callback(data)
+
+    assert parsed is not None
+    assert parsed.value == "part1:part2:part3"
+
+
+def test_model_reset_callback_clears_state() -> None:
+    memory_state = MemoryState()
+    query = _make_query("ui:model:reset|tok1")
+    config = MagicMock()
+    config.allowed_users = {1}
+    notion = AsyncMock()
+
+    memory_state.set(100, 1, {"model_id": "m1", "model_name": "Triko", "flow": "nlp_idle", "k": "old"})
+
+    asyncio.run(handle_ui_callback(query, config, notion, memory_state))
+
+    query.message.edit_text.assert_called_once()
+    state = memory_state.get(100, 1)
+    assert state is not None
+    assert state.get("flow") == "nlp_idle"
+    assert state.get("k") == "tok1"
+    assert state.get("model_id") is None
+
 def test_legacy_unknown_nlp_callback_is_graceful_alert() -> None:
     from app.handlers.nlp_callbacks import handle_nlp_callback
 
