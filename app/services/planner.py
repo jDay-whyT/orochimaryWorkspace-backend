@@ -78,8 +78,10 @@ class PlannerService:
         content: list[str],
         location: str,
         comment: str | None = None,
+        comments: str | None = None,
     ) -> str:
         """Create new shoot"""
+        comment_value = comments if comments is not None else comment
         shoot_date_obj = date.fromisoformat(shoot_date)
         title = f"Shoot · {shoot_date_obj.isoformat()}"
         return await self.notion.create_shoot(
@@ -89,7 +91,7 @@ class PlannerService:
             content=content,
             location=location,
             title=title,
-            comments=comment,
+            comments=comment_value,
         )
 
     async def mark_done(self, shoot_id: str) -> None:

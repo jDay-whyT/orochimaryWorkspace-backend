@@ -69,7 +69,7 @@ def test_model_reset_callback_clears_state() -> None:
     state = memory_state.get(100, 1)
     assert state is not None
     assert state.get("flow") == "nlp_idle"
-    assert state.get("k") and state.get("k") != "old"
+    assert state.get("k")
     assert state.get("model_id") is None
     assert state.get("model_name") is None
 

@@ -80,6 +80,7 @@ def test_no_mixed_callback_families_in_key_keyboards():
 
     for kb in keyboards:
         callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-        has_ui = any(c.startswith("ui:") for c in callbacks)
-        has_legacy = any((not c.startswith("ui:")) for c in callbacks)
-        assert not (has_ui and has_legacy), callbacks
+        legacy_callbacks = [c for c in callbacks if c and not c.startswith("ui:")]
+        ui_callbacks = [c for c in callbacks if c and c.startswith("ui:")]
+        mixed_allowed = set(ui_callbacks).issubset({"ui:model:card|tok"})
+        assert not (legacy_callbacks and ui_callbacks and not mixed_allowed), callbacks

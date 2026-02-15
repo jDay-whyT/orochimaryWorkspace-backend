@@ -9,7 +9,7 @@ from app.filters.topic_access import TopicAccessMessageFilter
 from app.roles import is_authorized
 from app.services import NotionClient, ModelsService
 from app.services.model_card import build_model_card
-from app.state import MemoryState, RecentModels, generate_token, get_active_token
+from app.state import MemoryState, RecentModels, get_active_token
 from app.utils.navigation import format_breadcrumbs
 from app.keyboards.inline import model_card_keyboard, models_keyboard
 
@@ -88,7 +88,7 @@ async def main_select_model_callback(call: CallbackQuery, config: Config, notion
         await call.answer("Модель не найдена", show_alert=True)
         return
 
-    token = generate_token()
+    token = get_active_token(memory_state, call.message.chat.id, call.from_user.id)
     memory_state.transition(
         call.message.chat.id,
         call.from_user.id,

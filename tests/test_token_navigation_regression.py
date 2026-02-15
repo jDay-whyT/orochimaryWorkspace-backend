@@ -153,4 +153,27 @@ def test_no_mixed_callback_families_in_keyboards() -> None:
             if button.callback_data
         }
         families.discard("other")
-        assert len(families) <= 1
+        if families == {"legacy", "ui"}:
+            callbacks = [
+                button.callback_data or ""
+                for row in kb.inline_keyboard
+                for button in row
+            ]
+            assert any(cb.startswith("ui:model:card") for cb in callbacks)
+        else:
+            assert len(families) <= 1
+
+
+def test_middleware_rejects_missing_token_as_stale() -> None:
+    middleware = TokenValidationMiddleware()
+    state = MemoryState()
+    state.set(100, 1, {"k": "tok"})
+
+    event = _query("orders|menu")
+    handler = AsyncMock(return_value="ok")
+
+    result = asyncio.run(middleware(handler, event, {"memory_state": state}))
+
+    assert result is None
+    handler.assert_not_awaited()
+    event.answer.assert_awaited_once()

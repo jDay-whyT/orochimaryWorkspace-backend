@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery
 
 LOGGER = logging.getLogger(__name__)
 
-_MANAGED_PREFIXES = ("ui:", "orders|", "planner|", "account|", "files|", "order:", "planner:", "menu")
+_MANAGED_PREFIXES = ("ui:", "orders|", "planner|", "account|", "files|", "order:", "planner:", "menu", "main|")
 def _extract_payload_token_action(callback_data: str) -> tuple[str, str, str]:
     payload, sep, callback_token = callback_data.rpartition("|")
     if not sep:
