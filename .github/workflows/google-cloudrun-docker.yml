@@ -116,5 +116,6 @@ jobs:
             ALLOWED_EDITORS=${{ vars.ALLOWED_EDITORS }}
             FILES_TARGET_WORK=${{ vars.FILES_TARGET_WORK }}
             FILES_TARGET_NEW=${{ vars.FILES_TARGET_NEW }}
+            CRM_TOPIC_THREAD_ID=${{ vars.CRM_TOPIC_THREAD_ID }}
 
       
