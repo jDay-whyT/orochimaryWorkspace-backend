@@ -148,6 +148,22 @@ async def _render_orders_menu_screen(target: Message | CallbackQuery, model_name
     )
 
 
+async def _clear_previous_screen_keyboard_best_effort(message: Message, memory_state: MemoryState) -> None:
+    """Best-effort cleanup for direct calls outside dispatcher path."""
+    state = memory_state.get(message.chat.id, message.from_user.id) or {}
+    prev_message_id = state.get("screen_message_id") or state.get("last_screen_message_id")
+    if not prev_message_id:
+        return
+    try:
+        await message.bot.edit_message_reply_markup(
+            chat_id=message.chat.id,
+            message_id=prev_message_id,
+            reply_markup=None,
+        )
+    except Exception:
+        return
+
+
 async def show_orders_menu_from_nlp(target: Message | CallbackQuery, model: dict, memory_state: MemoryState) -> None:
     """Show unified orders menu from NLP intent routing."""
     if isinstance(target, CallbackQuery):
@@ -165,6 +181,8 @@ async def show_orders_menu_from_nlp(target: Message | CallbackQuery, model: dict
         model_title=model["name"],
         k=token,
     )
+    if not isinstance(target, CallbackQuery):
+        await _clear_previous_screen_keyboard_best_effort(target, memory_state)
     await _render_orders_menu_screen(target, model["name"], token)
 
 
