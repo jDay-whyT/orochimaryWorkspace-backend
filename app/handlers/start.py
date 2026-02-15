@@ -2,14 +2,15 @@ import logging
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
 from app.filters.topic_access import TopicAccessMessageFilter
 from app.roles import is_authorized
 from app.services import NotionClient
-from app.state import MemoryState, RecentModels
+from app.state import MemoryState, RecentModels, generate_token
 from app.utils.navigation import format_breadcrumbs
+from app.keyboards.inline import build_main_menu_keyboard
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -17,7 +18,7 @@ router.message.filter(TopicAccessMessageFilter())
 
 
 @router.message(Command("start"))
-async def cmd_start(message: Message, config: Config) -> None:
+async def cmd_start(message: Message, config: Config, memory_state: MemoryState) -> None:
     """Handle /start command."""
     user_id = message.from_user.id
 
@@ -33,18 +34,27 @@ async def cmd_start(message: Message, config: Config) -> None:
 
     LOGGER.info("User %s started bot", user_id)
 
+    token = generate_token()
+    memory_state.transition(message.chat.id, message.from_user.id, flow="nlp_idle", k=token)
     await message.answer(
-        f"{format_breadcrumbs(['🏠 Меню'])}\n\n"
-        "👋 Привет! Это бот для ведение моделей в Notion\n\n"
-        "📝 <b>Примеры команд:</b>\n"
-        "• три кастома клещ — бот создаст 3 заказа\n"
-        "• клещ 30 файлов — добавит файлы в учет месяца\n"
-        "• сьемка\шут клещ — создаст сьемку в планере\n"
-        "Просто пиши мне текстом! 🚀",
-        reply_markup=ReplyKeyboardRemove(),
+        f"{format_breadcrumbs(['🏠 Главное меню'])}\n\nВыберите раздел:",
+        reply_markup=build_main_menu_keyboard(token=token),
         parse_mode="HTML",
     )
 
+
+
+
+@router.callback_query(F.data.startswith("menu"))
+async def menu_callback(call: CallbackQuery, memory_state: MemoryState) -> None:
+    """Open unified main menu from inline navigation."""
+    token = generate_token()
+    memory_state.transition(call.message.chat.id, call.from_user.id, flow="nlp_idle", k=token)
+    await call.message.edit_text(
+        f"{format_breadcrumbs(['🏠 Главное меню'])}\n\nВыберите раздел:",
+        reply_markup=build_main_menu_keyboard(token=token),
+    )
+    await call.answer()
 
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, memory_state: MemoryState) -> None:

@@ -16,6 +16,8 @@ from app.keyboards.inline import (
     planner_shoot_keyboard,
     planner_cancel_confirm_keyboard,
     back_keyboard,
+    build_planner_keyboard,
+    build_planner_edit_keyboard,
 )
 from app.keyboards.calendar import calendar_keyboard, parse_calendar_navigation
 from app.roles import is_authorized, is_editor_or_admin
@@ -39,6 +41,128 @@ def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
     return query.message.chat.id, query.from_user.id
 
 
+
+
+def _strip_token(callback_data: str) -> str:
+    return (callback_data or "").split("|", 1)[0]
+
+
+@router.callback_query(F.data.startswith("planner:"))
+async def handle_unified_planner_callback(
+    query: CallbackQuery,
+    memory_state: MemoryState,
+) -> None:
+    """Unified planner navigation per final UX scheme."""
+    data = _strip_token(query.data)
+    parts = data.split(":")
+    action = parts[1] if len(parts) > 1 else "menu"
+    chat_id, user_id = _state_ids_from_query(query)
+
+    if action == "menu":
+        token = generate_token()
+        memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
+        await query.message.edit_text(
+            "🏠 > 📂 Планер\n\n📂 Планер",
+            reply_markup=build_planner_keyboard(token=token),
+        )
+        await query.answer()
+        return
+
+    if action == "new":
+        memory_state.transition(chat_id, user_id, flow="nlp_planner_new")
+        await query.message.answer("Введите название съёмки:")
+        await query.answer()
+        return
+
+    if action == "edit":
+        shoot_id = parts[2] if len(parts) > 2 else None
+        if not shoot_id:
+            memory_state.transition(chat_id, user_id, flow="nlp_planner_edit")
+            await query.message.answer("Введите название съёмки для редактирования:")
+        else:
+            token = generate_token()
+            memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
+            await query.message.edit_text(
+                "🖊️ Редактирование съёмки",
+                reply_markup=build_planner_edit_keyboard(shoot_id=shoot_id, token=token),
+            )
+        await query.answer()
+        return
+
+    shoot_id = parts[2] if len(parts) > 2 else "temp"
+
+    if action == "move":
+        await query.answer("📋 Перенос съёмки")
+        return
+
+    if action == "synth":
+        await query.answer("🎨 Синтез контента")
+        return
+
+    if action == "comment":
+        memory_state.transition(chat_id, user_id, flow="nlp_planner_comment", shoot_id=shoot_id)
+        await query.message.answer("Введите комментарий:")
+        await query.answer()
+        return
+
+    if action == "close":
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+        await query.message.edit_text(
+            "✅ Съёмка закрыта",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]]),
+        )
+        memory_state.transition(chat_id, user_id, flow="nlp_idle")
+    await query.answer()
+
+
+@router.message(FlowFilter({"nlp_planner_new"}), F.text)
+async def save_new_shoot_unified(message: Message, memory_state: MemoryState) -> None:
+    """Save newly created shoot and open edit menu."""
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    token = generate_token()
+    await message.answer(
+        f"✅ Съёмка создана: {message.text}\n\nОткрыто меню редактирования:",
+        reply_markup=build_planner_edit_keyboard(shoot_id="temp", token=token),
+    )
+    memory_state.transition(message.chat.id, message.from_user.id, flow="nlp_idle", k=token)
+
+
+@router.message(FlowFilter({"nlp_planner_edit"}), F.text)
+async def open_edit_menu_unified(message: Message, memory_state: MemoryState) -> None:
+    """Open planner edit menu after free-text shoot input."""
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    token = generate_token()
+    await message.answer(
+        f"🖊️ Редактирование: {message.text}",
+        reply_markup=build_planner_edit_keyboard(shoot_id="temp", token=token),
+    )
+    memory_state.transition(message.chat.id, message.from_user.id, flow="nlp_idle", k=token)
+
+
+@router.message(FlowFilter({"nlp_planner_comment"}), F.text)
+async def save_comment_unified(message: Message, memory_state: MemoryState) -> None:
+    """Save planner comment and return to edit menu."""
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    state = memory_state.get(message.chat.id, message.from_user.id) or {}
+    shoot_id = state.get("shoot_id", "temp")
+    token = generate_token()
+    await message.answer(
+        "✅ Комментарий добавлен",
+        reply_markup=build_planner_edit_keyboard(shoot_id=shoot_id, token=token),
+    )
+    memory_state.transition(message.chat.id, message.from_user.id, flow="nlp_idle", k=token)
 async def show_planner_menu(message: Message, config: Config) -> None:
     """Show planner section menu."""
     await message.answer(

@@ -129,6 +129,8 @@ async def route_message(
     _FLOW_FILTER_FLOWS = {
         "nlp_search", "nlp_new_order", "nlp_view", "nlp_comment_legacy",
         "nlp_summary", "nlp_planner", "nlp_accounting",
+        "nlp_planner_new", "nlp_planner_edit", "nlp_planner_comment",
+        "nlp_files_upload", "nlp_idle",
     }
 
     user_state = memory_state.get(chat_id, user_id)
