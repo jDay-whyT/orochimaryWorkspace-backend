@@ -319,12 +319,12 @@ class TestKeyboardTokenEmbedding:
             assert cb.endswith(":t3st"), f"Missing token in {cb}"
 
     def test_model_actions_keyboard_has_token(self):
-        """nlp_model_actions_keyboard should include token."""
+        """model_card ui callbacks should include token."""
         kb = nlp_model_actions_keyboard("zz99")
         callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-        act_callbacks = [c for c in callbacks if c.startswith("nlp:act:")]
+        act_callbacks = [c for c in callbacks if c.startswith("ui:model:")]
         for cb in act_callbacks:
-            assert cb.endswith(":zz99"), f"Missing token in {cb}"
+            assert cb.endswith("|zz99"), f"Missing token in {cb}"
 
     def test_back_button_has_no_token(self):
         """Back button should NOT have a token (always allowed)."""

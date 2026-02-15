@@ -670,35 +670,16 @@ async def _handle_shoot_reschedule(message, model, entities, config, notion, mem
 # ============================================================================
 
 async def _handle_create_orders_general(message, model, entities, config, memory_state):
-    """Handle general order creation (type not specified → ask)."""
+    """Handle generic orders intent by opening unified Orders module screen."""
     from app.roles import is_editor
     if not is_editor(message.from_user.id, config):
         await message.answer("❌ Нет прав.")
         return
 
-    from app.keyboards.inline import nlp_order_type_keyboard
-    k = generate_token()
-    chat_id = message.chat.id
-    memory_state.transition(
-        chat_id, message.from_user.id,
-        flow="nlp_order",
-        step="awaiting_type",
-        model_id=model["id"],
-        model_name=model["name"],
-        k=k,
-    )
+    from app.handlers.orders import show_orders_menu_from_nlp
+
     await _clear_previous_screen_keyboard(message, memory_state)
-    sent = await message.answer(
-        f"📦 <b>{html.escape(model['name'])}</b> · Тип заказа:",
-        reply_markup=nlp_order_type_keyboard(model["id"], k),
-        parse_mode="HTML",
-    )
-    _remember_screen_message(
-        memory_state,
-        chat_id,
-        message.from_user.id,
-        sent.message_id if sent else None,
-    )
+    await show_orders_menu_from_nlp(message, model, memory_state)
 
 
 async def _handle_close_orders(message, model, entities, config, notion, memory_state):

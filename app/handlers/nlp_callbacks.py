@@ -389,7 +389,7 @@ async def handle_nlp_callback(
 
         else:
             LOGGER.warning("Unknown NLP callback action: %s", action)
-            await query.answer("Unknown action", show_alert=True)
+            await query.answer("Экран устарел, открой заново", show_alert=True)
 
     except Exception as e:
         LOGGER.exception("Error in NLP callback: %s", e)
