@@ -12,6 +12,7 @@ from app.keyboards.inline import (
 from app.services.accounting import AccountingService
 from app.state import MemoryState, generate_token
 from app.utils.constants import NLP_ACCOUNTING_CONTENT_TYPES
+from app.utils import safe_edit_message
 
 router = Router()
 
@@ -34,6 +35,23 @@ async def _open_content_selector(call: CallbackQuery, memory_state: MemoryState,
     )
 
 
+async def _ask_select_model(target: CallbackQuery | Message, memory_state: MemoryState, return_to: str = "files") -> None:
+    if isinstance(target, CallbackQuery):
+        chat_id, user_id = _state_ids_from_query(target)
+        token = generate_token()
+        memory_state.transition(chat_id, user_id, flow="nlp_idle", step="select_model", return_to=return_to, k=token)
+        await safe_edit_message(
+            target,
+            "Сначала выберите модель.\n\nВведите имя модели обычным текстом:",
+        )
+        return
+
+    chat_id, user_id = target.chat.id, target.from_user.id
+    token = generate_token()
+    memory_state.transition(chat_id, user_id, flow="nlp_idle", step="select_model", return_to=return_to, k=token)
+    await target.answer("Сначала выберите модель.\n\nВведите имя модели обычным текстом:")
+
+
 async def _add_files_and_prompt_content_update(
     call: CallbackQuery,
     config: Config,
@@ -46,7 +64,7 @@ async def _add_files_and_prompt_content_update(
     model_name = state.get("model_name") or "—"
 
     if not model_id:
-        await call.answer("Сначала выберите модель через /трико", show_alert=True)
+        await _ask_select_model(call, memory_state, return_to="files")
         return
 
     service = AccountingService(config)
@@ -156,7 +174,7 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
     elif action == "content_done":
         flow = state.get("flow")
         if not model_id:
-            await call.answer("Сначала выберите модель через /трико", show_alert=True)
+            await _ask_select_model(call, memory_state, return_to="files")
             return
         service = AccountingService(config)
         try:
@@ -192,7 +210,7 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
 
     elif action == "edit_content":
         if not model_id:
-            await call.answer("Сначала выберите модель через /трико", show_alert=True)
+            await _ask_select_model(call, memory_state, return_to="files")
             return
         service = AccountingService(config)
         try:
@@ -223,7 +241,7 @@ async def handle_quantity_input(msg: Message, config: Config, memory_state: Memo
     model_id = state.get("model_id")
     model_name = state.get("model_name") or "—"
     if not model_id:
-        await msg.answer("Сначала выберите модель через /трико")
+        await _ask_select_model(msg, memory_state, return_to="files")
         return
 
     service = AccountingService(config)
@@ -247,7 +265,7 @@ async def handle_edit_comment(msg: Message, config: Config, memory_state: Memory
     model_id = state.get("model_id")
     model_name = state.get("model_name") or "—"
     if not model_id:
-        await msg.answer("Сначала выберите модель через /трико")
+        await _ask_select_model(msg, memory_state, return_to="files")
         return
 
     service = AccountingService(config)
