@@ -136,10 +136,10 @@ class TestModelCardKeyboard:
         assert row1[2].callback_data == "ui:model:files|abc123"
 
     def test_shoot_button_callback(self):
-        """📅 Съёмка -> ui:model:shoot|{k}."""
+        """📅 Съёмка -> ui:model:planner|{k}."""
         kb = model_card_keyboard("abc123")
         row1 = kb.inline_keyboard[0]
-        assert row1[1].callback_data == "ui:model:shoot|abc123"
+        assert row1[1].callback_data == "ui:model:planner|abc123"
 
     def test_all_callbacks_under_64_bytes(self):
         """All callback_data in model_card_keyboard must be <64 bytes."""

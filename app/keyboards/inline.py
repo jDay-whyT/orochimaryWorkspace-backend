@@ -701,7 +701,7 @@ def model_card_keyboard(k: str = "") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="📦 Заказы", callback_data=build_ui_callback("model", "orders", token=k)),
-            InlineKeyboardButton(text="📅 Съёмка", callback_data=build_ui_callback("model", "shoot", token=k)),
+            InlineKeyboardButton(text="📅 Съёмка", callback_data=build_ui_callback("model", "planner", token=k)),
             InlineKeyboardButton(text="📁 Файлы", callback_data=build_ui_callback("model", "files", token=k)),
         ],
         [InlineKeyboardButton(text="♻️ Сброс", callback_data=build_ui_callback("model", "reset", token=k))],

@@ -27,7 +27,7 @@ from app.keyboards.inline import build_orders_menu_keyboard, build_order_card_ke
 from app.roles import is_authorized, can_edit
 from app.services import NotionClient, NotionOrder
 from app.services.model_card import build_model_card
-from app.state import MemoryState, RecentModels, generate_token, get_active_token
+from app.state import MemoryState, RecentModels, get_active_token
 from app.utils.exceptions import NotionAPIError
 from app.utils import (
     format_date_short,
@@ -179,7 +179,7 @@ async def show_orders_menu_from_nlp(target: Message | CallbackQuery, model: dict
     else:
         chat_id, user_id = _state_ids_from_message(target)
 
-    token = generate_token()
+    token = get_active_token(memory_state, chat_id, user_id)
     memory_state.transition(
         chat_id,
         user_id,

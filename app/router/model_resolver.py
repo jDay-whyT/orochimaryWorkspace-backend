@@ -27,13 +27,15 @@ FUZZY_MIN_QUERY_LENGTH = 4
 MAX_DISAMBIGUATION_BUTTONS = 5
 
 
-def normalize_model_name(name: str) -> str:
+def normalize_model_name(name: str | None) -> str:
     """
     Normalize model name for matching.
 
     "Black-Pearl" → "black pearl"
     "polik" → "polik"
     """
+    if not name:
+        return ""
     result = name.lower()
     result = result.replace("-", " ").replace("_", " ")
     # Collapse multiple spaces
