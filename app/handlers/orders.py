@@ -23,6 +23,7 @@ from app.keyboards import (
     models_keyboard,
     back_cancel_keyboard,
 )
+from app.keyboards.inline import build_orders_keyboard, build_order_card_keyboard
 from app.roles import is_authorized, can_edit
 from app.services import NotionClient, NotionOrder
 from app.state import MemoryState, RecentModels, generate_token
@@ -58,6 +59,59 @@ def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
     if not query.message:
         return query.from_user.id, query.from_user.id
     return query.message.chat.id, query.from_user.id
+
+
+def _strip_token(callback_data: str) -> str:
+    return (callback_data or "").split("|", 1)[0]
+
+
+@router.callback_query(F.data.startswith("order:"))
+async def handle_unified_orders_menu(
+    query: CallbackQuery,
+    memory_state: MemoryState,
+) -> None:
+    """Unified simplified orders navigation (final UX scheme)."""
+    data = _strip_token(query.data)
+    parts = data.split(":")
+    action = parts[1] if len(parts) > 1 else "menu"
+    chat_id, user_id = _state_ids_from_query(query)
+
+    if action == "menu":
+        token = generate_token()
+        memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
+        await query.message.edit_text(
+            "🏠 > 📦 Заказы\n\n📦 Заказы",
+            reply_markup=build_orders_keyboard(token=token),
+        )
+        await query.answer()
+        return
+
+    if action == "new":
+        memory_state.transition(chat_id, user_id, flow="nlp_new_order", k=generate_token())
+        await query.message.answer("Введите данные нового заказа:")
+        await query.answer()
+        return
+
+    if action == "list":
+        token = generate_token()
+        memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
+        await query.message.edit_text(
+            "🏠 > 📦 Заказы > 📂 Открытые\n\nВыберите заказ:",
+            reply_markup=build_order_card_keyboard(order_id="temp", token=token),
+        )
+        await query.answer()
+        return
+
+    if action in {"info", "edit"}:
+        order_id = parts[2] if len(parts) > 2 else "temp"
+        title = "📊 Информация" if action == "info" else "✏️ Редактирование"
+        token = generate_token()
+        memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
+        await query.message.edit_text(
+            f"🏠 > 📦 Заказы > #{order_id}\n\n{title}",
+            reply_markup=build_order_card_keyboard(order_id=order_id, token=token),
+        )
+    await query.answer()
 
 
 # ==================== Menu ====================

@@ -6,12 +6,12 @@ from aiogram.types import CallbackQuery
 
 LOGGER = logging.getLogger(__name__)
 
-_MANAGED_PREFIXES = ("orders|", "planner|", "account|")
-_ALLOWED_STALE_ACTIONS = {"back", "cancel"}
+_MANAGED_PREFIXES = ("orders|", "planner|", "account|", "order:", "planner:", "files:", "menu")
+_ALLOWED_STALE_ACTIONS = {"back", "cancel", "menu"}
 
 
 class TokenValidationMiddleware(BaseMiddleware):
-    """Reject stale callback buttons for legacy non-NLP routers."""
+    """Reject stale callback buttons for legacy and unified routers."""
 
     async def __call__(
         self,
@@ -23,11 +23,20 @@ class TokenValidationMiddleware(BaseMiddleware):
         if not callback_data.startswith(_MANAGED_PREFIXES):
             return await handler(event, data)
 
-        parts = callback_data.split("|")
-        if len(parts) < 3:
-            return await handler(event, data)
+        # token is passed as suffix: "<payload>|<token>"
+        payload, _, callback_token = callback_data.partition("|")
 
-        action = parts[1]
+        if payload.startswith(("orders|", "planner|", "account|")):
+            parts = payload.split("|")
+            if len(parts) < 3:
+                return await handler(event, data)
+            action = parts[1]
+        elif payload.startswith("menu"):
+            action = "menu"
+        else:
+            parts = payload.split(":")
+            action = parts[1] if len(parts) > 1 else ""
+
         if action in _ALLOWED_STALE_ACTIONS:
             return await handler(event, data)
 
@@ -44,7 +53,6 @@ class TokenValidationMiddleware(BaseMiddleware):
         if not state_token:
             return await handler(event, data)
 
-        callback_token = parts[-1] if len(parts) >= 4 else ""
         if callback_token == state_token:
             return await handler(event, data)
 
