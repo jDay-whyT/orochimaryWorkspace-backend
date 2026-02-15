@@ -7,9 +7,6 @@ from aiogram.types import CallbackQuery
 LOGGER = logging.getLogger(__name__)
 
 _MANAGED_PREFIXES = ("ui:", "orders|", "planner|", "account|", "files|", "order:", "planner:", "menu")
-_ALLOWED_STALE_ACTIONS = {"back", "cancel", "menu"}
-
-
 def _extract_payload_token_action(callback_data: str) -> tuple[str, str, str]:
     payload, sep, callback_token = callback_data.rpartition("|")
     if not sep:
@@ -19,7 +16,7 @@ def _extract_payload_token_action(callback_data: str) -> tuple[str, str, str]:
     if payload.startswith(("orders|", "planner|", "account|", "files|")):
         parts = payload.split("|")
         action = parts[1] if len(parts) > 1 else ""
-        if not callback_token and len(parts) > 2:
+        if not callback_token and len(parts) > 2 and len(parts[-1]) >= 4:
             callback_token = parts[-1]
     elif payload.startswith("ui:"):
         parts = payload.split(":")
@@ -48,9 +45,6 @@ class TokenValidationMiddleware(BaseMiddleware):
 
         _, callback_token, action = _extract_payload_token_action(callback_data)
 
-        if action in _ALLOWED_STALE_ACTIONS:
-            return await handler(event, data)
-
         memory_state = data.get("memory_state")
         if memory_state is None:
             return await handler(event, data)
@@ -64,7 +58,7 @@ class TokenValidationMiddleware(BaseMiddleware):
         if not state_token:
             return await handler(event, data)
 
-        if callback_token == state_token:
+        if callback_token and callback_token == state_token:
             return await handler(event, data)
 
         LOGGER.info(

@@ -426,8 +426,11 @@ class NotionClient:
         title: str,
         comments: str | None = None,
         status: str | None = None,
+        comment: str | None = None,
     ) -> str:
         """Create a new shoot. Returns page ID."""
+        if comments is None and comment is not None:
+            comments = comment
         shoot_status = status or "planned"
         properties: dict[str, Any] = {
             "Title": {"title": [{"text": {"content": title}}]},

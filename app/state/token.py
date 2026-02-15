@@ -28,13 +28,14 @@ def get_active_token(
     fallback_from_callback: str | None = None,
 ) -> str:
     """Return the current screen token, creating one only for a new session."""
-    if fallback_from_callback:
-        return fallback_from_callback
-
     state = memory_state.get(chat_id, user_id) or {}
     state_token = state.get("k")
     if state_token:
         return state_token
+
+    if fallback_from_callback:
+        memory_state.update(chat_id, user_id, k=fallback_from_callback)
+        return fallback_from_callback
 
     token = generate_token()
     memory_state.update(chat_id, user_id, k=token)

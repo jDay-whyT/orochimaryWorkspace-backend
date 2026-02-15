@@ -29,8 +29,10 @@ def detect_order_type(text: str) -> Optional[str]:
     return None
 
 
-def normalize_model_name(name: str) -> str:
-    """Normalize model name for search."""
+def normalize_model_name(name: str | None) -> str:
+    """Normalize model name for search (None-safe)."""
+    if not name:
+        return ""
     return name.strip().lower()
 
 

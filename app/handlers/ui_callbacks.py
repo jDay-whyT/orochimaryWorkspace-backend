@@ -80,7 +80,7 @@ async def handle_ui_callback(
         await query.answer()
         return
 
-    if parsed.action == "shoot":
+    if parsed.action in {"planner", "shoot"}:
         memory_state.transition(chat_id, user_id, flow="nlp_idle", model_id=model_id, model_name=model_name, k=token)
         await safe_edit_message(
             query,

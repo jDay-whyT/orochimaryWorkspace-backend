@@ -771,7 +771,7 @@ async def _create_shoot(
     try:
         create_kwargs = dict(model_id=model_id, shoot_date=date_str, content=content, location=location)
         if comment:
-            create_kwargs["comment"] = comment
+            create_kwargs["comments"] = comment
         shoot_id = await service.create_shoot(**create_kwargs)
         
         memory_state.clear(chat_id, user_id)

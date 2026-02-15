@@ -139,7 +139,7 @@ async def _build_card_text_impl(
     now = datetime.now(tz=config.timezone)
 
     orders_count = "—"
-    shoot_line = "нет"
+    shoot_line = "—"
     files_line = format_accounting_progress(0, None)
     month_label = _month_ru(now.month)
     has_error = False
@@ -166,7 +166,7 @@ async def _build_card_text_impl(
             s_status = s.status or "planned"
             shoot_line = f"{s_date} ({s_status})"
         else:
-            shoot_line = "нет"
+            shoot_line = "—"
     except Exception:
         LOGGER.warning("model_card: failed to fetch shoots for %s", model_id)
         shoot_line = "—"
