@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
@@ -30,12 +31,11 @@ class Config:
 
 
 def _parse_user_ids(value: str) -> set[int]:
-    """Parse comma-separated user IDs from env variable."""
+    """Parse user IDs from env variable, splitting by commas/whitespace/newlines."""
     if not value:
         return set()
     result: set[int] = set()
-    for item in value.split(","):
-        item = item.strip()
+    for item in re.split(r"[,\s]+", value.strip()):
         if not item:
             continue
         try:
