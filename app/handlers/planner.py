@@ -685,12 +685,12 @@ async def _select_date(
     
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="💬 Add Comment", callback_data=f"planner|comment|shoot|{state.get("k", "")}"),
-        InlineKeyboardButton(text="Skip →", callback_data=f"planner|confirm|create|{state.get("k", "")}"),
+        InlineKeyboardButton(text="💬 Add Comment", callback_data=f"planner|comment|shoot|{state.get('k', '')}"),
+        InlineKeyboardButton(text="Skip →", callback_data=f"planner|confirm|create|{state.get('k', '')}"),
     )
     builder.row(
-        InlineKeyboardButton(text="◀️ Back", callback_data=f"planner|back|location|{state.get("k", "")}"),
-        InlineKeyboardButton(text="✖ Cancel", callback_data=f"planner|cancel|cancel|{state.get("k", "")}"),
+        InlineKeyboardButton(text="◀️ Back", callback_data=f"planner|back|location|{state.get('k', '')}"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data=f"planner|cancel|cancel|{state.get('k', '')}"),
     )
     
     await query.message.edit_text(
@@ -753,11 +753,11 @@ async def _handle_comment_text(
     
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="✓ Create", callback_data=f"planner|confirm|create|{state.get("k", "")}"),
+        InlineKeyboardButton(text="✓ Create", callback_data=f"planner|confirm|create|{state.get('k', '')}"),
     )
     builder.row(
-        InlineKeyboardButton(text="◀️ Back", callback_data=f"planner|back|location|{state.get("k", "")}"),
-        InlineKeyboardButton(text="✖ Cancel", callback_data=f"planner|cancel|cancel|{state.get("k", "")}"),
+        InlineKeyboardButton(text="◀️ Back", callback_data=f"planner|back|location|{state.get('k', '')}"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data=f"planner|cancel|cancel|{state.get('k', '')}"),
     )
     
     chat_id = state.get("screen_chat_id")
