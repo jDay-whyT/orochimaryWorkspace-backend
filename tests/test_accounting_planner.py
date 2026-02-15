@@ -385,7 +385,8 @@ class TestNlpShootContentTypes:
         assert "SFS" in NLP_SHOOT_CONTENT_TYPES
         assert "posting" in NLP_SHOOT_CONTENT_TYPES
         assert "fansly" in NLP_SHOOT_CONTENT_TYPES
-        assert len(NLP_SHOOT_CONTENT_TYPES) == 6
+        assert "event" in NLP_SHOOT_CONTENT_TYPES
+        assert len(NLP_SHOOT_CONTENT_TYPES) == 7
 
 
 class TestFilesMonthLimit:
