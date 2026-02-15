@@ -127,7 +127,6 @@ async def route_message(
     # nlp_* flows are handled via callbacks (buttons), not text —
     # if user sends text while in nlp_* flow, we must respond, not stay silent.
     _FLOW_FILTER_FLOWS = {
-        "nlp_idle",
         "nlp_select_model",
         "nlp_new_order", "nlp_order_quantity_input", "nlp_order_name_input",
         "nlp_planner",
@@ -143,7 +142,10 @@ async def route_message(
             LOGGER.info("ROUTE_MESSAGE SKIP: user=%s active flow=%s, deferring to FlowFilter", user_id, current_flow)
             return  # Let FlowFilter-based handlers pick this up
 
-        if current_flow.startswith("nlp_"):
+        if current_flow == "nlp_idle":
+            LOGGER.info("ROUTE_MESSAGE CONTINUE: user=%s active flow=%s, processing as normal text", user_id, current_flow)
+
+        elif current_flow.startswith("nlp_"):
             current_step = user_state.get("step", "")
 
             # Dispatch to step-specific text handler if one exists.
