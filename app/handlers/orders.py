@@ -23,7 +23,7 @@ from app.keyboards import (
     models_keyboard,
     back_cancel_keyboard,
 )
-from app.keyboards.inline import build_orders_keyboard, build_order_card_keyboard
+from app.keyboards.inline import build_orders_menu_keyboard, build_order_card_keyboard_final
 from app.roles import is_authorized, can_edit
 from app.services import NotionClient, NotionOrder
 from app.state import MemoryState, RecentModels, generate_token
@@ -81,7 +81,7 @@ async def handle_unified_orders_menu(
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await query.message.edit_text(
             "🏠 > 📦 Заказы\n\n📦 Заказы",
-            reply_markup=build_orders_keyboard(token=token),
+            reply_markup=build_orders_menu_keyboard(token=token),
         )
         await query.answer()
         return
@@ -97,7 +97,7 @@ async def handle_unified_orders_menu(
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await query.message.edit_text(
             "🏠 > 📦 Заказы > 📂 Открытые\n\nВыберите заказ:",
-            reply_markup=build_order_card_keyboard(order_id="temp", token=token),
+            reply_markup=build_order_card_keyboard_final(order_id="temp", token=token),
         )
         await query.answer()
         return
@@ -109,7 +109,7 @@ async def handle_unified_orders_menu(
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await query.message.edit_text(
             f"🏠 > 📦 Заказы > #{order_id}\n\n{title}",
-            reply_markup=build_order_card_keyboard(order_id=order_id, token=token),
+            reply_markup=build_order_card_keyboard_final(order_id=order_id, token=token),
         )
     await query.answer()
 
@@ -141,17 +141,35 @@ async def handle_orders_callback(
         return
     
     parts = query.data.split("|")
-    if len(parts) < 3:
+    if len(parts) < 2:
         await query.answer()
         return
 
     action = parts[1]
-    value = parts[2]
+    value = parts[2] if len(parts) > 2 else ""
     user_id = query.from_user.id
     
     try:
         # Menu navigation
-        if action == "back":
+        if action == "menu":
+            chat_id, user_id = _state_ids_from_query(query)
+            state = memory_state.get(chat_id, user_id) or {}
+            token = generate_token()
+            memory_state.transition(
+                chat_id,
+                user_id,
+                flow="nlp_idle",
+                model_id=state.get("model_id"),
+                model_name=state.get("model_name") or state.get("model_title"),
+                model_title=state.get("model_name") or state.get("model_title"),
+                k=token,
+            )
+            await safe_edit_message(
+                query,
+                f"🏠 > 📦 Заказы\nМодель: {state.get('model_name') or state.get('model_title') or '—'}",
+                reply_markup=build_orders_menu_keyboard(token=token),
+            )
+        elif action == "back":
             await handle_back(query, value, memory_state, config, notion, recent_models)
         
         elif action == "cancel":
@@ -731,32 +749,33 @@ async def start_new_order(
         return
     
     chat_id, user_id = _state_ids_from_query(query)
-    recent = recent_models.get(user_id)
-    
+    state = memory_state.get(chat_id, user_id) or {}
+    model_id = state.get("model_id")
+    model_title = state.get("model_name") or state.get("model_title")
+
+    if not model_id:
+        await query.answer("Сначала выберите модель через /трико", show_alert=True)
+        return
+
     token = generate_token()
     memory_state.update(
         chat_id,
         user_id,
         flow="nlp_new_order",
-        step="select_model",
+        step="select_type",
+        model_id=model_id,
+        model_title=model_title,
+        model_name=model_title,
         k=token,
     )
-    
-    if recent:
-        await safe_edit_message(
-            query,
-            f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
-            "⭐ Recent models:",
-            reply_markup=recent_models_keyboard(recent, "orders", token=token),
-        )
-    else:
-        memory_state.update(chat_id, user_id, step="waiting_query")
-        await safe_edit_message(
-            query,
-            f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
-            f"{_crumb('Поиск модели')}\n\n🔍 Enter model name to search:",
-            reply_markup=back_cancel_keyboard("orders", token=token),
-        )
+
+    await safe_edit_message(
+        query,
+        f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
+        f"Model: <b>{escape_html(model_title or '')}</b>\n\n"
+        "Select order type:",
+        reply_markup=order_types_keyboard(token=token),
+    )
     
     await query.answer()
 

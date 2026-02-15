@@ -127,10 +127,12 @@ async def route_message(
     # nlp_* flows are handled via callbacks (buttons), not text —
     # if user sends text while in nlp_* flow, we must respond, not stay silent.
     _FLOW_FILTER_FLOWS = {
-        "nlp_search", "nlp_new_order", "nlp_view", "nlp_comment_legacy",
-        "nlp_summary", "nlp_planner", "nlp_accounting",
-        "nlp_planner_new", "nlp_planner_edit", "nlp_planner_comment",
-        "nlp_files_upload", "nlp_idle",
+        "nlp_idle",
+        "nlp_select_model",
+        "nlp_new_order", "nlp_order_quantity_input", "nlp_order_name_input",
+        "nlp_planner",
+        "nlp_files_add_quantity", "nlp_files_quantity_input", "nlp_files_add_content",
+        "nlp_files_edit_content", "nlp_files_edit_comment",
     }
 
     user_state = memory_state.get(chat_id, user_id)
