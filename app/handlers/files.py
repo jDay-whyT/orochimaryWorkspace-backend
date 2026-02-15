@@ -4,6 +4,7 @@ from aiogram.types import CallbackQuery, Message
 from app.config import Config
 from app.filters.flow import FlowFilter
 from app.keyboards.inline import (
+    back_cancel_keyboard,
     build_accounting_content_keyboard,
     build_files_confirm_content_keyboard,
     build_files_menu_keyboard,
@@ -39,17 +40,21 @@ async def _ask_select_model(target: CallbackQuery | Message, memory_state: Memor
     if isinstance(target, CallbackQuery):
         chat_id, user_id = _state_ids_from_query(target)
         token = generate_token()
-        memory_state.transition(chat_id, user_id, flow="nlp_idle", step="select_model", return_to=return_to, k=token)
+        memory_state.transition(chat_id, user_id, flow="nlp_view", step="select_model", return_to=return_to, k=token)
         await safe_edit_message(
             target,
             "Сначала выберите модель.\n\nВведите имя модели обычным текстом:",
+            reply_markup=back_cancel_keyboard(return_to, token=token),
         )
         return
 
     chat_id, user_id = target.chat.id, target.from_user.id
     token = generate_token()
-    memory_state.transition(chat_id, user_id, flow="nlp_idle", step="select_model", return_to=return_to, k=token)
-    await target.answer("Сначала выберите модель.\n\nВведите имя модели обычным текстом:")
+    memory_state.transition(chat_id, user_id, flow="nlp_view", step="select_model", return_to=return_to, k=token)
+    await target.answer(
+        "Сначала выберите модель.\n\nВведите имя модели обычным текстом:",
+        reply_markup=back_cancel_keyboard(return_to, token=token),
+    )
 
 
 async def _add_files_and_prompt_content_update(
