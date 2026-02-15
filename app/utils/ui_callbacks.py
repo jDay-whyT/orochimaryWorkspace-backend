@@ -28,7 +28,7 @@ def parse_ui_callback(data: str | None) -> UICallback | None:
     if len(parts) < 3:
         return None
 
-    value = parts[3] if len(parts) > 3 else ""
+    value = ":".join(parts[3:]) if len(parts) > 3 else ""
     return UICallback(
         module=parts[1],
         action=parts[2],

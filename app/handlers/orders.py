@@ -135,23 +135,37 @@ async def show_orders_menu(message: Message, config: Config) -> None:
     )
 
 
-async def show_orders_menu_from_nlp(message: Message, model: dict, memory_state: MemoryState) -> None:
+async def _render_orders_menu_screen(target: Message | CallbackQuery, model_name: str, token: str) -> None:
+    text = f"🏠 > 📦 Заказы\nМодель: {escape_html(model_name)}"
+    keyboard = build_orders_menu_keyboard(token=token)
+    if isinstance(target, CallbackQuery):
+        await safe_edit_message(target, text, reply_markup=keyboard, parse_mode="HTML")
+        return
+    await target.answer(
+        text,
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+
+
+async def show_orders_menu_from_nlp(target: Message | CallbackQuery, model: dict, memory_state: MemoryState) -> None:
     """Show unified orders menu from NLP intent routing."""
+    if isinstance(target, CallbackQuery):
+        chat_id, user_id = _state_ids_from_query(target)
+    else:
+        chat_id, user_id = _state_ids_from_message(target)
+
     token = generate_token()
     memory_state.transition(
-        message.chat.id,
-        message.from_user.id,
+        chat_id,
+        user_id,
         flow="nlp_idle",
         model_id=model["id"],
         model_name=model["name"],
         model_title=model["name"],
         k=token,
     )
-    await message.answer(
-        f"🏠 > 📦 Заказы\nМодель: {escape_html(model['name'])}",
-        reply_markup=build_orders_menu_keyboard(token=token),
-        parse_mode="HTML",
-    )
+    await _render_orders_menu_screen(target, model["name"], token)
 
 
 # ==================== Callback Handlers ====================

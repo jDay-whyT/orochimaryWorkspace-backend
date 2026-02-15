@@ -704,7 +704,7 @@ def model_card_keyboard(k: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📅 Съёмка", callback_data=build_ui_callback("model", "shoot", token=k)),
             InlineKeyboardButton(text="📁 Файлы", callback_data=build_ui_callback("model", "files", token=k)),
         ],
-        [InlineKeyboardButton(text="♻️ Сброс", callback_data="nlp:x:c")],
+        [InlineKeyboardButton(text="♻️ Сброс", callback_data=build_ui_callback("model", "reset", token=k))],
     ])
 
 
