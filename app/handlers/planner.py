@@ -508,16 +508,15 @@ async def _handle_search_results(
         builder = InlineKeyboardBuilder()
 
         for model in results:
+            k = state.get("k", "")
             builder.row(InlineKeyboardButton(
                 text=model["name"],
-                k = state.get("k", "")
-                callback_data = f"planner|select_model|{model['id']}|{k}"
-
+                callback_data=f"planner|select_model|{model['id']}|{k}"
             ))
 
         builder.row(
-            InlineKeyboardButton(text="◀️ Back", callback_data=f"planner|back|select_model|{state.get("k", "")}"),
-            InlineKeyboardButton(text="✖ Cancel", callback_data=f"planner|cancel|cancel|{state.get("k", "")}"),
+            InlineKeyboardButton(text="◀️ Back", callback_data=f"planner|back|select_model|{state.get('k', '')}"),
+            InlineKeyboardButton(text="✖ Cancel", callback_data=f"planner|cancel|cancel|{state.get('k', '')}"),
         )
 
         # Update screen message
