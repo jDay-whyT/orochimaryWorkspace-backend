@@ -840,6 +840,7 @@ async def start_new_order(
         return
 
     token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=_callback_token(query.data))
+    model_title_safe = escape_html(model_title or "")
     memory_state.transition(
         chat_id,
         user_id,
@@ -854,7 +855,7 @@ async def start_new_order(
     await safe_edit_message(
         query,
         f"{_crumb('Новый заказ')}\n\n➕ <b>New Order</b>\n\n"
-        f"Model: <b>{escape_html(model_title or '')}</b>\n\n"
+        f"Model: <b>{model_title_safe}</b>\n\n"
         "Select order type:",
         reply_markup=order_types_keyboard(token=token),
     )
