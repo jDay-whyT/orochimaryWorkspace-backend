@@ -22,6 +22,7 @@ from app.roles import is_authorized, is_editor_or_admin
 from app.services import PlannerService, ModelsService
 from app.state import MemoryState, RecentModels, generate_token
 from app.utils.constants import PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS
+from app.utils import format_date_short, escape_html
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -43,6 +44,20 @@ def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
 
 def _strip_token(callback_data: str) -> str:
     return (callback_data or "").split("|", 1)[0]
+
+
+def _content_preview(items: list[str]) -> str:
+    preview = ", ".join(items[:3])
+    if len(items) > 3:
+        preview += ", ..."
+    return preview or "—"
+
+
+def _comment_preview(comment: str | None, limit: int = 30) -> str:
+    if not comment:
+        return ""
+    trimmed = comment[:limit]
+    return f' | 💬 "{escape_html(trimmed + ("..." if len(comment) > limit else ""))}"'
 
 
 async def show_planner_menu(message: Message, config: Config) -> None:
@@ -738,14 +753,16 @@ async def _create_shoot(
         )
         
         memory_state.clear(chat_id, user_id)
-        
-        await query.message.edit_text(
-            "✅ <b>Shoot Created!</b>\n\n"
-            f"Model: {html.escape(state.get('model_name', 'Unknown'))}\n"
-            f"Date: {date_str}\n"
-            f"Location: {location}",
-            parse_mode="HTML",
+
+        model_name = state.get("model_name") or "—"
+        content_str = _content_preview(content)
+        location_str = location or "—"
+        comment_part = _comment_preview(comment, limit=30)
+        success_message = (
+            f"✅ Съёмка запланирована → {escape_html(model_name)}\n"
+            f"📅 {format_date_short(date_str)} | 🗂 {escape_html(content_str)} | 📍 {escape_html(location_str)}{comment_part}"
         )
+        await query.message.edit_text(success_message, parse_mode="HTML")
     
     except Exception as e:
         LOGGER.exception("Failed to create shoot")
@@ -808,12 +825,20 @@ async def _mark_shoot_done(
     
     service = PlannerService(config)
     try:
+        shoot = await service.get_shoot_by_id(shoot_id)
         await service.mark_done(shoot_id)
-        await query.answer("✓ Shoot marked as done")
-        
+
+        model_name = (shoot or {}).get("model_name") or "—"
+        date_str = format_date_short((shoot or {}).get("date"))
+        content_str = escape_html(_content_preview((shoot or {}).get("content") or []))
+        await query.answer(
+            f"✅ Съёмка завершена → {model_name}\n📅 {date_str} | 🗂 {content_str}",
+            show_alert=True,
+        )
+
         # Refresh shoot details
         await _show_shoot_details(query, config, shoot_id)
-    
+
     finally:
         await service.close()
 
@@ -840,9 +865,17 @@ async def _cancel_shoot(
     
     service = PlannerService(config)
     try:
+        shoot = await service.get_shoot_by_id(shoot_id)
         await service.cancel_shoot(shoot_id)
-        await query.answer("✗ Shoot cancelled")
-        
+
+        model_name = (shoot or {}).get("model_name") or "—"
+        date_str = format_date_short((shoot or {}).get("date"))
+        content_str = escape_html(_content_preview((shoot or {}).get("content") or []))
+        await query.answer(
+            f"❌ Съёмка отменена → {model_name}\n📅 {date_str} | 🗂 {content_str}",
+            show_alert=True,
+        )
+
         # Return to menu
         await query.message.edit_text(
             "📅 <b>Planner</b>\n\n"
@@ -851,7 +884,7 @@ async def _cancel_shoot(
             reply_markup=build_planner_menu_keyboard(),
             parse_mode="HTML",
         )
-    
+
     finally:
         await service.close()
 

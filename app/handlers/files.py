@@ -64,7 +64,7 @@ async def _add_files_and_prompt_content_update(
         k=token,
     )
     await call.message.edit_text(
-        "Обновить категории контента?",
+        f"✅ Добавлено файлов: {qty}\n\nОбновить категории контента?",
         reply_markup=build_files_confirm_content_keyboard(token=token),
     )
 
@@ -112,10 +112,21 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
             memory_state.update(chat_id, user_id, content_types=[])
             await _open_content_selector(call, memory_state, "nlp_files_add_content")
         elif decision == "skip":
+            qty = int(state.get("files_quantity") or 0)
+            total_files = qty
+            if model_id:
+                service = AccountingService(config)
+                try:
+                    record = await service.get_monthly_record(model_id)
+                    if record and record.files is not None:
+                        total_files = record.files
+                finally:
+                    await service.close()
             token = generate_token()
             memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
             await call.message.edit_text(
-                f"✅ Данные по файлам обновлены\nМодель: {model_name}",
+                f"✅ Добавлено {qty} файлов → {model_name}\n"
+                f"📊 Всего: {total_files} | ⚠️ Категории не указаны",
                 reply_markup=build_files_menu_keyboard(token=token),
             )
         else:
@@ -151,21 +162,31 @@ async def files_menu_router(call: CallbackQuery, config: Config, memory_state: M
         try:
             record = await service.get_monthly_record(model_id)
             content_types = state.get("content_types", [])
+            content_str = ", ".join(content_types) if content_types else "не указаны"
+            qty_added = int(state.get("files_quantity") or 0)
+            total_files = record.files if record and record.files is not None else qty_added
 
             if flow == "nlp_files_add_content":
                 if record:
                     await service.update_content(record.page_id, content_types)
+                success_text = (
+                    f"✅ Добавлено {qty_added} файлов → {model_name}\n"
+                    f"📊 Всего: {total_files} | 🗂 {content_str}"
+                )
 
             elif flow == "nlp_files_edit_content":
                 if record:
                     await service.update_content(record.page_id, content_types)
+                success_text = f"✅ Категории обновлены → {model_name}\n🗂 {content_str}"
+            else:
+                success_text = f"✅ Добавлено файлов: {qty_added}\nМодель: {model_name}"
         finally:
             await service.close()
 
         token = generate_token()
         memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
         await call.message.edit_text(
-            f"✅ Данные по файлам обновлены\nМодель: {model_name}",
+            success_text,
             reply_markup=build_files_menu_keyboard(token=token),
         )
 
@@ -214,7 +235,7 @@ async def handle_quantity_input(msg: Message, config: Config, memory_state: Memo
     token = generate_token()
     memory_state.transition(chat_id, user_id, flow="nlp_files_confirm_content", files_quantity=qty, k=token)
     await msg.answer(
-        "Обновить категории контента?",
+        f"✅ Добавлено файлов: {qty}\n\nОбновить категории контента?",
         reply_markup=build_files_confirm_content_keyboard(token=token),
     )
 
@@ -240,6 +261,6 @@ async def handle_edit_comment(msg: Message, config: Config, memory_state: Memory
     token = generate_token()
     memory_state.transition(chat_id, user_id, flow="nlp_idle", k=token)
     await msg.answer(
-        f"✅ Комментарий обновлён\nМодель: {model_name}",
+        f"✅ Комментарий обновлён → {model_name}\n💬 \"{msg.text.strip()[:50]}{'...' if len(msg.text.strip()) > 50 else ''}\"",
         reply_markup=build_files_menu_keyboard(token=token),
     )
