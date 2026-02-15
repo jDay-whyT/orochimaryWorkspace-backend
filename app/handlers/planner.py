@@ -25,6 +25,7 @@ from app.services.model_card import build_model_card
 from app.state import MemoryState, RecentModels, get_active_token
 from app.utils.constants import PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS
 from app.utils import format_date_short, escape_html
+from app.utils.screen import clear_previous_screen_keyboard, render_screen
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -67,6 +68,39 @@ def _comment_preview(comment: str | None, limit: int = 30) -> str:
         return ""
     trimmed = comment[:limit]
     return f' | 💬 "{escape_html(trimmed + ("..." if len(comment) > limit else ""))}"'
+
+
+async def show_planner_menu_from_model(
+    target: Message | CallbackQuery,
+    model_id: str,
+    model_name: str,
+    memory_state: MemoryState,
+) -> None:
+    if hasattr(target, "data") and hasattr(target, "message"):
+        chat_id, user_id = _state_ids_from_query(target)
+        callback_token = _callback_token(target.data)
+    else:
+        chat_id, user_id = _state_ids_from_message(target)
+        callback_token = None
+
+    token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
+    memory_state.transition(
+        chat_id,
+        user_id,
+        flow="nlp_idle",
+        step="menu",
+        model_id=model_id,
+        model_name=model_name,
+        k=token,
+    )
+    if not (hasattr(target, "data") and hasattr(target, "message")):
+        await clear_previous_screen_keyboard(target, memory_state)
+    await render_screen(
+        target,
+        f"🏠 > 📅 Планер\nМодель: {html.escape(model_name)}",
+        reply_markup=build_planner_menu_keyboard(token=token),
+        memory_state=memory_state,
+    )
 
 
 async def show_planner_menu(message: Message, config: Config) -> None:

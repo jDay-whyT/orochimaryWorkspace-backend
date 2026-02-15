@@ -40,6 +40,7 @@ from app.utils import (
     safe_edit_message,
 )
 from app.utils.navigation import format_breadcrumbs
+from app.utils.screen import clear_previous_screen_keyboard, render_screen
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -143,55 +144,44 @@ async def show_orders_menu(message: Message, config: Config) -> None:
     )
 
 
-async def _render_orders_menu_screen(target: Message | CallbackQuery, model_name: str, token: str) -> None:
-    text = f"🏠 > 📦 Заказы\nМодель: {escape_html(model_name)}"
-    keyboard = build_orders_menu_keyboard(token=token)
-    if isinstance(target, CallbackQuery):
-        await safe_edit_message(target, text, reply_markup=keyboard, parse_mode="HTML")
-        return
-    await target.answer(
-        text,
-        reply_markup=keyboard,
-        parse_mode="HTML",
-    )
-
-
-async def _clear_previous_screen_keyboard_best_effort(message: Message, memory_state: MemoryState) -> None:
-    """Best-effort cleanup for direct calls outside dispatcher path."""
-    state = memory_state.get(message.chat.id, message.from_user.id) or {}
-    prev_message_id = state.get("screen_message_id") or state.get("last_screen_message_id")
-    if not prev_message_id:
-        return
-    try:
-        await message.bot.edit_message_reply_markup(
-            chat_id=message.chat.id,
-            message_id=prev_message_id,
-            reply_markup=None,
-        )
-    except Exception:
-        return
-
-
-async def show_orders_menu_from_nlp(target: Message | CallbackQuery, model: dict, memory_state: MemoryState) -> None:
-    """Show unified orders menu from NLP intent routing."""
-    if isinstance(target, CallbackQuery):
+async def show_orders_menu_from_model(
+    target: Message | CallbackQuery,
+    model_id: str,
+    model_name: str,
+    memory_state: MemoryState,
+) -> None:
+    """Render unified orders screen from model card."""
+    if hasattr(target, "data") and hasattr(target, "message"):
         chat_id, user_id = _state_ids_from_query(target)
+        callback_token = _callback_token(target.data)
     else:
         chat_id, user_id = _state_ids_from_message(target)
+        callback_token = None
 
-    token = get_active_token(memory_state, chat_id, user_id)
+    token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
     memory_state.transition(
         chat_id,
         user_id,
         flow="nlp_idle",
-        model_id=model["id"],
-        model_name=model["name"],
-        model_title=model["name"],
+        model_id=model_id,
+        model_name=model_name,
+        model_title=model_name,
         k=token,
     )
-    if not isinstance(target, CallbackQuery):
-        await _clear_previous_screen_keyboard_best_effort(target, memory_state)
-    await _render_orders_menu_screen(target, model["name"], token)
+    if not (hasattr(target, "data") and hasattr(target, "message")):
+        await clear_previous_screen_keyboard(target, memory_state)
+    await render_screen(
+        target,
+        f"🏠 > 📦 Заказы\nМодель: {escape_html(model_name)}",
+        reply_markup=build_orders_menu_keyboard(token=token),
+        parse_mode="HTML",
+        memory_state=memory_state,
+    )
+
+
+async def show_orders_menu_from_nlp(target: Message | CallbackQuery, model: dict, memory_state: MemoryState) -> None:
+    """Backward-compatible adapter for NLP router."""
+    await show_orders_menu_from_model(target, model["id"], model["name"], memory_state)
 
 
 # ==================== Callback Handlers ====================

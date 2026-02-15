@@ -54,7 +54,7 @@ def test_model_text_opens_model_card_with_new_ui_callbacks():
     keyboard = kwargs["reply_markup"]
     callbacks = [b.callback_data for row in keyboard.inline_keyboard for b in row]
     assert any(cb.startswith("ui:model:orders") for cb in callbacks)
-    assert any(cb.startswith("ui:model:shoot") for cb in callbacks)
+    assert any(cb.startswith("ui:model:planner") for cb in callbacks)
     assert any(cb.startswith("ui:model:files") for cb in callbacks)
 
 
@@ -108,3 +108,27 @@ def test_planner_upcoming_uses_fallback_name_without_unknown():
     data = asyncio.run(service.get_upcoming_shoots())
 
     assert data[0]["model_name"] == "Клещ"
+
+
+def test_planner_service_create_shoot_accepts_comments_alias():
+    config = MagicMock()
+    config.notion_token = "tok"
+    config.db_planner = "db"
+
+    service = PlannerService(config)
+    service.notion = AsyncMock()
+    service.notion.create_shoot.return_value = "shoot-id"
+
+    result = asyncio.run(
+        service.create_shoot(
+            model_id="model-1",
+            shoot_date="2026-02-12",
+            content=["onlyfans"],
+            location="Home",
+            comments="alias comment",
+        )
+    )
+
+    assert result == "shoot-id"
+    _, kwargs = service.notion.create_shoot.call_args
+    assert kwargs["comments"] == "alias comment"

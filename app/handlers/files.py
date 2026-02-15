@@ -16,6 +16,7 @@ from app.services.accounting import AccountingService
 from app.services.model_card import build_model_card
 from app.state import MemoryState, get_active_token
 from app.utils import safe_edit_message
+from app.utils.screen import clear_previous_screen_keyboard, render_screen
 
 router = Router()
 
@@ -32,6 +33,31 @@ def _callback_token(parts: list[str]) -> str | None:
     return None
 
 
+async def show_files_menu_from_model(
+    target: CallbackQuery | Message,
+    model_id: str,
+    model_name: str,
+    memory_state: MemoryState,
+) -> None:
+    if hasattr(target, "data") and hasattr(target, "message"):
+        chat_id, user_id = _state_ids_from_query(target)
+        callback_token = _callback_token((target.data or "").split("|"))
+    else:
+        chat_id, user_id = target.chat.id, target.from_user.id
+        callback_token = None
+
+    token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
+    memory_state.transition(chat_id, user_id, flow="nlp_idle", model_id=model_id, model_name=model_name, k=token)
+    if not (hasattr(target, "data") and hasattr(target, "message")):
+        await clear_previous_screen_keyboard(target, memory_state)
+    await render_screen(
+        target,
+        f"🏠 > 📁 Файлы\nМодель: {model_name}",
+        reply_markup=build_files_menu_keyboard(token=token),
+        memory_state=memory_state,
+    )
+
+
 async def _open_content_selector(call: CallbackQuery, memory_state: MemoryState, flow: str) -> None:
     chat_id, user_id = _state_ids_from_query(call)
     state = memory_state.get(chat_id, user_id) or {}
@@ -45,7 +71,7 @@ async def _open_content_selector(call: CallbackQuery, memory_state: MemoryState,
 
 
 async def _ask_select_model(target: CallbackQuery | Message, memory_state: MemoryState, return_to: str = "files") -> None:
-    if isinstance(target, CallbackQuery):
+    if hasattr(target, "data") and hasattr(target, "message"):
         chat_id, user_id = _state_ids_from_query(target)
         callback_token = _callback_token((target.data or "").split("|"))
         token = get_active_token(memory_state, chat_id, user_id, fallback_from_callback=callback_token)
