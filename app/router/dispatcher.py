@@ -146,7 +146,7 @@ async def route_message(
             # _find_nlp_text_handler is defined at the bottom of this module.
             handler = _find_nlp_text_handler(current_flow, current_step)
             if handler:
-                await handler(message, text, user_state, config, notion, memory_state)
+                await handler(message, text, user_state, config, notion, memory_state, recent_models)
                 return
 
             # nlp_* flows expect button presses, not free text.
@@ -899,7 +899,7 @@ async def _add_comment_to_shoot(message, model, entities, config, notion, memory
         await message.answer("❌ Ошибка.")
 
 
-async def _handle_shoot_comment_input(message, text, user_state, config, notion, memory_state):
+async def _handle_shoot_comment_input(message, text, user_state, config, notion, memory_state, recent_models=None):
     """Handle free-text comment input for a shoot (step: awaiting_shoot_comment)."""
     user_id = message.from_user.id
     chat_id = message.chat.id
@@ -1084,7 +1084,7 @@ def _format_date_short(date_str: str | None) -> str:
         return "?"
 
 
-async def _handle_custom_date_input(message, text, user_state, config, notion, memory_state):
+async def _handle_custom_date_input(message, text, user_state, config, notion, memory_state, recent_models=None):
     """Handle free-text date input (DD.MM) in nlp_shoot / nlp_close flows."""
     import re
     from app.roles import is_editor
@@ -1144,7 +1144,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             auto_status = "scheduled" if content_types else "planned"
             title = f"{model_name} · {parsed_date.strftime('%d.%m')}"
             try:
-                await notion.create_shoot(
+                shoot_id = await notion.create_shoot(
                     database_id=config.db_planner,
                     model_page_id=model_id,
                     shoot_date=parsed_date,
@@ -1153,11 +1153,17 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
                     title=title,
                     status=auto_status,
                 )
+                if recent_models is not None:
+                    recent_models.add(user_id, model_id, model_name)
+                ct_str = ", ".join(content_types) if content_types else "—"
+                from app.keyboards.inline import nlp_shoot_post_create_keyboard
                 await _clear_previous_screen_keyboard(message, memory_state)
                 await _cleanup_prompt_message(message, memory_state)
                 memory_state.clear(chat_id, user_id)
                 await message.answer(
-                    f"✅ Съемка создана на {parsed_date.strftime('%d.%m')}",
+                    f"✅ Съемка создана на {parsed_date.strftime('%d.%m')}\n"
+                    f"Контент: {ct_str}\nСтатус: {auto_status}",
+                    reply_markup=nlp_shoot_post_create_keyboard(shoot_id, model_id),
                     parse_mode="HTML",
                 )
             except Exception as e:
@@ -1231,7 +1237,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
 MAX_FILES_INPUT = 500  # configurable upper limit for manual file count
 
 
-async def _handle_custom_files_input(message, text, user_state, config, notion, memory_state):
+async def _handle_custom_files_input(message, text, user_state, config, notion, memory_state, recent_models=None):
     """Handle free-text number input for nlp_files flow (awaiting_count)."""
     from app.roles import is_editor
 
@@ -1283,7 +1289,7 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
         memory_state.clear(chat_id, user_id)
 
 
-async def _handle_accounting_comment_input(message, text, user_state, config, notion, memory_state):
+async def _handle_accounting_comment_input(message, text, user_state, config, notion, memory_state, recent_models=None):
     """Handle accounting comment input for nlp_accounting_comment flow."""
     from app.roles import is_editor
 
