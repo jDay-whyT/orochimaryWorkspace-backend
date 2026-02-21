@@ -1,5 +1,5 @@
 import logging
-from datetime import timedelta
+from datetime import date, timedelta
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -14,24 +14,44 @@ LOGGER = logging.getLogger(__name__)
 router = Router()
 router.message.filter(TopicAccessMessageFilter())
 
-SHOOTS_DAYS = 7
+SHOOTS_DAYS = 5
+
+_WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+
+STATUS_EMOJI = {
+    "planned": "🕐",
+    "scheduled": "✅",
+    "rescheduled": "🔄",
+}
 
 
-def _format_shoots_report(shoots: list, days: int) -> str:
-    """Format upcoming shoots list in the same style as the old Make.com template."""
-    if not shoots:
-        return f"✅ Съёмок в ближайшие {days} дн. нет"
+def _format_shoot_card(shoot) -> str:
+    """Format a single shoot as a forwarding-ready card."""
+    model = (shoot.model_title or shoot.title or "?").upper()
 
-    lines = [f"📷 <b>Ближайшие съёмки — {days} дн.:</b>\n"]
-    for shoot in shoots:
-        model = shoot.model_title or shoot.title or "?"
-        date_str = format_date_short(shoot.date)
-        content = ", ".join(shoot.content) if shoot.content else "—"
+    if shoot.date:
+        d = date.fromisoformat(shoot.date) if isinstance(shoot.date, str) else shoot.date
+        weekday = _WEEKDAYS_RU[d.weekday()]
+        date_str = f"{format_date_short(d)} ({weekday})"
+    else:
+        date_str = "—"
 
-        lines.append(f"<b>{model}</b> — {date_str}")
-        lines.append(f"📌 {content}\n")
+    status_icon = STATUS_EMOJI.get(shoot.status or "", "📷")
+    content = ", ".join(shoot.content) if shoot.content else "—"
 
-    return "\n".join(lines).strip()
+    lines = [
+        f"{status_icon} <b>{model}</b>",
+        f"📅 {date_str}",
+        f"📌 {content}",
+    ]
+
+    if shoot.location:
+        lines.append(f"📍 {shoot.location}")
+
+    if shoot.comments:
+        lines.append(f"💬 {shoot.comments}")
+
+    return "\n".join(lines)
 
 
 @router.message(Command("shoots"))
@@ -40,7 +60,7 @@ async def cmd_upcoming_shoots(
     config: Config,
     notion: NotionClient,
 ) -> None:
-    """Show upcoming shoots for the next 7 days (/shoots)."""
+    """Show upcoming shoots for the next 7 days, one message per shoot."""
     tz = config.timezone
     today_date = today(tz)
     date_to = today_date + timedelta(days=SHOOTS_DAYS - 1)
@@ -51,5 +71,14 @@ async def cmd_upcoming_shoots(
         date_to=date_to,
     )
 
-    text = _format_shoots_report(shoots, SHOOTS_DAYS)
-    await message.answer(text, parse_mode="HTML")
+    if not shoots:
+        await message.answer(f"✅ Съёмок в ближайшие {SHOOTS_DAYS} дн. нет")
+        return
+
+    await message.answer(
+        f"📷 <b>Ближайшие съёмки — {SHOOTS_DAYS} дн. ({len(shoots)} шт.)</b>",
+        parse_mode="HTML",
+    )
+
+    for shoot in shoots:
+        await message.answer(_format_shoot_card(shoot), parse_mode="HTML")
