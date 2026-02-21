@@ -48,9 +48,6 @@ def _format_shoot_card(shoot) -> str:
     if shoot.location:
         lines.append(f"📍 {shoot.location}")
 
-    if shoot.comments:
-        lines.append(f"💬 {shoot.comments}")
-
     return "\n".join(lines)
 
 
