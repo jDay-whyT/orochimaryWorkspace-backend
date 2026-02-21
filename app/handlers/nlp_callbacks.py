@@ -45,6 +45,12 @@ from app.utils.telegram import safe_edit_message
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
+
+# Tracks (chat_id, user_id) pairs that are currently executing order creation.
+# Prevents duplicate Notion pages from concurrent callbacks (double-click /
+# Telegram retry while the first Notion API call is still in-flight).
+# asyncio is single-threaded so set membership checks are effectively atomic.
+_oc_in_progress: set[tuple[int, int]] = set()
 router.callback_query.filter(TopicAccessCallbackFilter())
 
 
@@ -1714,66 +1720,79 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
     """Handle order confirm (create with default date=today). Callback: nlp:oc[:{k}]"""
     chat_id, user_id = _state_ids_from_query(query)
 
-    state = memory_state.get(chat_id, user_id)
-    if not state:
-        await _session_expired(query, memory_state)
+    # Guard against concurrent duplicate callbacks (double-click / Telegram
+    # retry while the Notion API call is still in-flight).
+    # asyncio is single-threaded so the membership check and add are atomic —
+    # no other coroutine can interleave between these two lines.
+    _oc_key = (chat_id, user_id)
+    if _oc_key in _oc_in_progress:
+        await query.answer()
         return
-
-    model_id = state.get("model_id", "")
-    model_name = state.get("model_name", "")
-    order_type = state.get("order_type", "")
-    count = state.get("count", 1)
-    in_date_str = state.get("in_date")
-    in_date = date.fromisoformat(in_date_str) if in_date_str else date.today()
-
-    if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
-        memory_state.clear(chat_id, user_id)
-        return
-
+    _oc_in_progress.add(_oc_key)
     try:
-        if order_type in ("short", "ad request"):
-            title = f"{model_name} | {order_type} × {count}"
-            await notion.create_order(
-                database_id=config.db_orders,
-                model_page_id=model_id,
-                order_type=order_type,
-                in_date=in_date,
-                count=count,
-                title=title,
-            )
-        else:
-            for i in range(1, count + 1):
-                title = f"{model_name} | {order_type} {i}/{count}"
+        state = memory_state.get(chat_id, user_id)
+        if not state:
+            await _session_expired(query, memory_state)
+            return
+
+        model_id = state.get("model_id", "")
+        model_name = state.get("model_name", "")
+        order_type = state.get("order_type", "")
+        count = state.get("count", 1)
+        in_date_str = state.get("in_date")
+        in_date = date.fromisoformat(in_date_str) if in_date_str else date.today()
+
+        if not is_editor(user_id, config):
+            await query.message.edit_text("❌ Нет прав.")
+            memory_state.clear(chat_id, user_id)
+            return
+
+        try:
+            if order_type in ("short", "ad request"):
+                title = f"{model_name} | {order_type} × {count}"
                 await notion.create_order(
                     database_id=config.db_orders,
                     model_page_id=model_id,
                     order_type=order_type,
                     in_date=in_date,
-                    count=1,
+                    count=count,
                     title=title,
                 )
+            else:
+                for i in range(1, count + 1):
+                    title = f"{model_name} | {order_type} {i}/{count}"
+                    await notion.create_order(
+                        database_id=config.db_orders,
+                        model_page_id=model_id,
+                        order_type=order_type,
+                        in_date=in_date,
+                        count=1,
+                        title=title,
+                    )
 
-        recent_models.add(user_id, model_id, model_name)
+            recent_models.add(user_id, model_id, model_name)
 
-        from app.router.entities_v2 import get_order_type_display_name
-        type_label = get_order_type_display_name(order_type)
-        await _clear_previous_screen_keyboard(query, memory_state)
-        await _cleanup_prompt_message(query, memory_state)
-        await safe_edit_message(
-            query,
-            f"✅ Создано {count}x {type_label}\n"
-            f"<b>{html.escape(model_name)}</b> · {in_date.strftime('%d.%m')}",
-            parse_mode="HTML",
-        )
-        msg = query.message
-        memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+            from app.router.entities_v2 import get_order_type_display_name
+            type_label = get_order_type_display_name(order_type)
+            await _clear_previous_screen_keyboard(query, memory_state)
+            await _cleanup_prompt_message(query, memory_state)
+            await safe_edit_message(
+                query,
+                f"✅ Создано {count}x {type_label}\n"
+                f"<b>{html.escape(model_name)}</b> · {in_date.strftime('%d.%m')}",
+                parse_mode="HTML",
+            )
+            msg = query.message
+            memory_state.clear(chat_id, user_id)
+            _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
-    except Exception as e:
-        LOGGER.exception("Failed to create orders: %s", e)
-        await query.message.edit_text("❌ Ошибка при создании заказов.")
-        memory_state.clear(chat_id, user_id)
+        except Exception as e:
+            LOGGER.exception("Failed to create orders: %s", e)
+            await query.message.edit_text("❌ Ошибка при создании заказов.")
+            memory_state.clear(chat_id, user_id)
+
+    finally:
+        _oc_in_progress.discard(_oc_key)
 
 
 # ============================================================================
