@@ -740,6 +740,44 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
 
+    async def query_shoots_in_date_range(
+        self,
+        database_id: str,
+        date_from: date,
+        date_to: date,
+        statuses: list[str] | None = None,
+    ) -> list[NotionPlanner]:
+        """Query all shoots across all models within a date range, with model titles resolved."""
+        if statuses is None:
+            statuses = ["planned", "scheduled", "rescheduled"]
+
+        status_filters = [
+            {"property": "status", "select": {"equals": s}}
+            for s in statuses
+        ]
+        filters: list[dict[str, Any]] = [
+            {"or": status_filters} if len(status_filters) > 1 else status_filters[0],
+            {"property": "date", "date": {"on_or_after": date_from.isoformat()}},
+            {"property": "date", "date": {"on_or_before": date_to.isoformat()}},
+        ]
+
+        payload = {
+            "page_size": 100,
+            "filter": {"and": filters},
+            "sorts": [{"property": "date", "direction": "ascending"}],
+        }
+
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        data = await self._request("POST", url, json=payload)
+
+        shoots = [_parse_planner(item) for item in data.get("results", [])]
+        for shoot in shoots:
+            if shoot.model_id:
+                model = await self.get_model(shoot.model_id)
+                shoot.model_title = model.title if model else None
+
+        return shoots
+
     async def update_shoot_content(self, page_id: str, items: list[str]) -> None:
         """Update shoot Content multi-select."""
         payload = {
