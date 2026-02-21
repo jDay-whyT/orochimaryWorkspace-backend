@@ -875,7 +875,7 @@ async def create_order(
     
     try:
         # Create order(s)
-        if order_type == "short":
+        if order_type in ("short", "ad request"):
             title = f"{order_type} × {qty} — {in_date_str}"
             await notion.create_order(
                 config.db_orders,
