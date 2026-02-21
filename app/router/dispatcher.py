@@ -1140,15 +1140,18 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
                 await message.answer("❌ Нет прав.")
                 memory_state.clear(chat_id, user_id)
                 return
+            content_types = user_state.get("content_types", [])
+            auto_status = "scheduled" if content_types else "planned"
             title = f"{model_name} · {parsed_date.strftime('%d.%m')}"
             try:
                 await notion.create_shoot(
                     database_id=config.db_planner,
                     model_page_id=model_id,
                     shoot_date=parsed_date,
-                    content=[],
+                    content=content_types,
                     location="home",
                     title=title,
+                    status=auto_status,
                 )
                 await _clear_previous_screen_keyboard(message, memory_state)
                 await _cleanup_prompt_message(message, memory_state)
