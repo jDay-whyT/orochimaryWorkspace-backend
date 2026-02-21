@@ -3,7 +3,7 @@ import logging
 from aiogram import Bot, Dispatcher
 
 from app.config import Config
-from app.handlers import start, orders, summary, planner, accounting, reports, nlp_callbacks
+from app.handlers import start, orders, summary, planner, accounting, reports, nlp_callbacks, notifications
 from app.services import NotionClient
 from app.state import MemoryState, RecentModels
 
@@ -17,6 +17,7 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, Me
 
     # Register handlers in priority order:
     # 1. Flow-specific routers with FlowFilter (only handle text when their flow is active)
+    dp.include_router(notifications.router) # /shoots command
     dp.include_router(orders.router)       # FlowFilter({"search", "new_order", "view", "comment"})
     dp.include_router(summary.router)      # FlowFilter({"summary"})
     dp.include_router(planner.router)      # FlowFilter({"planner"})
