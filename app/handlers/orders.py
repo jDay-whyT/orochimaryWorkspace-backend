@@ -41,6 +41,12 @@ router = Router()
 router.message.filter(TopicAccessMessageFilter())
 router.callback_query.filter(TopicAccessCallbackFilter())
 
+# Tracks (chat_id, user_id) pairs currently executing order creation.
+# Prevents duplicate Notion pages when Telegram retries the callback while the
+# first Notion API call is still in-flight. asyncio is single-threaded so the
+# membership check and add are effectively atomic.
+_co_in_progress: set[tuple[int, int]] = set()
+
 
 def _state_ids_from_message(message: Message) -> tuple[int, int]:
     return message.chat.id, message.from_user.id
@@ -855,65 +861,78 @@ async def create_order(
     if not can_edit(query.from_user.id, config):
         await query.answer("You don't have permission to create orders", show_alert=True)
         return
-    
+
     chat_id, user_id = _state_ids_from_query(query)
-    data = memory_state.get(chat_id, user_id) or {}
-    
-    model_id = data.get("model_id")
-    model_title = data.get("model_title", "")
-    order_type = data.get("order_type")
-    qty = data.get("qty", 1)
-    in_date_str = data.get("in_date")
-    comments = data.get("comments")
-    
-    if not all([model_id, order_type, in_date_str]):
-        await query.answer("Missing data. Please start over.", show_alert=True)
-        memory_state.clear(chat_id, user_id)
+
+    # Guard against concurrent duplicate callbacks (double-click / Telegram
+    # retry while the Notion API call is still in-flight).
+    # asyncio is single-threaded so the membership check and add are atomic —
+    # no other coroutine can interleave between these two lines.
+    _co_key = (chat_id, user_id)
+    if _co_key in _co_in_progress:
+        await query.answer()
         return
-    
-    in_date = date.fromisoformat(in_date_str)
-    
+    _co_in_progress.add(_co_key)
     try:
-        # Create order(s)
-        if order_type in ("short", "ad request"):
-            title = f"{order_type} × {qty} — {in_date_str}"
-            await notion.create_order(
-                config.db_orders,
-                model_id,
-                order_type,
-                in_date,
-                count=qty,
-                title=title,
-                comments=comments,
-            )
-        else:
-            for i in range(1, qty + 1):
-                title = f"{order_type} {i}/{qty} — {in_date_str}"
+        data = memory_state.get(chat_id, user_id) or {}
+
+        model_id = data.get("model_id")
+        model_title = data.get("model_title", "")
+        order_type = data.get("order_type")
+        qty = data.get("qty", 1)
+        in_date_str = data.get("in_date")
+        comments = data.get("comments")
+
+        if not all([model_id, order_type, in_date_str]):
+            await query.answer("Missing data. Please start over.", show_alert=True)
+            memory_state.clear(chat_id, user_id)
+            return
+
+        in_date = date.fromisoformat(in_date_str)
+
+        try:
+            # Create order(s)
+            if order_type in ("short", "ad request"):
+                title = f"{order_type} × {qty} — {in_date_str}"
                 await notion.create_order(
                     config.db_orders,
                     model_id,
                     order_type,
                     in_date,
-                    count=1,
+                    count=qty,
                     title=title,
                     comments=comments,
                 )
-    except Exception as e:
-        LOGGER.exception("Failed to create order: %s", e)
-        await query.answer("Failed to create order", show_alert=True)
-        return
-    
-    memory_state.clear(chat_id, user_id)
+            else:
+                for i in range(1, qty + 1):
+                    title = f"{order_type} {i}/{qty} — {in_date_str}"
+                    await notion.create_order(
+                        config.db_orders,
+                        model_id,
+                        order_type,
+                        in_date,
+                        count=1,
+                        title=title,
+                        comments=comments,
+                    )
+        except Exception as e:
+            LOGGER.exception("Failed to create order: %s", e)
+            await query.answer("Failed to create order", show_alert=True)
+            return
 
-    await safe_edit_message(
-        query,
-        f"✅ <b>Order Created!</b>\n\n"
-        f"Model: <b>{escape_html(model_title)}</b>\n"
-        f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
-        f"Date: <b>{format_date_short(in_date)}</b>",
-        reply_markup=order_success_keyboard(),
-    )
-    await query.answer("Order created!")
+        memory_state.clear(chat_id, user_id)
+
+        await safe_edit_message(
+            query,
+            f"✅ <b>Order Created!</b>\n\n"
+            f"Model: <b>{escape_html(model_title)}</b>\n"
+            f"Type: <b>{escape_html(order_type)}</b> × {qty}\n"
+            f"Date: <b>{format_date_short(in_date)}</b>",
+            reply_markup=order_success_keyboard(),
+        )
+        await query.answer("Order created!")
+    finally:
+        _co_in_progress.discard(_co_key)
 
 
 # ==================== Text Input Handler ====================
