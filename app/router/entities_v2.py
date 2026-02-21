@@ -312,8 +312,26 @@ def extract_entities_v2(text: str) -> EntitiesV2:
         if word.rstrip(":") in ("коммент", "комментарий", "comment"):
             break
 
-        # This is likely the model name
-        entities.model_name = word
+        # This is likely the model name — collect this and following non-keyword words
+        # to support multi-word names like "ке паса", "мона лиза"
+        model_words = [word]
+        j = i + 1
+        while j < len(words):
+            next_word = words[j]
+            # Stop collecting at any service/keyword/date/number token
+            if (
+                re.match(r'^\d+$', next_word)
+                or re.match(r'^\d{1,2}[./]\d{1,2}$', next_word)
+                or next_word in IGNORE_KEYWORDS
+                or next_word in STOP_WORDS
+                or next_word in date_words
+                or next_word == "+"
+                or next_word.rstrip(":") in ("коммент", "комментарий", "comment")
+            ):
+                break
+            model_words.append(next_word)
+            j += 1
+        entities.model_name = " ".join(model_words)
         LOGGER.debug("Extracted model name: %r", entities.model_name)
         break
 
