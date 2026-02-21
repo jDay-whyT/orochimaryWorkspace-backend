@@ -1732,7 +1732,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
         return
 
     try:
-        if order_type == "short":
+        if order_type in ("short", "ad request"):
             title = f"{model_name} | {order_type} × {count}"
             await notion.create_order(
                 database_id=config.db_orders,
