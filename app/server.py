@@ -6,6 +6,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 
 from app.bot import create_dispatcher
 from app.config import load_config
+from app.handlers.notifications import update_board
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,6 +47,22 @@ async def create_app() -> web.Application:
     async def healthcheck(_: web.Request) -> web.Response:
         return web.Response(text="ok")
 
+
+    async def internal_update_board(request: web.Request) -> web.Response:
+        secret = config.internal_secret
+        if not secret:
+            return web.json_response({"ok": False}, status=403)
+
+        header_secret = request.headers.get("X-Internal-Secret", "")
+        if header_secret != secret:
+            return web.json_response({"ok": False}, status=403)
+
+        bot_obj = request.app["bot"]
+        config_obj = request.app["config"]
+        notion_obj = request.app["notion"]
+        await update_board(bot_obj, config_obj, notion_obj)
+        return web.json_response({"ok": True})
+
     async def telegram_webhook(request: web.Request) -> web.StreamResponse:
         try:
             body = await request.json()
@@ -72,8 +89,9 @@ async def create_app() -> web.Application:
     app.router.add_get("/", root)
     app.router.add_get("/healthz", healthcheck)
     app.router.add_post("/tg/webhook", telegram_webhook)
+    app.router.add_post("/internal/update-board", internal_update_board)
     
-    LOGGER.info("HTTP endpoints registered: GET /, GET /healthz, POST /tg/webhook")
+    LOGGER.info("HTTP endpoints registered: GET /, GET /healthz, POST /tg/webhook, POST /internal/update-board")
     return app
 
 

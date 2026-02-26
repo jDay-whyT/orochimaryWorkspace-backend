@@ -33,3 +33,16 @@ class TopicAccessCallbackFilter(BaseFilter):
         if message.message_thread_id != config.crm_topic_thread_id:
             return False
         return query.from_user.id in config.allowed_editors
+
+
+class ManagersTopicFilter(BaseFilter):
+    """Allow only manager-topic messages from configured editors."""
+
+    async def __call__(self, message: Message, config: Config) -> bool:
+        if config.managers_topic_thread_id == 0:
+            return False
+        if message.chat.type not in {"group", "supergroup"}:
+            return False
+        if message.message_thread_id != config.managers_topic_thread_id:
+            return False
+        return message.from_user.id in config.allowed_editors
