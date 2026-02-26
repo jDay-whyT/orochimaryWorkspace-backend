@@ -62,11 +62,12 @@ def _format_board(shoots: list) -> str:
     for d, shoot in dated:
         model = shoot.model_title or shoot.title or "?"
         status = shoot.status or "—"
-        lines = [f"{_format_day_header(d)} · {model} — {status}"]
+        lines = [f"<b>{model}</b>  {_format_day_header(d)}"]
+        lines.append(f"└ {status}")
         if shoot.content:
-            lines.append(f"🚀 {', '.join(shoot.content)}")
+            lines.append(f"▸ {', '.join(shoot.content)}")
         if shoot.location:
-            lines.append(f"📍 {shoot.location}")
+            lines.append(f"• {shoot.location}")
         segments.append("\n".join(lines))
 
     return header + "\n\n" + "\n\n".join(segments)
