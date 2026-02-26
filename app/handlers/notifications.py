@@ -73,13 +73,8 @@ def _format_board(shoots: list) -> str:
     return header + "\n\n" + "\n\n".join(segments)
 
 
-@router.message(Command("shoots"))
-async def cmd_upcoming_shoots(
-    message: Message,
-    config: Config,
-    notion: NotionClient,
-) -> None:
-    """Show upcoming shoots board for the next 5 days (/shoots)."""
+async def update_board(bot, config: Config, notion: NotionClient) -> None:
+    """Fetch upcoming shoots and post/edit the board message in managers chat."""
     tz = config.timezone
     today_date = today(tz)
     date_to = today_date + timedelta(days=SHOOTS_DAYS - 1)
@@ -95,7 +90,7 @@ async def cmd_upcoming_shoots(
     state = _load_board_state()
     if state and state.get("message_id") and config.managers_chat_id:
         try:
-            await message.bot.edit_message_text(
+            await bot.edit_message_text(
                 chat_id=config.managers_chat_id,
                 message_id=state["message_id"],
                 text=text,
@@ -105,5 +100,20 @@ async def cmd_upcoming_shoots(
         except Exception:
             pass
 
-    sent = await message.answer(text, parse_mode="HTML")
-    _save_board_state({"message_id": sent.message_id, "chat_id": sent.chat.id})
+    if config.managers_chat_id:
+        sent = await bot.send_message(
+            chat_id=config.managers_chat_id,
+            text=text,
+            parse_mode="HTML",
+        )
+        _save_board_state({"message_id": sent.message_id, "chat_id": sent.chat.id})
+
+
+@router.message(Command("shoots"))
+async def cmd_upcoming_shoots(
+    message: Message,
+    config: Config,
+    notion: NotionClient,
+) -> None:
+    """Show upcoming shoots board for the next 5 days (/shoots)."""
+    await update_board(message.bot, config, notion)
