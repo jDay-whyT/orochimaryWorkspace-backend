@@ -55,9 +55,10 @@ class PlannerService:
     async def create_shoot(
         self,
         model_id: str,
-        shoot_date: str,
+        shoot_date: date,
         content: list[str],
         location: str,
+        title: str,
         comment: str | None = None,
     ) -> str:
         """Create new shoot"""
@@ -67,7 +68,8 @@ class PlannerService:
             shoot_date=shoot_date,
             content=content,
             location=location,
-            comment=comment,
+            title=title,
+            comments=comment,
         )
 
     async def mark_done(self, shoot_id: str) -> None:

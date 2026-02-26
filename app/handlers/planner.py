@@ -689,18 +689,23 @@ async def _create_shoot(
     content = state.get("content", [])
     location = state.get("location")
     comment = state.get("comment")
-    
+    model_name = state.get("model_name", "Unknown")
+
     if not all([model_id, date_str, content, location]):
         await query.answer("Missing required data", show_alert=True)
         return
-    
+
+    shoot_date = date.fromisoformat(date_str)
+    title = f"{model_name} · {shoot_date.strftime('%d.%m')}"
+
     service = PlannerService(config)
     try:
         shoot_id = await service.create_shoot(
             model_id=model_id,
-            shoot_date=date_str,
+            shoot_date=shoot_date,
             content=content,
             location=location,
+            title=title,
             comment=comment,
         )
         
