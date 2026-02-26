@@ -19,6 +19,24 @@ class TopicAccessMessageFilter(BaseFilter):
         return message.from_user.id in config.allowed_editors
 
 
+class ManagersTopicFilter(BaseFilter):
+    """Allow group messages only from the managers topic and allowed editors.
+
+    If managers_topic_thread_id is 0 (not configured), passes nothing.
+    """
+
+    async def __call__(self, message: Message, config: Config) -> bool:
+        if config.managers_topic_thread_id == 0:
+            return False
+        if message.chat.type not in {"group", "supergroup"}:
+            return False
+        if message.message_thread_id != config.managers_topic_thread_id:
+            return False
+        if not message.from_user:
+            return False
+        return message.from_user.id in config.allowed_editors
+
+
 class TopicAccessCallbackFilter(BaseFilter):
     """Allow all private callbacks, restrict group callbacks to CRM topic and editors."""
 
