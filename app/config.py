@@ -27,6 +27,8 @@ class Config:
     
     timezone: ZoneInfo
     files_per_month: int
+    managers_topic_thread_id: int = 0
+    managers_chat_id: int = 0
 
 
 def _parse_user_ids(value: str) -> set[int]:
@@ -123,6 +125,16 @@ def load_config(validate: bool = True) -> Config:
         sys.exit(1)
     
     try:
+        managers_topic_thread_id = int(os.getenv("MANAGERS_TOPIC_THREAD_ID", "0"))
+    except ValueError:
+        managers_topic_thread_id = 0
+
+    try:
+        managers_chat_id = int(os.getenv("MANAGERS_CHAT_ID", "0"))
+    except ValueError:
+        managers_chat_id = 0
+
+    try:
         timezone = ZoneInfo(timezone_name)
     except Exception as e:
         print(f"ERROR: Invalid TIMEZONE '{timezone_name}': {e}", file=sys.stderr)
@@ -140,6 +152,8 @@ def load_config(validate: bool = True) -> Config:
         crm_topic_thread_id=crm_topic_thread_id,
         timezone=timezone,
         files_per_month=files_per_month,
+        managers_topic_thread_id=managers_topic_thread_id,
+        managers_chat_id=managers_chat_id,
     )
     
     if validate:
