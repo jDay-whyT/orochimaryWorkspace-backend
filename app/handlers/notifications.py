@@ -1,6 +1,5 @@
 import json
 import logging
-from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -49,33 +48,26 @@ def _format_board(shoots: list) -> str:
     if not shoots:
         return f"✅ Съёмок в ближайшие {SHOOTS_DAYS} дн. нет"
 
-    grouped: dict[date, list] = defaultdict(list)
-    for shoot in shoots:
-        d = parse_date(shoot.date) if shoot.date else None
-        if d is None:
-            continue
-        grouped[d].append(shoot)
+    dated = [(parse_date(s.date), s) for s in shoots if s.date]
+    dated = [(d, s) for d, s in dated if d is not None]
+    dated.sort(key=lambda x: x[0])
 
-    if not grouped:
+    if not dated:
         return f"✅ Съёмок в ближайшие {SHOOTS_DAYS} дн. нет"
 
-    total = sum(len(v) for v in grouped.values())
+    total = len(dated)
     header = f"📷 Ближайшие съёмки — {SHOOTS_DAYS} дн. ({total} шт.)"
 
     segments = []
-    for d in sorted(grouped):
-        day_lines = [_format_day_header(d)]
-        for i, shoot in enumerate(grouped[d]):
-            model = shoot.model_title or shoot.title or "?"
-            status = shoot.status or "—"
-            if i > 0:
-                day_lines.append("")
-            day_lines.append(f"{model} — {status}")
-            if shoot.content:
-                day_lines.append(f"🚀 {', '.join(shoot.content)}")
-            if shoot.location:
-                day_lines.append(f"📍 {shoot.location}")
-        segments.append("\n".join(day_lines))
+    for d, shoot in dated:
+        model = shoot.model_title or shoot.title or "?"
+        status = shoot.status or "—"
+        lines = [f"{_format_day_header(d)} · {model} — {status}"]
+        if shoot.content:
+            lines.append(f"🚀 {', '.join(shoot.content)}")
+        if shoot.location:
+            lines.append(f"📍 {shoot.location}")
+        segments.append("\n".join(lines))
 
     return header + "\n\n" + "\n\n".join(segments)
 
