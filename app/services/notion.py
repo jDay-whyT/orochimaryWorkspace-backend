@@ -748,18 +748,19 @@ class NotionClient:
         statuses: list[str] | None = None,
     ) -> list[NotionPlanner]:
         """Query all shoots across all models within a date range, with model titles resolved."""
-        if statuses is None:
-            statuses = ["planned", "scheduled", "rescheduled"]
-
-        status_filters = [
-            {"property": "status", "select": {"equals": s}}
-            for s in statuses
-        ]
         filters: list[dict[str, Any]] = [
-            {"or": status_filters} if len(status_filters) > 1 else status_filters[0],
             {"property": "date", "date": {"on_or_after": date_from.isoformat()}},
             {"property": "date", "date": {"on_or_before": date_to.isoformat()}},
         ]
+
+        if statuses is not None:
+            status_filters = [
+                {"property": "status", "select": {"equals": s}}
+                for s in statuses
+            ]
+            filters.append(
+                {"or": status_filters} if len(status_filters) > 1 else status_filters[0]
+            )
 
         payload = {
             "page_size": 100,
