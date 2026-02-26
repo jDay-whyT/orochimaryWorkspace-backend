@@ -45,9 +45,9 @@ def _format_day_header(d: date) -> str:
     return f"{d.day} {MONTHS_SHORT[d.month - 1]} ({WEEKDAYS_RU[d.weekday()]})"
 
 
-def _format_shoots_board(shoots: list, days: int) -> str:
+def _format_board(shoots: list) -> str:
     if not shoots:
-        return f"✅ Съёмок в ближайшие {days} дн. нет"
+        return f"✅ Съёмок в ближайшие {SHOOTS_DAYS} дн. нет"
 
     grouped: dict[date, list] = defaultdict(list)
     for shoot in shoots:
@@ -57,10 +57,10 @@ def _format_shoots_board(shoots: list, days: int) -> str:
         grouped[d].append(shoot)
 
     if not grouped:
-        return f"✅ Съёмок в ближайшие {days} дн. нет"
+        return f"✅ Съёмок в ближайшие {SHOOTS_DAYS} дн. нет"
 
     total = sum(len(v) for v in grouped.values())
-    header = f"📷 Ближайшие съёмки — {days} дн. ({total} шт.)"
+    header = f"📷 Ближайшие съёмки — {SHOOTS_DAYS} дн. ({total} шт.)"
 
     segments = []
     for d in sorted(grouped):
@@ -97,7 +97,7 @@ async def cmd_upcoming_shoots(
         date_to=date_to,
     )
 
-    text = _format_shoots_board(shoots, SHOOTS_DAYS)
+    text = _format_board(shoots)
 
     state = _load_board_state()
     if state and state.get("message_id") and config.managers_chat_id:
