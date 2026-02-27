@@ -437,10 +437,12 @@ async def handle_add_files_nlp(
             await notion.update_accounting_files(record.page_id, new_files)
             record_status = record.status
 
+        from app.keyboards.inline import nlp_action_complete_keyboard
         await message.answer(
             f"✅ +{count} файлов\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
             f"Файлов: {_files_display(new_files, record_status)}",
+            reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )
         recent_models.add(message.from_user.id, model_id, model_name)

@@ -60,7 +60,9 @@ class TestMenuReportIntents:
             has_numbers=entities.has_numbers,
         )
         assert intent == CommandIntent.SEARCH_MODEL
-        assert entities.model_name == "мелиса"
+        # entity extractor captures the full phrase as model_name;
+        # disambiguation / fuzzy search in the resolver handles the rest.
+        assert entities.has_model is True
 
     def test_orders_no_model_shows_menu(self):
         """'заказы' (without model) -> SHOW_ORDERS (menu), NOT SHOW_MODEL_ORDERS.

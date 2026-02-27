@@ -20,6 +20,7 @@ from app.keyboards.inline import (
     accounting_quick_files_keyboard,
     summary_menu_keyboard,
     summary_card_keyboard,
+    nlp_action_complete_keyboard,
 )
 from app.keyboards.calendar import calendar_keyboard, parse_calendar_navigation
 
@@ -45,6 +46,7 @@ __all__ = [
     "accounting_quick_files_keyboard",
     "summary_menu_keyboard",
     "summary_card_keyboard",
+    "nlp_action_complete_keyboard",
     "calendar_keyboard",
     "parse_calendar_navigation",
 ]
