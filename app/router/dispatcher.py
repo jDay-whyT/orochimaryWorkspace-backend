@@ -11,8 +11,10 @@ Routing pipeline:
 7. Execute Handler
 """
 
+import asyncio
 import html
 import logging
+import time
 from datetime import date, datetime, timedelta
 
 from aiogram.types import Message
@@ -173,32 +175,47 @@ async def route_message(
         return
 
     # ===== Step 3: Entity Extraction =====
+    _t = time.time()
     entities = extract_entities_v2(text)
     LOGGER.info(
-        "Entities: model=%s, numbers=%s, type=%s, date=%s",
+        "Stage entities_extraction: %.3fs | model=%s, numbers=%s, type=%s, date=%s",
+        time.time() - _t,
         entities.model_name, entities.numbers, entities.order_type, entities.date,
     )
 
     # ===== Step 4: Intent Classification =====
+    _t = time.time()
     intent = classify_intent_v2(
         text,
         has_model=entities.has_model,
         has_numbers=entities.has_numbers,
     )
-    LOGGER.info("Intent: %s for text=%r", intent.value, text[:60])
+    LOGGER.info(
+        "Stage intent_classification: %.3fs | intent=%s for text=%r",
+        time.time() - _t, intent.value, text[:60],
+    )
 
     # ===== Step 5: Model Resolution =====
     model = None
     model_required = _intent_requires_model(intent)
 
+    _t_model = time.time()
     if entities.model_name and validate_model_name(entities.model_name):
-        resolution = await resolve_model(
-            query=entities.model_name,
-            user_id=user_id,
-            db_models=config.db_models,
-            notion=notion,
-            recent_models=recent_models,
-        )
+        try:
+            resolution = await resolve_model(
+                query=entities.model_name,
+                user_id=user_id,
+                db_models=config.db_models,
+                notion=notion,
+                recent_models=recent_models,
+            )
+        except asyncio.TimeoutError:
+            LOGGER.warning(
+                "route_message TIMEOUT in model_resolution user=%s text=%r",
+                user_id, text[:80],
+            )
+            await message.answer("⏱ Сервер перегружен, попробуйте через минуту")
+            return
 
         if resolution["status"] == "found":
             model = resolution["model"]
@@ -274,8 +291,23 @@ async def route_message(
         await message.answer("❌ Укажите имя модели.")
         return
 
+    LOGGER.info("Stage model_resolution: %.3fs user=%s", time.time() - _t_model, user_id)
+
     # ===== Step 6 & 7: Validation & Execute Handler =====
-    await _execute_handler(message, intent, model, entities, config, notion, memory_state, recent_models)
+    _t_handler = time.time()
+    try:
+        await _execute_handler(message, intent, model, entities, config, notion, memory_state, recent_models)
+    except asyncio.TimeoutError:
+        LOGGER.warning(
+            "route_message TIMEOUT in handler_execution user=%s text=%r",
+            user_id, text[:80],
+        )
+        try:
+            await message.answer("⏱ Сервер перегружен, попробуйте через минуту")
+        except Exception:
+            LOGGER.exception("Failed to send timeout fallback to user=%s", user_id)
+        return
+    LOGGER.info("Stage handler_execution: %.3fs user=%s", time.time() - _t_handler, user_id)
 
 
 def _intent_requires_model(intent: CommandIntent) -> bool:

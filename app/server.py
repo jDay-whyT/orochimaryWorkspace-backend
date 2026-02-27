@@ -1,8 +1,10 @@
+import asyncio
 import logging
 import os
+from collections import deque
 
 from aiohttp import web
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiogram.webhook.aiohttp_server import setup_application
 
 from app.bot import create_dispatcher
 from app.config import load_config
@@ -28,7 +30,12 @@ async def create_app() -> web.Application:
     app["notion"] = notion
     app["config"] = config
 
-    webhook_handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
+    # Deduplication: track last 200 update_ids to skip Telegram re-deliveries.
+    # deque(maxlen=200) keeps insertion order so we can evict the oldest ID
+    # from the companion set before it is silently dropped by the deque.
+    app["_seen_update_ids_deque"] = deque(maxlen=200)
+    app["_seen_update_ids_set"]: set[int] = set()
+
     setup_application(app, dp, bot=bot)
 
     async def on_shutdown(_: web.Application) -> None:
@@ -56,28 +63,56 @@ async def create_app() -> web.Application:
         await update_board(request.app["bot"], request.app["config"], request.app["notion"])
         return web.json_response({"ok": True})
 
-    async def telegram_webhook(request: web.Request) -> web.StreamResponse:
-        try:
-            body = await request.json()
-            update_type = (
-                "message" if "message" in body
-                else "callback_query" if "callback_query" in body
-                else "edited_message" if "edited_message" in body
-                else f"other({list(body.keys())})"
-            )
-            LOGGER.info(
-                "Webhook request received: update_id=%s type=%s",
-                body.get("update_id"), update_type,
-            )
-        except Exception:
-            LOGGER.info("Webhook request received (non-JSON body)")
+    async def telegram_webhook(request: web.Request) -> web.Response:
+        # Validate secret first (before parsing body, to fail fast on bad actors).
         secret = config.telegram_webhook_secret
         if secret:
             header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
             if header_secret != secret:
                 LOGGER.warning("Webhook secret mismatch")
                 return web.Response(status=403, text="forbidden")
-        return await webhook_handler.handle(request)
+
+        try:
+            body = await request.json()
+        except Exception:
+            LOGGER.warning("Webhook received non-JSON body — ignoring")
+            return web.Response(status=200, text="ok")
+
+        update_id = body.get("update_id")
+        update_type = (
+            "message" if "message" in body
+            else "callback_query" if "callback_query" in body
+            else "edited_message" if "edited_message" in body
+            else f"other({list(body.keys())})"
+        )
+        LOGGER.info(
+            "Webhook request received: update_id=%s type=%s",
+            update_id, update_type,
+        )
+
+        # Deduplication: skip updates that were already processed.
+        if update_id is not None:
+            seen_deque: deque = request.app["_seen_update_ids_deque"]
+            seen_set: set[int] = request.app["_seen_update_ids_set"]
+
+            if update_id in seen_set:
+                LOGGER.info("Duplicate update_id=%s skipped", update_id)
+                return web.Response(status=200, text="ok")
+
+            # Evict the oldest entry from the set before the deque drops it.
+            if len(seen_deque) == seen_deque.maxlen:
+                seen_set.discard(seen_deque[0])
+
+            seen_deque.append(update_id)
+            seen_set.add(update_id)
+
+        # Fire-and-forget: return 200 immediately so Telegram never retries,
+        # then process the update in a background task.
+        bot = request.app["bot"]
+        dp = request.app["dp"]
+        asyncio.create_task(dp.feed_raw_update(bot=bot, update=body))
+
+        return web.Response(status=200, text="ok")
 
     app.router.add_get("/", root)
     app.router.add_get("/healthz", healthcheck)

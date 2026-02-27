@@ -105,7 +105,8 @@ class NotionClient:
                 "Authorization": f"Bearer {self._token}",
                 "Notion-Version": NOTION_VERSION,
                 "Content-Type": "application/json",
-            }
+            },
+            timeout=aiohttp.ClientTimeout(total=10),
         )
         self._session_loop = loop
         return self._session
@@ -125,38 +126,58 @@ class NotionClient:
         cls._instances.clear()
 
     async def _request(
-        self, 
-        method: str, 
-        url: str, 
+        self,
+        method: str,
+        url: str,
         json: dict[str, Any] | None = None,
-        retries: int = 2,
+        retries: int = 3,
     ) -> dict[str, Any]:
         session = await self._get_session()
-        
+
         for attempt in range(retries + 1):
             try:
                 async with session.request(method, url, json=json) as response:
                     if response.status < 400:
                         return await response.json()
-                    
+
                     payload = (await response.text()).strip()
                     short_payload = payload[:200] if payload else "<empty>"
-                    
+
                     if response.status in {429, 500, 502, 503, 504} and attempt < retries:
-                        LOGGER.warning("Notion API retry %s %s: %s", response.status, url, short_payload)
-                        await asyncio.sleep(0.5 * (attempt + 1))
+                        backoff = 2 ** attempt  # 1s, 2s, 4s
+                        LOGGER.warning(
+                            "Notion API retry %d/%d %s %s: %s (backoff=%.1fs)",
+                            attempt + 1, retries, response.status, url, short_payload, backoff,
+                        )
+                        await asyncio.sleep(backoff)
                         continue
-                    
+
                     LOGGER.error("Notion API error %s %s: %s", response.status, url, short_payload)
                     raise RuntimeError(f"Notion API error {response.status}")
-                    
+
             except aiohttp.ClientError:
+                if attempt < retries:
+                    backoff = 2 ** attempt  # 1s, 2s, 4s
+                    LOGGER.warning(
+                        "Notion API client error retry %d/%d %s %s (backoff=%.1fs)",
+                        attempt + 1, retries, method, url, backoff,
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
                 LOGGER.exception("Notion API request failed %s %s", method, url)
                 raise
             except asyncio.TimeoutError:
+                if attempt < retries:
+                    backoff = 2 ** attempt  # 1s, 2s, 4s
+                    LOGGER.warning(
+                        "Notion API timeout retry %d/%d %s %s (backoff=%.1fs)",
+                        attempt + 1, retries, method, url, backoff,
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
                 LOGGER.exception("Notion API timeout %s %s", method, url)
                 raise
-        
+
         raise RuntimeError("Notion API retry limit exceeded")
 
     # ==================== Models ====================
