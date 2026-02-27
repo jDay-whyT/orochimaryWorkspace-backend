@@ -1,9 +1,13 @@
 """Filters for topic/thread access in group chats."""
 
+import logging
+
 from aiogram.filters import BaseFilter
 from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
+
+LOGGER = logging.getLogger(__name__)
 
 
 class TopicAccessMessageFilter(BaseFilter):
@@ -27,13 +31,28 @@ class ManagersTopicFilter(BaseFilter):
 
     async def __call__(self, message: Message, config: Config) -> bool:
         if config.managers_topic_thread_id == 0:
+            LOGGER.debug("ManagersTopicFilter: thread_id=%s expected=%s user=%s",
+                         message.message_thread_id, config.managers_topic_thread_id,
+                         message.from_user.id if message.from_user else None)
             return False
         if message.chat.type not in {"group", "supergroup"}:
+            LOGGER.debug("ManagersTopicFilter: thread_id=%s expected=%s user=%s",
+                         message.message_thread_id, config.managers_topic_thread_id,
+                         message.from_user.id if message.from_user else None)
             return False
         if message.message_thread_id != config.managers_topic_thread_id:
+            LOGGER.debug("ManagersTopicFilter: thread_id=%s expected=%s user=%s",
+                         message.message_thread_id, config.managers_topic_thread_id,
+                         message.from_user.id if message.from_user else None)
             return False
         if not message.from_user:
+            LOGGER.debug("ManagersTopicFilter: thread_id=%s expected=%s user=%s",
+                         message.message_thread_id, config.managers_topic_thread_id,
+                         message.from_user.id if message.from_user else None)
             return False
+        LOGGER.debug("ManagersTopicFilter: thread_id=%s expected=%s user=%s",
+                     message.message_thread_id, config.managers_topic_thread_id,
+                     message.from_user.id if message.from_user else None)
         return message.from_user.id in config.allowed_editors
 
 
