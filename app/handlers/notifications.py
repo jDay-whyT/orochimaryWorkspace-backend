@@ -36,7 +36,7 @@ def _format_board(shoots: list) -> str:
         return f"✅ Съёмок в ближайшие {SHOOTS_DAYS} дн. нет"
 
     total = len(dated)
-    header = f"📷 Ближайшие съёмки — {SHOOTS_DAYS} дн. ({total} шт.)"
+    header = f"📷 График съёмок на {SHOOTS_DAYS} дн. ({total} шт.)"
 
     segments = []
     for d, shoot in dated:
