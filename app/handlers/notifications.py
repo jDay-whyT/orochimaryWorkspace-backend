@@ -15,7 +15,7 @@ LOGGER = logging.getLogger(__name__)
 router = Router()
 router.message.filter(ManagersTopicFilter())
 
-SHOOTS_DAYS = 5
+SHOOTS_DAYS = 3
 
 WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
