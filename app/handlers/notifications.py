@@ -80,6 +80,8 @@ async def update_board(bot, config: Config, notion: NotionClient) -> None:
             )
             return
         except Exception as e:
+            if "message is not modified" in str(e).lower():
+                return  # текст не изменился, всё ок
             LOGGER.warning("Failed to edit board message: %s", e)
 
     if chat_id:
