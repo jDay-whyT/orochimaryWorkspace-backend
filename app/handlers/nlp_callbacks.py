@@ -63,7 +63,8 @@ SESSION_EXPIRED_MSG = "Сессия устарела, откройте моде�
 STALE_MSG = "Сессия устарела, откройте модель заново"
 
 # Actions that do NOT require token verification (always safe)
-_NO_TOKEN_ACTIONS = {"x", "bk", "noop", "om", "op", "cp", "fm", "smn", "sctm"}
+_NO_TOKEN_ACTIONS = {"x", "bk", "noop", "om", "op", "cp", "fm", "smn", "sctm",
+                     "more_actions", "done"}
 
 
 async def _safe_edit_reply_markup(bot, chat_id: int, message_id: int) -> None:
@@ -393,6 +394,12 @@ async def handle_nlp_callback(
         elif action == "scm":
             await _handle_shoot_comment_cb(query, parts, config, notion, memory_state)
 
+        # ===== Post-action completion buttons =====
+        elif action == "more_actions":
+            await _handle_more_actions(query, parts, config, notion, memory_state)
+        elif action == "done":
+            await _handle_done(query, parts, memory_state)
+
         else:
             LOGGER.warning("Unknown NLP callback action: %s", action)
             await query.answer("Unknown action", show_alert=True)
@@ -530,8 +537,10 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
                     location="home",
                     title=title,
                 )
+                from app.keyboards.inline import nlp_action_complete_keyboard
                 await query.message.edit_text(
                     f"✅ Съемка создана на {entities.date.strftime('%d.%m')}",
+                    reply_markup=nlp_action_complete_keyboard(model_id),
                     parse_mode="HTML",
                 )
             except Exception as e:
@@ -582,10 +591,12 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
                 await notion.update_accounting_files(record.page_id, new_files)
                 record_status = record.status
             progress_line = format_accounting_progress(new_files, record_status)
+            from app.keyboards.inline import nlp_action_complete_keyboard
             await query.message.edit_text(
                 f"✅ +{count} файлов ({new_files} всего)\n\n"
                 f"<b>{html.escape(model_data.title)}</b>\n"
                 f"Файлов: {progress_line}",
+                reply_markup=nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )
         except Exception as e:
@@ -1350,9 +1361,10 @@ async def _handle_shoot_menu_action(
             "model_name": model_name,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
+        from app.keyboards.inline import nlp_action_complete_keyboard
         msg = await query.message.edit_text(
             "✅ Съемка закрыта",
-            reply_markup=nlp_back_keyboard(model_id),
+            reply_markup=nlp_action_complete_keyboard(model_id),
         )
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
@@ -1431,12 +1443,12 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
             old_date = state.get("old_date", "?")
             await notion.reschedule_shoot(shoot_id, shoot_date)
             old_label = old_date[:10] if old_date else "?"
-            from app.keyboards.inline import nlp_back_keyboard
+            from app.keyboards.inline import nlp_action_complete_keyboard
             await _clear_previous_screen_keyboard(query, memory_state)
             await _cleanup_prompt_message(query, memory_state)
             msg = await query.message.edit_text(
                 f"✅ Съемка перенесена с {old_label} на {shoot_date.strftime('%d.%m')}",
-                reply_markup=nlp_back_keyboard(model_id),
+                reply_markup=nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )
             memory_state.clear(chat_id, user_id)
@@ -1463,13 +1475,13 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
             )
             recent_models.add(user_id, model_id, model_name)
             ct_str = ", ".join(content_types) if content_types else "—"
-            from app.keyboards.inline import nlp_shoot_post_create_keyboard
+            from app.keyboards.inline import nlp_action_complete_keyboard
             await _clear_previous_screen_keyboard(query, memory_state)
             await _cleanup_prompt_message(query, memory_state)
             msg = await query.message.edit_text(
                 f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}\n"
                 f"Контент: {ct_str}\nСтатус: {auto_status}",
-                reply_markup=nlp_shoot_post_create_keyboard(shoot_id, model_id),
+                reply_markup=nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )
             memory_state.clear(chat_id, user_id)
@@ -1494,13 +1506,13 @@ async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state)
 
     try:
         await notion.update_shoot_status(shoot_id, "done")
-        from app.keyboards.inline import nlp_back_keyboard
+        from app.keyboards.inline import nlp_action_complete_keyboard
         shoot = await notion.get_shoot(shoot_id)
         model_id = shoot.model_id if shoot else ""
         await _clear_previous_screen_keyboard(query, memory_state)
         msg = await query.message.edit_text(
             "✅ Съемка выполнена",
-            reply_markup=nlp_back_keyboard(model_id),
+            reply_markup=nlp_action_complete_keyboard(model_id),
         )
         memory_state.clear(chat_id, user_id)
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
@@ -1526,11 +1538,11 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
         await notion.update_shoot_status(shoot_id, "done")
         shoot = await notion.get_shoot(shoot_id)
         model_id = shoot.model_id if shoot else ""
-        from app.keyboards.inline import nlp_back_keyboard
+        from app.keyboards.inline import nlp_action_complete_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         msg = await query.message.edit_text(
             "✅ Съемка выполнена",
-            reply_markup=nlp_back_keyboard(model_id),
+            reply_markup=nlp_action_complete_keyboard(model_id),
         )
         memory_state.clear(chat_id, user_id)
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
@@ -1571,11 +1583,11 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
             new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
             await notion.update_shoot_comment(shoot_id, new_comment)
             memory_state.clear(chat_id, user_id)
-            from app.keyboards.inline import nlp_back_keyboard
+            from app.keyboards.inline import nlp_action_complete_keyboard
             await _clear_previous_screen_keyboard(query, memory_state)
             msg = await query.message.edit_text(
                 "✅ Комментарий добавлен",
-                reply_markup=nlp_back_keyboard(state.get("model_id", "")),
+                reply_markup=nlp_action_complete_keyboard(state.get("model_id", "")),
             )
             _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         else:
@@ -1773,6 +1785,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
             recent_models.add(user_id, model_id, model_name)
 
             from app.router.entities_v2 import get_order_type_display_name
+            from app.keyboards.inline import nlp_action_complete_keyboard
             type_label = get_order_type_display_name(order_type)
             await _clear_previous_screen_keyboard(query, memory_state)
             await _cleanup_prompt_message(query, memory_state)
@@ -1780,6 +1793,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
                 query,
                 f"✅ Создано {count}x {type_label}\n"
                 f"<b>{html.escape(model_name)}</b> · {in_date.strftime('%d.%m')}",
+                reply_markup=nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )
             msg = query.message
@@ -1866,12 +1880,15 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
     else:
         out_date = today_date
 
+    model_id_for_kb = state.get("model_id", "") if state else ""
     try:
         await notion.close_order(order_id, out_date)
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
+        from app.keyboards.inline import nlp_action_complete_keyboard
         msg = await query.message.edit_text(
             f"✅ Заказ закрыт · {out_date.strftime('%d.%m')}",
+            reply_markup=nlp_action_complete_keyboard(model_id_for_kb),
             parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
@@ -1920,7 +1937,11 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
             await notion.update_order_comment(orders[0].page_id, new_comment)
             memory_state.clear(chat_id, user_id)
-            await query.message.edit_text("✅ Комментарий добавлен")
+            from app.keyboards.inline import nlp_action_complete_keyboard
+            await query.message.edit_text(
+                "✅ Комментарий добавлен",
+                reply_markup=nlp_action_complete_keyboard(model_id),
+            )
         else:
             from app.keyboards.inline import nlp_comment_order_select_keyboard
             k = generate_token()
@@ -1944,7 +1965,11 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
             await notion.update_shoot_comment(shoots[0].page_id, new_comment)
             memory_state.clear(chat_id, user_id)
-            await query.message.edit_text("✅ Комментарий добавлен")
+            from app.keyboards.inline import nlp_action_complete_keyboard
+            await query.message.edit_text(
+                "✅ Комментарий добавлен",
+                reply_markup=nlp_action_complete_keyboard(model_id),
+            )
         else:
             from app.keyboards.inline import nlp_shoot_select_keyboard
             k = generate_token()
@@ -1993,8 +2018,13 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
 
         new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
         await notion.update_order_comment(order_id, new_comment)
+        model_id_for_kb = state.get("model_id", "") if state else ""
         memory_state.clear(chat_id, user_id)
-        await query.message.edit_text("✅ Комментарий добавлен")
+        from app.keyboards.inline import nlp_action_complete_keyboard
+        await query.message.edit_text(
+            "✅ Комментарий добавлен",
+            reply_markup=nlp_action_complete_keyboard(model_id_for_kb),
+        )
     except Exception as e:
         LOGGER.exception("Failed to add comment: %s", e)
         await query.message.edit_text("❌ Ошибка.")
@@ -2052,10 +2082,12 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
         recent_models.add(user_id, model_id, model_name)
         memory_state.clear(chat_id, user_id)
 
+        from app.keyboards.inline import nlp_action_complete_keyboard
         await query.message.edit_text(
             f"✅ +{count} файлов ({new_files} всего)\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
             f"Файлов: {progress_line}",
+            reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )
     except Exception as e:
@@ -2247,10 +2279,12 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
 
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
+        from app.keyboards.inline import nlp_action_complete_keyboard
         msg = await query.message.edit_text(
             f"✅ +{count} файлов ({new_files} всего)\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
             f"Файлов: {progress_line}",
+            reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
@@ -2325,12 +2359,12 @@ async def _handle_shoot_content_done(query, parts, config, notion, memory_state,
             return
         try:
             await notion.update_shoot_content(shoot_id, content_types)
-            from app.keyboards.inline import nlp_back_keyboard
+            from app.keyboards.inline import nlp_action_complete_keyboard
             ct_str = ", ".join(content_types) if content_types else "—"
             await _clear_previous_screen_keyboard(query, memory_state)
             msg = await query.message.edit_text(
                 f"✅ Content обновлен\n\nКонтент: {ct_str}",
-                reply_markup=nlp_back_keyboard(state.get("model_id", "")),
+                reply_markup=nlp_action_complete_keyboard(state.get("model_id", "")),
                 parse_mode="HTML",
             )
             memory_state.clear(chat_id, user_id)
@@ -2514,6 +2548,7 @@ async def _handle_accounting_content_save(query, parts, config, notion, memory_s
     accounting_id = state.get("accounting_id")
     selected = state.get("selected_content", [])
     model_name = state.get("model_name", "")
+    model_id_for_kb = state.get("model_id", "")
 
     if not accounting_id:
         await query.message.edit_text("Запись accounting не найдена.")
@@ -2527,11 +2562,13 @@ async def _handle_accounting_content_save(query, parts, config, notion, memory_s
             user_id, accounting_id, selected,
         )
         content_str = ", ".join(selected) if selected else "—"
+        from app.keyboards.inline import nlp_action_complete_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         msg = await query.message.edit_text(
             f"✅ Content сохранён\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
             f"Content: {html.escape(content_str)}",
+            reply_markup=nlp_action_complete_keyboard(model_id_for_kb),
             parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
@@ -2602,3 +2639,67 @@ def _format_date_short(date_str: str | None) -> str:
         return d.strftime("%d.%m")
     except (ValueError, TypeError):
         return "?"
+
+
+# ============================================================================
+#                    POST-ACTION COMPLETION HANDLERS
+# ============================================================================
+
+async def _handle_more_actions(query, parts, config, notion, memory_state):
+    """«Еще действие» — send a NEW message with the model card keyboard.
+
+    Callback: nlp:more_actions:{model_id}
+    The ✅ success message stays in chat; a fresh model card appears below it.
+    """
+    model_id = parts[2] if len(parts) >= 3 else None
+    if not model_id:
+        await query.answer()
+        return
+
+    chat_id, user_id = _state_ids_from_query(query)
+
+    try:
+        model_data = await notion.get_model(model_id)
+        model_name = model_data.title if model_data else ""
+    except Exception:
+        model_name = ""
+
+    from app.keyboards.inline import model_card_keyboard
+    from app.services.model_card import build_model_card
+
+    k = generate_token()
+    memory_state.set(chat_id, user_id, {
+        "flow": "nlp_actions",
+        "model_id": model_id,
+        "model_name": model_name,
+        "k": k,
+    })
+
+    try:
+        card_text, _ = await build_model_card(model_id, model_name, config, notion)
+    except Exception:
+        card_text = f"📊 <b>{html.escape(model_name)}</b>"
+
+    # Send as a NEW message — the ✅ message stays untouched in the chat
+    sent = await query.message.answer(
+        card_text,
+        reply_markup=model_card_keyboard(k),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, sent.message_id if sent else None)
+    await query.answer()
+
+
+async def _handle_done(query, parts, memory_state):
+    """«Готово» — remove keyboard from the ✅ message and clear state.
+
+    Callback: nlp:done:{model_id}
+    The ✅ text stays; only the inline keyboard is removed.
+    """
+    chat_id, user_id = _state_ids_from_query(query)
+    memory_state.clear(chat_id, user_id)
+    try:
+        await query.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await query.answer()

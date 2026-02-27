@@ -935,6 +935,25 @@ def nlp_stale_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[])
 
 
+def nlp_action_complete_keyboard(model_id: str) -> InlineKeyboardMarkup:
+    """Post-action keyboard shown after every successful NLP action.
+
+    Buttons:
+      • «Еще действие»  → nlp:more_actions:{model_id}  (opens model card for next action)
+      • «Готово»         → nlp:done:{model_id}          (removes keyboard, clears state)
+    """
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="Еще действие",
+            callback_data=f"nlp:more_actions:{model_id}",
+        ),
+        InlineKeyboardButton(
+            text="Готово",
+            callback_data=f"nlp:done:{model_id}",
+        ),
+    ]])
+
+
 def nlp_not_found_keyboard(recent: list[tuple[str, str]], k: str = "") -> InlineKeyboardMarkup:
     """Model not found — recent models. Intent in memory."""
     builder = InlineKeyboardBuilder()
