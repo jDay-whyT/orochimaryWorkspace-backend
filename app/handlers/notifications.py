@@ -85,6 +85,7 @@ async def update_board(bot, config: Config, notion: NotionClient) -> None:
     if chat_id:
         sent = await bot.send_message(
             chat_id=chat_id,
+            message_thread_id=config.managers_topic_thread_id,
             text=text,
             parse_mode="HTML",
         )
