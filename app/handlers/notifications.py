@@ -1,7 +1,6 @@
-import json
 import logging
+import os
 from datetime import date, timedelta
-from pathlib import Path
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -17,27 +16,8 @@ router = Router()
 router.message.filter(ManagersTopicFilter())
 
 SHOOTS_DAYS = 5
-BOARD_STATE_FILE = Path(__file__).parent.parent.parent / "board_state.json"
 
 WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-
-
-def _load_board_state() -> dict | None:
-    try:
-        if BOARD_STATE_FILE.exists():
-            with BOARD_STATE_FILE.open() as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return None
-
-
-def _save_board_state(state: dict) -> None:
-    try:
-        with BOARD_STATE_FILE.open("w") as f:
-            json.dump(state, f)
-    except Exception as e:
-        LOGGER.warning("Failed to save board state: %s", e)
 
 
 def _format_day_header(d: date) -> str:
@@ -87,12 +67,14 @@ async def update_board(bot, config: Config, notion: NotionClient) -> None:
 
     text = _format_board(shoots)
 
-    state = _load_board_state()
-    if state and state.get("message_id") and config.managers_chat_id:
+    message_id = int(os.getenv("BOARD_MESSAGE_ID", "0")) or None
+    chat_id = config.managers_chat_id
+
+    if message_id and chat_id:
         try:
             await bot.edit_message_text(
-                chat_id=config.managers_chat_id,
-                message_id=state["message_id"],
+                chat_id=chat_id,
+                message_id=message_id,
                 text=text,
                 parse_mode="HTML",
             )
@@ -100,13 +82,18 @@ async def update_board(bot, config: Config, notion: NotionClient) -> None:
         except Exception:
             pass
 
-    if config.managers_chat_id:
+    if chat_id:
         sent = await bot.send_message(
-            chat_id=config.managers_chat_id,
+            chat_id=chat_id,
             text=text,
             parse_mode="HTML",
         )
-        _save_board_state({"message_id": sent.message_id, "chat_id": sent.chat.id})
+        LOGGER.info(
+            "New board message sent: message_id=%s chat_id=%s — add BOARD_MESSAGE_ID=%s to env",
+            sent.message_id,
+            sent.chat.id,
+            sent.message_id,
+        )
 
 
 @router.message(Command("shoots"))
