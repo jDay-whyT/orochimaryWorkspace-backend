@@ -29,6 +29,7 @@ class Config:
     files_per_month: int
     managers_topic_thread_id: int = 0
     managers_chat_id: int = 0
+    internal_secret: str = ""
 
 
 def _parse_user_ids(value: str) -> set[int]:
@@ -134,6 +135,8 @@ def load_config(validate: bool = True) -> Config:
     except ValueError:
         managers_chat_id = 0
 
+    internal_secret = os.getenv("INTERNAL_SECRET", "").strip()
+
     try:
         timezone = ZoneInfo(timezone_name)
     except Exception as e:
@@ -154,6 +157,7 @@ def load_config(validate: bool = True) -> Config:
         files_per_month=files_per_month,
         managers_topic_thread_id=managers_topic_thread_id,
         managers_chat_id=managers_chat_id,
+        internal_secret=internal_secret,
     )
     
     if validate:
