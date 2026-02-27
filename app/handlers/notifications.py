@@ -79,8 +79,8 @@ async def update_board(bot, config: Config, notion: NotionClient) -> None:
                 parse_mode="HTML",
             )
             return
-        except Exception:
-            pass
+        except Exception as e:
+            LOGGER.warning("Failed to edit board message: %s", e)
 
     if chat_id:
         sent = await bot.send_message(
