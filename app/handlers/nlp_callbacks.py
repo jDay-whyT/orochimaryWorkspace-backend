@@ -1589,18 +1589,19 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
             await _session_expired(query, memory_state)
             return
         comment_text = state.get("comment_text")
+        model_id = state.get("model_id", "")
         if comment_text:
             shoot = await notion.get_shoot(shoot_id)
             existing = shoot.comments if shoot else ""
             new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
             await notion.update_shoot_comment(shoot_id, new_comment)
-            memory_state.clear(chat_id, user_id)
             from app.keyboards.inline import nlp_action_complete_keyboard
             await _clear_previous_screen_keyboard(query, memory_state)
             msg = await query.message.edit_text(
                 "✅ Комментарий добавлен",
-                reply_markup=nlp_action_complete_keyboard(state.get("model_id", "")),
+                reply_markup=nlp_action_complete_keyboard(model_id),
             )
+            memory_state.clear(chat_id, user_id)
             _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         else:
             await query.message.edit_text("Текст комментария не найден.")
@@ -1964,8 +1965,8 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
         await _session_expired(query, memory_state)
         return
 
-    model_id = state.get("model_id", "")
     comment_text = state.get("comment_text")
+    model_id = state.get("model_id", "")
     if not comment_text:
         await query.message.edit_text("Текст комментария не найден.")
         memory_state.clear(chat_id, user_id)
@@ -1981,12 +1982,12 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             existing = orders[0].comments or ""
             new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
             await notion.update_order_comment(orders[0].page_id, new_comment)
-            memory_state.clear(chat_id, user_id)
             from app.keyboards.inline import nlp_action_complete_keyboard
             await query.message.edit_text(
                 "✅ Комментарий добавлен",
                 reply_markup=nlp_action_complete_keyboard(model_id),
             )
+            memory_state.clear(chat_id, user_id)
         else:
             from app.keyboards.inline import nlp_comment_order_select_keyboard
             k = generate_token()
@@ -2009,12 +2010,12 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             existing = shoots[0].comments or ""
             new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
             await notion.update_shoot_comment(shoots[0].page_id, new_comment)
-            memory_state.clear(chat_id, user_id)
             from app.keyboards.inline import nlp_action_complete_keyboard
             await query.message.edit_text(
                 "✅ Комментарий добавлен",
                 reply_markup=nlp_action_complete_keyboard(model_id),
             )
+            memory_state.clear(chat_id, user_id)
         else:
             from app.keyboards.inline import nlp_shoot_select_keyboard
             k = generate_token()
@@ -2049,6 +2050,7 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
         await _session_expired(query, memory_state)
         return
 
+    model_id = state.get("model_id", "") if state else ""
     comment_text = state.get("comment_text")
     if not comment_text:
         await query.message.edit_text("Текст комментария не найден.")
@@ -2063,13 +2065,12 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
 
         new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
         await notion.update_order_comment(order_id, new_comment)
-        model_id_for_kb = state.get("model_id", "") if state else ""
-        memory_state.clear(chat_id, user_id)
         from app.keyboards.inline import nlp_action_complete_keyboard
         await query.message.edit_text(
             "✅ Комментарий добавлен",
-            reply_markup=nlp_action_complete_keyboard(model_id_for_kb),
+            reply_markup=nlp_action_complete_keyboard(model_id),
         )
+        memory_state.clear(chat_id, user_id)
     except Exception as e:
         LOGGER.exception("Failed to add comment: %s", e)
         await query.message.edit_text("❌ Ошибка.")
