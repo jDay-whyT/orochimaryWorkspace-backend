@@ -1230,7 +1230,8 @@ async def _handle_files_menu_action(
             parse_mode="HTML",
             reply_markup=nlp_back_keyboard(model_id),
         )
-        memory_state.update(chat_id, user_id, prompt_message_id=query.message.message_id)
+        prompt_message_id = msg.message_id if msg else query.message.message_id
+        memory_state.update(chat_id, user_id, prompt_message_id=prompt_message_id)
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
@@ -1405,7 +1406,8 @@ async def _handle_shoot_menu_action(
             parse_mode="HTML",
             reply_markup=nlp_back_keyboard(model_id),
         )
-        memory_state.update(chat_id, user_id, prompt_message_id=query.message.message_id)
+        prompt_message_id = msg.message_id if msg else query.message.message_id
+        memory_state.update(chat_id, user_id, prompt_message_id=prompt_message_id)
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
@@ -1445,7 +1447,8 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
             parse_mode="HTML",
             reply_markup=nlp_back_keyboard(model_id),
         )
-        memory_state.update(chat_id, user_id, prompt_message_id=query.message.message_id)
+        prompt_message_id = msg.message_id if msg else query.message.message_id
+        memory_state.update(chat_id, user_id, prompt_message_id=prompt_message_id)
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
     else:
@@ -1814,7 +1817,8 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
             "Введите дату (ДД.ММ):",
             reply_markup=nlp_back_keyboard(model_id),
         )
-        memory_state.update(chat_id, user_id, prompt_message_id=query.message.message_id)
+        prompt_message_id = msg.message_id if msg else query.message.message_id
+        memory_state.update(chat_id, user_id, prompt_message_id=prompt_message_id)
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
     else:
@@ -1983,7 +1987,8 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
             "Введите дату закрытия (ДД.ММ):",
             reply_markup=nlp_back_keyboard(state.get("model_id", "") if state else ""),
         )
-        memory_state.update(chat_id, user_id, prompt_message_id=query.message.message_id)
+        prompt_message_id = msg.message_id if msg else query.message.message_id
+        memory_state.update(chat_id, user_id, prompt_message_id=prompt_message_id)
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
     else:
