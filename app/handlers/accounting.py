@@ -290,6 +290,8 @@ async def _add_files_to_record(query: CallbackQuery, config: Config, memory_stat
 
         svc = AccountingService(config)
         result = await svc.add_files(model_id, model_name, count)
+        yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
+        accounting_cache.clear_cache(model_id, yyyy_mm)
 
         await query.message.edit_text(
             f"✅ <b>Files added!</b>\n\n"
@@ -331,6 +333,8 @@ async def _process_custom_files(message: Message, config: Config, memory_state: 
     try:
         svc = AccountingService(config)
         result = await svc.add_files(model_id, model_name, count)
+        yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
+        accounting_cache.clear_cache(model_id, yyyy_mm)
 
         if chat_id and msg_id:
             await message.bot.edit_message_text(
@@ -431,11 +435,13 @@ async def handle_add_files_nlp(
             await notion.create_accounting_record(
                 config.db_accounting, model_id, model_name, count, yyyy_mm,
             )
+            accounting_cache.clear_cache(model_id, yyyy_mm)
             new_files = count
             record_status = None
         else:
             new_files = record.files + count
             await notion.update_accounting_files(record.page_id, new_files)
+            accounting_cache.clear_cache(model_id, yyyy_mm)
             record_status = record.status
 
         from app.keyboards.inline import nlp_action_complete_keyboard
