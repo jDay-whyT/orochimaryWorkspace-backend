@@ -31,7 +31,7 @@ LOGGER = logging.getLogger(__name__)
 
 # ===== TTL Cache =====
 
-CARD_CACHE_TTL: float = 20.0  # seconds for successful results
+CARD_CACHE_TTL: float = 120.0  # seconds for successful results
 CARD_CACHE_ERROR_TTL: float = 5.0  # seconds for error/placeholder results
 
 # key → (text, timestamp, is_error)

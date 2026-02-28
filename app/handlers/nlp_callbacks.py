@@ -773,6 +773,7 @@ async def _handle_back_to_card(
     memory_state: MemoryState,
     model_id: str | None,
 ) -> None:
+    await query.answer()  # Instant response to remove loading indicator
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
     if not model_id and state:
