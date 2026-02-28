@@ -1448,6 +1448,10 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
             reply_markup=nlp_back_keyboard(model_id),
         )
         memory_state.update(chat_id, user_id, prompt_message_id=(msg.message_id if msg else query.message.message_id))
+        LOGGER.info(
+            f"[PROMPT] Saved prompt_message_id={msg.message_id if msg else query.message.message_id} "
+            f"for user {user_id}"
+        )
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
     else:

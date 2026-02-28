@@ -94,10 +94,17 @@ async def _cleanup_prompt_message(message: Message, memory_state: MemoryState) -
     user_id = message.from_user.id
     state = memory_state.get(chat_id, user_id) or {}
     prompt_id = state.get("prompt_message_id")
+    LOGGER.info(
+        f"[CLEANUP] chat_id={chat_id}, user_id={user_id}, "
+        f"prompt_id={prompt_id}, current_msg_id={message.message_id}"
+    )
     if not prompt_id:
+        LOGGER.warning("[CLEANUP] No prompt_id in state!")
         return
+    LOGGER.info(f"[CLEANUP] Attempting to delete message {prompt_id}")
     await _safe_delete_or_mark_done(message.bot, message.chat.id, prompt_id)
     memory_state.update(chat_id, user_id, prompt_message_id=None)
+    LOGGER.info("[CLEANUP] Cleanup complete")
 
 
 async def route_message(
