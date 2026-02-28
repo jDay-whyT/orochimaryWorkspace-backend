@@ -1640,7 +1640,7 @@ async def _handle_order_qty(query, parts, config, notion, memory_state):
     if len(parts) < 3:
         return
 
-    count = int(parts[2])
+    value = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
 
     state = memory_state.get(chat_id, user_id)
@@ -1650,12 +1650,42 @@ async def _handle_order_qty(query, parts, config, notion, memory_state):
 
     model_name = state.get("model_name", "")
     order_type = state.get("order_type", "")
+    model_id = state.get("model_id", "")
 
     LOGGER.info(
-        "NLP oq: user=%s count=%s order_type=%s model=%s flow=%s step=%s",
-        user_id, count, order_type, model_name,
+        "NLP oq: user=%s value=%s order_type=%s model=%s flow=%s step=%s",
+        user_id, value, order_type, model_name,
         state.get("flow"), state.get("step"),
     )
+
+    if value == "custom":
+        from app.keyboards.inline import nlp_back_keyboard
+        from app.router.entities_v2 import get_order_type_display_name
+
+        type_label = get_order_type_display_name(order_type)
+        k = generate_token()
+        memory_state.update(chat_id, user_id, step="awaiting_custom_count", k=k)
+
+        await _clear_previous_screen_keyboard(query, memory_state)
+        msg = await query.message.edit_text(
+            f"📦 <b>{html.escape(model_name)}</b> · {type_label}\n\n"
+            f"Введите количество:",
+            reply_markup=nlp_back_keyboard(model_id),
+            parse_mode="HTML",
+        )
+        memory_state.update(chat_id, user_id, prompt_message_id=query.message.message_id)
+        _remember_screen_message(
+            memory_state,
+            chat_id,
+            user_id,
+            msg.message_id if msg else query.message.message_id,
+        )
+        return
+
+    try:
+        count = int(value)
+    except ValueError:
+        return
 
     from app.keyboards.inline import nlp_order_date_keyboard
     from app.router.entities_v2 import get_order_type_display_name
@@ -1665,7 +1695,7 @@ async def _handle_order_qty(query, parts, config, notion, memory_state):
     await _clear_previous_screen_keyboard(query, memory_state)
     msg = await query.message.edit_text(
         f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\nДата заказа:",
-        reply_markup=nlp_order_date_keyboard(state.get("model_id", ""), k),
+        reply_markup=nlp_order_date_keyboard(model_id, k),
         parse_mode="HTML",
     )
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)

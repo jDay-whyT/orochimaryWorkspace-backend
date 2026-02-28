@@ -1435,6 +1435,47 @@ async def _show_help_message(message: Message) -> None:
     )
 
 
+async def _handle_custom_order_count_input(message, text, user_state, config, notion, memory_state):
+    """Handle custom order count input."""
+    from app.roles import is_editor
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+
+    if not is_editor(user_id, config):
+        await message.answer("❌ Нет прав.")
+        memory_state.clear(chat_id, user_id)
+        return
+
+    try:
+        count = int(text.strip())
+        if count < 1 or count > 99:
+            await message.answer("❌ Введите число от 1 до 99")
+            return
+    except ValueError:
+        await message.answer("❌ Введите число от 1 до 99")
+        return
+
+    from app.keyboards.inline import nlp_order_date_keyboard
+    from app.router.entities_v2 import get_order_type_display_name
+
+    model_name = user_state.get("model_name", "")
+    order_type = user_state.get("order_type", "")
+    model_id = user_state.get("model_id", "")
+    type_label = get_order_type_display_name(order_type)
+
+    k = generate_token()
+    memory_state.update(chat_id, user_id, step="awaiting_date", count=count, k=k)
+
+    await _clear_previous_screen_keyboard(message, memory_state)
+    await _cleanup_prompt_message(message, memory_state)
+    sent = await message.answer(
+        f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\nДата заказа:",
+        reply_markup=nlp_order_date_keyboard(model_id, k),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, sent.message_id if sent else None)
+
+
 # ============================================================================
 #               NLP TEXT STEP HANDLER MAP
 # ============================================================================
@@ -1453,6 +1494,7 @@ _NLP_TEXT_HANDLERS: dict[tuple[str | None, str], object] = {
     ("nlp_files", "awaiting_count"): _handle_custom_files_input,
     (None, "awaiting_shoot_comment"): _handle_shoot_comment_input,
     ("nlp_accounting_comment", "awaiting_accounting_comment"): _handle_accounting_comment_input,
+    ("nlp_order", "awaiting_custom_count"): _handle_custom_order_count_input,
 }
 
 
