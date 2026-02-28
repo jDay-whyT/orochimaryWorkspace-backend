@@ -1182,37 +1182,32 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
                 parse_mode="HTML",
             )
         else:
-            # Create shoot
+            # Proceed to location selection
             if not is_editor(user_id, config):
                 await message.answer("❌ Нет прав.")
                 memory_state.clear(chat_id, user_id)
                 return
+
+            from app.state import generate_token
             content_types = user_state.get("content_types", [])
-            auto_status = "scheduled" if content_types else "planned"
-            title = f"{model_name} · {parsed_date.strftime('%d.%m')}"
-            try:
-                await notion.create_shoot(
-                    database_id=config.db_planner,
-                    model_page_id=model_id,
-                    shoot_date=parsed_date,
-                    content=content_types,
-                    location="home",
-                    title=title,
-                    status=auto_status,
-                )
-                await _clear_previous_screen_keyboard(message, memory_state)
-                await _cleanup_prompt_message(message, memory_state)
-                memory_state.clear(chat_id, user_id)
-                from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
-                await message.answer(
-                    f"✅ Съемка создана на {parsed_date.strftime('%d.%m')}",
-                    reply_markup=_nlp_action_complete_keyboard(model_id),
-                    parse_mode="HTML",
-                )
-            except Exception as e:
-                LOGGER.exception("Failed to create shoot: %s", e)
-                await message.answer("❌ Ошибка при создании съемки.")
-                memory_state.clear(chat_id, user_id)
+            k = generate_token()
+            memory_state.set(chat_id, user_id, {
+                "flow": "nlp_shoot",
+                "step": "awaiting_location",
+                "model_id": model_id,
+                "model_name": model_name,
+                "shoot_date": parsed_date.isoformat(),
+                "content_types": content_types,
+                "k": k,
+            })
+            from app.keyboards.inline import nlp_shoot_location_keyboard
+            await _clear_previous_screen_keyboard(message, memory_state)
+            await _cleanup_prompt_message(message, memory_state)
+            await message.answer(
+                f"📍 <b>{html.escape(model_name)}</b> · Локация:",
+                reply_markup=nlp_shoot_location_keyboard(model_id, k),
+                parse_mode="HTML",
+            )
 
     elif current_flow == "nlp_close":
         model_id_for_kb = user_state.get("model_id", "")
