@@ -9,6 +9,8 @@ from aiogram import Router
 from app.config import Config
 from app.filters.topic_access import TopicAccessMessageFilter
 from app.services import NotionClient
+from app.services import accounting as accounting_cache
+from app.services import orders as orders_cache
 from app.keyboards.inline import nlp_report_keyboard
 from app.utils import escape_html
 from app.state import MemoryState
@@ -42,15 +44,15 @@ async def handle_report_nlp(
     yyyy_mm = now.strftime("%Y-%m")
 
     try:
-        record = await notion.get_monthly_record(
-            config.db_accounting, model_id, yyyy_mm,
+        record = await accounting_cache.get_cached_monthly_record(
+            notion, config, model_id, yyyy_mm,
         )
     except Exception as e:
         LOGGER.exception("Failed to query accounting: %s", e)
         record = None
 
     try:
-        open_orders = await notion.query_open_orders(config.db_orders, model_id)
+        open_orders = await orders_cache.get_cached_orders(notion, config, model_id)
     except Exception as e:
         LOGGER.exception("Failed to query open orders: %s", e)
         open_orders = []
