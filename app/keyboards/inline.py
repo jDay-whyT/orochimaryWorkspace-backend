@@ -734,6 +734,21 @@ def nlp_shoot_date_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
     ])
 
 
+def nlp_shoot_location_keyboard(
+    model_id: str,
+    k: str = "",
+) -> InlineKeyboardMarkup:
+    """Location selection for shoot creation."""
+    s = f":{k}" if k else ""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="home", callback_data=f"nlp:sl:home{s}"),
+            InlineKeyboardButton(text="rent", callback_data=f"nlp:sl:rent{s}"),
+        ],
+        [nlp_back_button(model_id)],
+    ])
+
+
 def nlp_shoot_confirm_done_keyboard(shoot_id: str, k: str = "") -> InlineKeyboardMarkup:
     """Confirm marking a shoot as done."""
     cb = f"nlp:sdc:{shoot_id}"
