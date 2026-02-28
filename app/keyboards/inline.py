@@ -2,7 +2,7 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.utils.constants import ORDER_TYPES, PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS, NLP_SHOOT_CONTENT_TYPES, NLP_ACCOUNTING_CONTENT_TYPES
+from app.utils.constants import ORDER_TYPES, PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS
 
 
 # ==================== Common ====================
@@ -375,23 +375,40 @@ def nlp_accounting_content_keyboard(
     model_id: str,
     k: str = "",
 ) -> InlineKeyboardMarkup:
-    """Multi-select content types for accounting Content property.
-    Toggle ✅/⬜ for each option, plus Save and Back.
-    """
+    """Multi-select content types for accounting Content property."""
     s = f":{k}" if k else ""
     builder = InlineKeyboardBuilder()
-    row: list[InlineKeyboardButton] = []
-    for ct in NLP_ACCOUNTING_CONTENT_TYPES:
+
+    # Группа 1: Основные типы
+    row1 = []
+    for ct in ["main", "new main", "basic"]:
         mark = "✅ " if ct in selected else "⬜ "
-        row.append(InlineKeyboardButton(
+        row1.append(InlineKeyboardButton(
             text=f"{mark}{ct}",
             callback_data=f"nlp:acct:{ct}{s}",
         ))
-        if len(row) == 2:
-            builder.row(*row)
-            row = []
-    if row:
-        builder.row(*row)
+    builder.row(*row1)
+
+    # Группа 2: Платформы
+    row2 = []
+    for ct in ["twitter", "reddit", "fansly"]:
+        mark = "✅ " if ct in selected else "⬜ "
+        row2.append(InlineKeyboardButton(
+            text=f"{mark}{ct}",
+            callback_data=f"nlp:acct:{ct}{s}",
+        ))
+    builder.row(*row2)
+
+    # Группа 3: Специальные
+    row3 = []
+    for ct in ["ad request", "no content", "event"]:
+        mark = "✅ " if ct in selected else "⬜ "
+        row3.append(InlineKeyboardButton(
+            text=f"{mark}{ct}",
+            callback_data=f"nlp:acct:{ct}{s}",
+        ))
+    builder.row(*row3)
+
     builder.row(InlineKeyboardButton(text="✅ Save", callback_data=f"nlp:accs:save{s}"))
     builder.row(nlp_back_button(model_id))
     return builder.as_markup()
@@ -766,23 +783,40 @@ def nlp_shoot_content_keyboard(
     model_id: str,
     k: str = "",
 ) -> InlineKeyboardMarkup:
-    """Multi-select content types for shoot creation via NLP.
-    Twitter/Reddit/Main/SFC/Posting/Fansly + ✅ Готово
-    """
+    """Multi-select content types for shoot creation via NLP."""
     s = f":{k}" if k else ""
     builder = InlineKeyboardBuilder()
-    row: list[InlineKeyboardButton] = []
-    for ct in NLP_SHOOT_CONTENT_TYPES:
+
+    # Группа 1: Основные типы
+    row1 = []
+    for ct in ["main", "new main", "basic"]:
         mark = "✓ " if ct in selected else ""
-        row.append(InlineKeyboardButton(
+        row1.append(InlineKeyboardButton(
             text=f"{mark}{ct}",
             callback_data=f"nlp:sct:{ct}{s}",
         ))
-        if len(row) == 3:
-            builder.row(*row)
-            row = []
-    if row:
-        builder.row(*row)
+    builder.row(*row1)
+
+    # Группа 2: Платформы
+    row2 = []
+    for ct in ["twitter", "reddit", "fansly"]:
+        mark = "✓ " if ct in selected else ""
+        row2.append(InlineKeyboardButton(
+            text=f"{mark}{ct}",
+            callback_data=f"nlp:sct:{ct}{s}",
+        ))
+    builder.row(*row2)
+
+    # Группа 3: Специальные
+    row3 = []
+    for ct in ["SFS", "posting", "event"]:
+        mark = "✓ " if ct in selected else ""
+        row3.append(InlineKeyboardButton(
+            text=f"{mark}{ct}",
+            callback_data=f"nlp:sct:{ct}{s}",
+        ))
+    builder.row(*row3)
+
     builder.row(InlineKeyboardButton(text="✅ Готово", callback_data=f"nlp:scd:done{s}"))
     builder.row(nlp_back_button(model_id))
     return builder.as_markup()
