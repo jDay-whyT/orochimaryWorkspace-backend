@@ -25,6 +25,11 @@ def _set_cached(key: str, data: Any) -> None:
     _cache[key] = (data, time.monotonic())
 
 
+def clear_cache(model_id: str) -> None:
+    """Clear shoots cache for specific model."""
+    _cache.pop(model_id, None)
+
+
 async def get_cached_shoots(
     notion: NotionClient,
     config: Config,

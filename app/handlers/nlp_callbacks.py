@@ -540,6 +540,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
                     location="home",
                     title=title,
                 )
+                planner_cache.clear_cache(model_id)
                 from app.keyboards.inline import nlp_action_complete_keyboard
                 await query.message.edit_text(
                     f"✅ Съемка создана на {entities.date.strftime('%d.%m')}",
@@ -587,11 +588,13 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
                 await notion.create_accounting_record(
                     config.db_accounting, model_id, model_data.title, count, yyyy_mm,
                 )
+                accounting_cache.clear_cache(model_id, yyyy_mm)
                 new_files = count
                 record_status = None
             else:
                 new_files = record.files + count
                 await notion.update_accounting_files(record.page_id, new_files)
+                accounting_cache.clear_cache(model_id, yyyy_mm)
                 record_status = record.status
             progress_line = format_accounting_progress(new_files, record_status)
             from app.keyboards.inline import nlp_action_complete_keyboard
@@ -1358,6 +1361,7 @@ async def _handle_shoot_menu_action(
 
     if action == "close":
         await notion.update_shoot_status(shoot_id, "done")
+        planner_cache.clear_cache(model_id)
         from app.keyboards.inline import nlp_back_keyboard
         memory_state.set(chat_id, user_id, {
             "flow": "nlp_actions",
@@ -1446,6 +1450,7 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
         if shoot_id:
             old_date = state.get("old_date", "?")
             await notion.reschedule_shoot(shoot_id, shoot_date)
+            planner_cache.clear_cache(model_id)
             old_label = old_date[:10] if old_date else "?"
             from app.keyboards.inline import nlp_action_complete_keyboard
             await _clear_previous_screen_keyboard(query, memory_state)
@@ -1477,6 +1482,7 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
                 title=title,
                 status=auto_status,
             )
+            planner_cache.clear_cache(model_id)
             recent_models.add(user_id, model_id, model_name)
             ct_str = ", ".join(content_types) if content_types else "—"
             from app.keyboards.inline import nlp_action_complete_keyboard
@@ -1513,6 +1519,7 @@ async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state)
         from app.keyboards.inline import nlp_action_complete_keyboard
         shoot = await notion.get_shoot(shoot_id)
         model_id = shoot.model_id if shoot else ""
+        planner_cache.clear_cache(model_id)
         await _clear_previous_screen_keyboard(query, memory_state)
         msg = await query.message.edit_text(
             "✅ Съемка выполнена",
@@ -1542,6 +1549,7 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
         await notion.update_shoot_status(shoot_id, "done")
         shoot = await notion.get_shoot(shoot_id)
         model_id = shoot.model_id if shoot else ""
+        planner_cache.clear_cache(model_id)
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         msg = await query.message.edit_text(
@@ -1804,6 +1812,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
                     count=count,
                     title=title,
                 )
+                orders_cache.clear_cache(model_id)
             else:
                 for i in range(1, count + 1):
                     title = f"{model_name} | {order_type} {i}/{count}"
@@ -1815,6 +1824,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
                         count=1,
                         title=title,
                     )
+                orders_cache.clear_cache(model_id)
 
             recent_models.add(user_id, model_id, model_name)
 
@@ -1917,6 +1927,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
     model_id_for_kb = state.get("model_id", "") if state else ""
     try:
         await notion.close_order(order_id, out_date)
+        orders_cache.clear_cache(model_id_for_kb)
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
         from app.keyboards.inline import nlp_action_complete_keyboard
@@ -2105,11 +2116,13 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
             await notion.create_accounting_record(
                 config.db_accounting, model_id, model_name, count, yyyy_mm,
             )
+            accounting_cache.clear_cache(model_id, yyyy_mm)
             new_files = count
             record_status = None
         else:
             new_files = record.files + count
             await notion.update_accounting_files(record.page_id, new_files)
+            accounting_cache.clear_cache(model_id, yyyy_mm)
             record_status = record.status
 
         progress_line = format_accounting_progress(new_files, record_status)
@@ -2301,11 +2314,13 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
             await notion.create_accounting_record(
                 config.db_accounting, model_id, model_name, count, yyyy_mm,
             )
+            accounting_cache.clear_cache(model_id, yyyy_mm)
             new_files = count
             record_status = None
         else:
             new_files = record.files + count
             await notion.update_accounting_files(record.page_id, new_files)
+            accounting_cache.clear_cache(model_id, yyyy_mm)
             record_status = record.status
 
         progress_line = format_accounting_progress(new_files, record_status)
@@ -2404,6 +2419,7 @@ async def _handle_shoot_content_done(query, parts, config, notion, memory_state,
                 title=title,
                 status=auto_status,
             )
+            planner_cache.clear_cache(model_id)
             recent_models.add(user_id, model_id, model_name)
             ct_str = ", ".join(content_types) if content_types else "—"
 

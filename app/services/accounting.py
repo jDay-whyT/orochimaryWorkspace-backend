@@ -32,6 +32,12 @@ def _set_cached(key: str, data: Any) -> None:
     _cache[key] = (data, time.monotonic())
 
 
+def clear_cache(model_id: str, yyyy_mm: str) -> None:
+    """Clear accounting cache for specific model and month."""
+    key = f"{model_id}:{yyyy_mm}"
+    _cache.pop(key, None)
+
+
 async def get_cached_monthly_record(
     notion: NotionClient,
     config: Config,

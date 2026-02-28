@@ -585,7 +585,10 @@ async def close_order(
     data = memory_state.get(chat_id, user_id) or {}
     orders = data.get("orders", [])
     order = next((o for o in orders if o.get("page_id") == page_id), None)
-    
+    model_id_for_cache = order.get("model_id") if order else data.get("model_id")
+    if model_id_for_cache:
+        orders_cache.clear_cache(model_id_for_cache)
+
     in_date = order.get("in_date") if order else None
     if in_date:
         days = (out_date - date.fromisoformat(in_date)).days + 1
@@ -921,6 +924,7 @@ async def create_order(
             await query.answer("Failed to create order", show_alert=True)
             return
 
+        orders_cache.clear_cache(model_id)
         memory_state.clear(chat_id, user_id)
 
         await safe_edit_message(
@@ -1078,6 +1082,9 @@ async def handle_text_input(
         
         try:
             await notion.update_order_comment(page_id, text)
+            model_id_for_cache = data.get("model_id")
+            if model_id_for_cache:
+                orders_cache.clear_cache(model_id_for_cache)
         except Exception as e:
             LOGGER.exception("Failed to update comment: %s", e)
             await message.answer("Failed to save comment", parse_mode="HTML")
