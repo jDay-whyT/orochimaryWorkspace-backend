@@ -106,7 +106,7 @@ class NotionClient:
                 "Notion-Version": NOTION_VERSION,
                 "Content-Type": "application/json",
             },
-            timeout=aiohttp.ClientTimeout(total=10),
+            timeout=aiohttp.ClientTimeout(total=10.0),  # 10 second timeout for entire request
         )
         self._session_loop = loop
         return self._session
