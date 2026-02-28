@@ -45,6 +45,7 @@ ACCOUNTING_CONTENT_OPTIONS = [
     "twitter",
     "reddit",
     "fansly",
+    "event",
     "ad request",
     "no content",
 ]
@@ -84,7 +85,7 @@ NLP_SHOOT_CONTENT_TYPES = [
 # NLP content types for accounting (canonical values for Content multi-select)
 NLP_ACCOUNTING_CONTENT_TYPES = [
     "basic",
-    "main",
+    "main pack",
     "new main",
     "twitter",
     "reddit",
