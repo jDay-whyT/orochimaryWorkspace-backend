@@ -7,7 +7,8 @@ Flow context (model_id, order_type, count …) is stored in memory_state.
 Callback prefix mapping:
   x   = cancel          sm  = select_model     act = model_action
   ot  = order_type      oq  = order_qty        od  = order_date
-  oc  = order_confirm   sd  = shoot_date       sdc = shoot_done_confirm
+  oc  = order_confirm   sd  = shoot_date       sl  = shoot_location
+  sdc = shoot_done_confirm
   ss  = shoot_select    co  = close_order      cd  = close_date
   ct  = comment_target  cmo = comment_order    df  = disambig_files
   do  = disambig_orders ro  = report_orders    ra  = report_accounting
@@ -158,6 +159,7 @@ _FLOW_STEP_RULES: dict[str, tuple[str, set[str] | None]] = {
     "od": ("nlp_order", {"awaiting_date"}),
     "oc": ("nlp_order", {"awaiting_confirm"}),
     "sd": ("nlp_shoot", {"awaiting_date", "awaiting_new_date", "awaiting_custom_date"}),
+    "sl": ("nlp_shoot", {"awaiting_location"}),
     "sct": ("nlp_shoot", {"awaiting_content", "awaiting_content_update"}),
     "scd": ("nlp_shoot", {"awaiting_content", "awaiting_content_update"}),
     "srs": ("nlp_actions", None),
@@ -334,6 +336,8 @@ async def handle_nlp_callback(
         # ===== Shoot Callbacks =====
         elif action == "sd":
             await _handle_shoot_date(query, parts, config, notion, memory_state, recent_models)
+        elif action == "sl":
+            await _handle_shoot_location(query, parts, config, notion, memory_state, recent_models)
         elif action == "sdc":
             await _handle_shoot_done_confirm(query, parts, config, notion, memory_state)
         elif action == "ss":
@@ -522,7 +526,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
 
     elif intent == CommandIntent.SHOOT_CREATE:
         if entities and entities.date:
-            # Date known: create shoot directly
+            # Date known: proceed to mandatory location selection
             if not is_editor(user_id, config):
                 try:
                     await query.message.edit_text("❌ Нет прав.")
@@ -530,26 +534,29 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
                     # Ignore edit errors (e.g., "message is not modified")
                     pass
                 return
-            title = f"{model_data.title} · {entities.date.strftime('%d.%m')}"
-            try:
-                await notion.create_shoot(
-                    database_id=config.db_planner,
-                    model_page_id=model_id,
-                    shoot_date=entities.date,
-                    content=[],
-                    location="home",
-                    title=title,
-                )
-                planner_cache.clear_cache(model_id)
-                from app.keyboards.inline import nlp_action_complete_keyboard
-                await query.message.edit_text(
-                    f"✅ Съемка создана на {entities.date.strftime('%d.%m')}",
-                    reply_markup=nlp_action_complete_keyboard(model_id),
-                    parse_mode="HTML",
-                )
-            except Exception as e:
-                LOGGER.exception("Failed to create shoot: %s", e)
-                await query.message.edit_text("❌ Ошибка при создании съемки.")
+            k = generate_token()
+            memory_state.set(chat_id, user_id, {
+                "flow": "nlp_shoot",
+                "step": "awaiting_location",
+                "model_id": model_id,
+                "model_name": model_data.title,
+                "shoot_date": entities.date.isoformat(),
+                "content_types": [],
+                "k": k,
+            })
+            from app.keyboards.inline import nlp_shoot_location_keyboard
+            await _clear_previous_screen_keyboard(query, memory_state)
+            msg = await query.message.edit_text(
+                f"📍 <b>{html.escape(model_data.title)}</b> · Локация:",
+                reply_markup=nlp_shoot_location_keyboard(model_id, k),
+                parse_mode="HTML",
+            )
+            _remember_screen_message(
+                memory_state,
+                chat_id,
+                user_id,
+                msg.message_id if msg else query.message.message_id,
+            )
         else:
             # No date: ask for date
             from app.keyboards.inline import nlp_shoot_date_keyboard
@@ -1470,36 +1477,93 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
             return
 
         content_types = state.get("content_types", [])
-        auto_status = _compute_shoot_status(shoot_date.isoformat(), content_types)
-        title = f"{model_name} · {shoot_date.strftime('%d.%m')}"
-        try:
-            shoot_id = await notion.create_shoot(
-                database_id=config.db_planner,
-                model_page_id=model_id,
-                shoot_date=shoot_date,
-                content=content_types,
-                location="home",
-                title=title,
-                status=auto_status,
-            )
-            planner_cache.clear_cache(model_id)
-            recent_models.add(user_id, model_id, model_name)
-            ct_str = ", ".join(content_types) if content_types else "—"
-            from app.keyboards.inline import nlp_action_complete_keyboard
-            await _clear_previous_screen_keyboard(query, memory_state)
-            await _cleanup_prompt_message(query, memory_state)
-            msg = await query.message.edit_text(
-                f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}\n"
-                f"Контент: {ct_str}\nСтатус: {auto_status}",
-                reply_markup=nlp_action_complete_keyboard(model_id),
-                parse_mode="HTML",
-            )
-            memory_state.clear(chat_id, user_id)
-            _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-        except Exception as e:
-            LOGGER.exception("Failed to create shoot: %s", e)
-            await query.message.edit_text("❌ Ошибка при создании съемки.")
-            memory_state.clear(chat_id, user_id)
+
+        # Переход к выбору локации
+        k = generate_token()
+        memory_state.set(chat_id, user_id, {
+            "flow": "nlp_shoot",
+            "step": "awaiting_location",
+            "model_id": model_id,
+            "model_name": model_name,
+            "shoot_date": shoot_date.isoformat(),
+            "content_types": content_types,
+            "k": k,
+        })
+        from app.keyboards.inline import nlp_shoot_location_keyboard
+        await _clear_previous_screen_keyboard(query, memory_state)
+        await _cleanup_prompt_message(query, memory_state)
+        msg = await query.message.edit_text(
+            f"📍 <b>{html.escape(model_name)}</b> · Локация:",
+            reply_markup=nlp_shoot_location_keyboard(model_id, k),
+            parse_mode="HTML",
+        )
+        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+
+
+async def _handle_shoot_location(query, parts, config, notion, memory_state, recent_models):
+    """Handle shoot location selection. Callback: nlp:sl:{location}[:{k}]"""
+    if len(parts) < 3:
+        return
+
+    location = parts[2]
+    if location not in {"home", "rent"}:
+        return
+
+    chat_id, user_id = _state_ids_from_query(query)
+
+    state = memory_state.get(chat_id, user_id)
+    if not state:
+        await _session_expired(query, memory_state)
+        return
+
+    model_id = state.get("model_id", "")
+    model_name = state.get("model_name", "")
+    shoot_date_str = state.get("shoot_date")
+    content_types = state.get("content_types", [])
+
+    if not shoot_date_str:
+        await _session_expired(query, memory_state)
+        return
+
+    shoot_date = date.fromisoformat(shoot_date_str)
+
+    if not is_editor(user_id, config):
+        await query.message.edit_text("❌ Нет прав.")
+        memory_state.clear(chat_id, user_id)
+        return
+
+    auto_status = _compute_shoot_status(shoot_date.isoformat(), content_types)
+    title = f"{model_name} · {shoot_date.strftime('%d.%m')}"
+
+    try:
+        await notion.create_shoot(
+            database_id=config.db_planner,
+            model_page_id=model_id,
+            shoot_date=shoot_date,
+            content=content_types,
+            location=location,
+            title=title,
+            status=auto_status,
+        )
+        planner_cache.clear_cache(model_id)
+        recent_models.add(user_id, model_id, model_name)
+        ct_str = ", ".join(content_types) if content_types else "—"
+
+        from app.keyboards.inline import nlp_action_complete_keyboard
+        await _clear_previous_screen_keyboard(query, memory_state)
+        await _cleanup_prompt_message(query, memory_state)
+        msg = await query.message.edit_text(
+            f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}\n"
+            f"Контент: {ct_str}\nЛокация: {location}\nСтатус: {auto_status}",
+            reply_markup=nlp_action_complete_keyboard(model_id),
+            parse_mode="HTML",
+        )
+        memory_state.clear(chat_id, user_id)
+        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+    except Exception as e:
+        LOGGER.exception("Failed to create shoot: %s", e)
+        await query.message.edit_text("❌ Ошибка при создании съемки.")
+        memory_state.clear(chat_id, user_id)
 
 
 async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state):
@@ -2408,37 +2472,25 @@ async def _handle_shoot_content_done(query, parts, config, notion, memory_state,
         if isinstance(shoot_date, str):
             shoot_date = datetime.fromisoformat(shoot_date).date()
 
-        auto_status = _compute_shoot_status(shoot_date.isoformat(), content_types)
-        title = f"{model_name} · {shoot_date.strftime('%d.%m')}"
-        try:
-            shoot_id = await notion.create_shoot(
-                database_id=config.db_planner,
-                model_page_id=model_id,
-                shoot_date=shoot_date,
-                content=content_types,
-                location="home",
-                title=title,
-                status=auto_status,
-            )
-            planner_cache.clear_cache(model_id)
-            recent_models.add(user_id, model_id, model_name)
-            ct_str = ", ".join(content_types) if content_types else "—"
-
-            from app.keyboards.inline import nlp_action_complete_keyboard
-            await _clear_previous_screen_keyboard(query, memory_state)
-            await _cleanup_prompt_message(query, memory_state)
-            msg = await query.message.edit_text(
-                f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}\n"
-                f"Контент: {ct_str}\nСтатус: {auto_status}",
-                reply_markup=nlp_action_complete_keyboard(model_id),
-                parse_mode="HTML",
-            )
-            memory_state.clear(chat_id, user_id)
-            _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-        except Exception as e:
-            LOGGER.exception("Failed to create shoot: %s", e)
-            await query.message.edit_text("❌ Ошибка при создании съемки.")
-            memory_state.clear(chat_id, user_id)
+        k = generate_token()
+        memory_state.set(chat_id, user_id, {
+            "flow": "nlp_shoot",
+            "step": "awaiting_location",
+            "model_id": model_id,
+            "model_name": model_name,
+            "shoot_date": shoot_date.isoformat(),
+            "content_types": content_types,
+            "k": k,
+        })
+        from app.keyboards.inline import nlp_shoot_location_keyboard
+        await _clear_previous_screen_keyboard(query, memory_state)
+        await _cleanup_prompt_message(query, memory_state)
+        msg = await query.message.edit_text(
+            f"📍 <b>{html.escape(model_name)}</b> · Локация:",
+            reply_markup=nlp_shoot_location_keyboard(model_id, k),
+            parse_mode="HTML",
+        )
+        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
     if step == "awaiting_content_update":
