@@ -23,6 +23,7 @@ from app.keyboards.inline import (
 )
 from app.roles import is_authorized, is_editor
 from app.services import AccountingService, ModelsService
+from app.services import accounting as accounting_cache
 from app.services.notion import NotionClient
 from app.state import MemoryState, RecentModels
 from app.utils.accounting import format_accounting_progress
@@ -423,8 +424,8 @@ async def handle_add_files_nlp(
     yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
 
     try:
-        record = await notion.get_monthly_record(
-            config.db_accounting, model_id, yyyy_mm,
+        record = await accounting_cache.get_cached_monthly_record(
+            notion, config, model_id, yyyy_mm,
         )
         if not record:
             await notion.create_accounting_record(

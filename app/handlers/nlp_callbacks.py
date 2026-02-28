@@ -34,6 +34,9 @@ from app.config import Config
 from app.filters.topic_access import TopicAccessCallbackFilter
 from app.roles import is_authorized, is_editor
 from app.services import NotionClient
+from app.services import accounting as accounting_cache
+from app.services import orders as orders_cache
+from app.services import planner as planner_cache
 from app.state import MemoryState, RecentModels, generate_token
 from app.router.command_filters import CommandIntent
 from app.keyboards.inline import ORDER_TYPE_CB_MAP
@@ -579,7 +582,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
         try:
             now = datetime.now(tz=config.timezone)
             yyyy_mm = now.strftime("%Y-%m")
-            record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+            record = await accounting_cache.get_cached_monthly_record(notion, config, model_id, yyyy_mm)
             if not record:
                 await notion.create_accounting_record(
                     config.db_accounting, model_id, model_data.title, count, yyyy_mm,
@@ -708,7 +711,7 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
             return
         now = datetime.now(tz=config.timezone)
         yyyy_mm = now.strftime("%Y-%m")
-        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+        record = await accounting_cache.get_cached_monthly_record(notion, config, model_id, yyyy_mm)
         existing_content = record.content if record and record.content else []
         accounting_id = record.page_id if record else None
 
@@ -820,7 +823,7 @@ async def _show_orders_menu(
 
     model_id = state.get("model_id")
     model_name = state.get("model_name", "")
-    orders = await notion.query_open_orders(config.db_orders, model_page_id=model_id)
+    orders = await orders_cache.get_cached_orders(notion, config, model_id)
     orders.sort(key=lambda o: o.in_date or "9999-99-99")
     has_orders = bool(orders)
     can_edit = is_editor(user_id, config)
@@ -871,7 +874,7 @@ async def _show_orders_view(
     model_name = state.get("model_name", "")
     orders = state.get("orders")
     if orders is None:
-        orders = await notion.query_open_orders(config.db_orders, model_page_id=model_id)
+        orders = await orders_cache.get_cached_orders(notion, config, model_id)
         orders.sort(key=lambda o: o.in_date or "9999-99-99")
 
     if not orders:
@@ -934,7 +937,7 @@ async def _show_close_picker(
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
-    orders = await notion.query_open_orders(config.db_orders, model_page_id=model_id)
+    orders = await orders_cache.get_cached_orders(notion, config, model_id)
     orders.sort(key=lambda o: o.in_date or "9999-99-99")
     if not orders:
         from app.keyboards.inline import nlp_back_keyboard
@@ -1168,7 +1171,7 @@ async def _handle_files_menu_action(
 
     now = datetime.now(tz=config.timezone)
     yyyy_mm = now.strftime("%Y-%m")
-    record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+    record = await accounting_cache.get_cached_monthly_record(notion, config, model_id, yyyy_mm)
     if not record:
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
@@ -1240,7 +1243,7 @@ async def _show_shoot_menu(
 
     shoots = []
     try:
-        shoots = await notion.query_upcoming_shoots(config.db_planner, model_page_id=model_id)
+        shoots = await planner_cache.get_cached_shoots(notion, config, model_id)
     except Exception:
         shoots = []
 
@@ -1958,7 +1961,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
         return
 
     if target == "order":
-        orders = await notion.query_open_orders(config.db_orders, model_page_id=model_id)
+        orders = await orders_cache.get_cached_orders(notion, config, model_id)
         if not orders:
             await query.message.edit_text("Нет открытых заказов.")
             memory_state.clear(chat_id, user_id)
@@ -1986,7 +1989,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
     elif target == "shoot":
-        shoots = await notion.query_upcoming_shoots(config.db_planner, model_page_id=model_id)
+        shoots = await planner_cache.get_cached_shoots(notion, config, model_id)
         if not shoots:
             await query.message.edit_text("Нет запланированных съемок.")
             memory_state.clear(chat_id, user_id)
@@ -2096,7 +2099,7 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
         now = datetime.now(tz=config.timezone)
         yyyy_mm = now.strftime("%Y-%m")
 
-        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+        record = await accounting_cache.get_cached_monthly_record(notion, config, model_id, yyyy_mm)
 
         if not record:
             await notion.create_accounting_record(
@@ -2176,7 +2179,7 @@ async def _handle_report_orders(query, config, notion, memory_state):
         await _session_expired(query, memory_state)
         return
 
-    orders = await notion.query_open_orders(config.db_orders, model_id)
+    orders = await orders_cache.get_cached_orders(notion, config, model_id)
     if not orders:
         await query.answer("Нет открытых заказов", show_alert=True)
         return
@@ -2215,7 +2218,7 @@ async def _handle_report_accounting(query, config, notion, memory_state):
 
     now = datetime.now(tz=config.timezone)
     yyyy_mm = now.strftime("%Y-%m")
-    record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+    record = await accounting_cache.get_cached_monthly_record(notion, config, model_id, yyyy_mm)
 
     model_data = await notion.get_model(model_id)
     model_name = model_data.title if model_data else "модели"
@@ -2292,7 +2295,7 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
         now = datetime.now(tz=config.timezone)
         yyyy_mm = now.strftime("%Y-%m")
 
-        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+        record = await accounting_cache.get_cached_monthly_record(notion, config, model_id, yyyy_mm)
 
         if not record:
             await notion.create_accounting_record(
@@ -2662,12 +2665,12 @@ async def _show_report(query, model_id, model_name, config, notion, memory_state
     yyyy_mm = now.strftime("%Y-%m")
 
     try:
-        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+        record = await accounting_cache.get_cached_monthly_record(notion, config, model_id, yyyy_mm)
     except Exception:
         record = None
 
     try:
-        open_orders = await notion.query_open_orders(config.db_orders, model_id)
+        open_orders = await orders_cache.get_cached_orders(notion, config, model_id)
     except Exception:
         open_orders = []
 

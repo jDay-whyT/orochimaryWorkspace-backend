@@ -24,6 +24,7 @@ from app.keyboards import (
 )
 from app.roles import is_authorized, can_edit
 from app.services import NotionClient, NotionOrder
+from app.services import orders as orders_cache
 from app.state import MemoryState, RecentModels
 from app.utils import (
     format_date_short,
@@ -440,7 +441,7 @@ async def _show_orders_for_model(
     page = data.get("page", 1)
     
     # Fetch orders
-    orders = await notion.query_open_orders(config.db_orders, model_id)
+    orders = await orders_cache.get_cached_orders(notion, config, model_id)
     
     # Sort by in_date
     orders.sort(key=lambda o: o.in_date or "9999-99-99")
