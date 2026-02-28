@@ -283,7 +283,7 @@ async def handle_nlp_callback(
                     )
                     try:
                         await query.message.edit_text(
-                            "Сброшено. Напиши модель заново.",
+                            "✅ Готово, напиши новую модель",
                             reply_markup=None,
                         )
                     except Exception:
@@ -2350,7 +2350,45 @@ async def _handle_shoot_content_done(query, parts, config, notion, memory_state,
 
     content_types = state.get("content_types", [])
     model_name = state.get("model_name", "")
+    model_id = state.get("model_id", "")
     step = state.get("step", "")
+
+    if step == "awaiting_content" and state.get("shoot_date"):
+        shoot_date = state.get("shoot_date")
+        if isinstance(shoot_date, str):
+            shoot_date = datetime.fromisoformat(shoot_date).date()
+
+        auto_status = _compute_shoot_status(shoot_date.isoformat(), content_types)
+        title = f"{model_name} · {shoot_date.strftime('%d.%m')}"
+        try:
+            shoot_id = await notion.create_shoot(
+                database_id=config.db_planner,
+                model_page_id=model_id,
+                shoot_date=shoot_date,
+                content=content_types,
+                location="home",
+                title=title,
+                status=auto_status,
+            )
+            recent_models.add(user_id, model_id, model_name)
+            ct_str = ", ".join(content_types) if content_types else "—"
+
+            from app.keyboards.inline import nlp_action_complete_keyboard
+            await _clear_previous_screen_keyboard(query, memory_state)
+            await _cleanup_prompt_message(query, memory_state)
+            msg = await query.message.edit_text(
+                f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}\n"
+                f"Контент: {ct_str}\nСтатус: {auto_status}",
+                reply_markup=nlp_action_complete_keyboard(model_id),
+                parse_mode="HTML",
+            )
+            memory_state.clear(chat_id, user_id)
+            _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+        except Exception as e:
+            LOGGER.exception("Failed to create shoot: %s", e)
+            await query.message.edit_text("❌ Ошибка при создании съемки.")
+            memory_state.clear(chat_id, user_id)
+        return
 
     if step == "awaiting_content_update":
         shoot_id = state.get("shoot_id")
