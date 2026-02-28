@@ -362,6 +362,32 @@ class TestStateManagement:
         state = MemoryState(ttl_seconds=60)
         assert state.get(999, 999) is None
 
+    def test_state_set_preserves_prompt_message_id_when_omitted(self):
+        """prompt_message_id is retained when set() payload does not include it."""
+        state = MemoryState(ttl_seconds=60)
+        chat_id = 100
+        user_id = 123
+        state.set(chat_id, user_id, {"flow": "test", "prompt_message_id": 777})
+
+        state.set(chat_id, user_id, {"flow": "test", "step": "two"})
+
+        result = state.get(chat_id, user_id)
+        assert result is not None
+        assert result["prompt_message_id"] == 777
+
+    def test_state_set_allows_explicit_prompt_message_id_override(self):
+        """prompt_message_id can still be intentionally overwritten."""
+        state = MemoryState(ttl_seconds=60)
+        chat_id = 100
+        user_id = 123
+        state.set(chat_id, user_id, {"flow": "test", "prompt_message_id": 777})
+
+        state.set(chat_id, user_id, {"flow": "test", "prompt_message_id": None})
+
+        result = state.get(chat_id, user_id)
+        assert result is not None
+        assert result["prompt_message_id"] is None
+
 
 # ============================================================================
 #                 INTENT PRIORITY EDGE CASES

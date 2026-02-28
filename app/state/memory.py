@@ -74,6 +74,17 @@ class MemoryState:
         key = self._resolve_key(chat_id, user_id)
         if key is None:
             return
+        previous_entry = self._storage.get(key)
+        if (
+            previous_entry
+            and not self._is_expired(previous_entry)
+            and "prompt_message_id" not in data
+            and "prompt_message_id" in previous_entry.data
+        ):
+            data = {
+                **data,
+                "prompt_message_id": previous_entry.data.get("prompt_message_id"),
+            }
         self._storage[key] = StateEntry(
             data=data,
             expires_at=self._now() + self.ttl_seconds,
