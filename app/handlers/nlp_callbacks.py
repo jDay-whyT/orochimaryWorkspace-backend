@@ -1752,7 +1752,7 @@ async def _handle_order_qty(query, parts, config, notion, memory_state):
             reply_markup=nlp_back_keyboard(model_id),
             parse_mode="HTML",
         )
-        memory_state.update(chat_id, user_id, prompt_message_id=query.message.message_id)
+        memory_state.update(chat_id, user_id, prompt_message_id=(msg.message_id if msg else query.message.message_id))
         _remember_screen_message(
             memory_state,
             chat_id,
@@ -2355,7 +2355,7 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
             parse_mode="HTML",
             reply_markup=nlp_back_keyboard(model_id),
         )
-        memory_state.update(chat_id, user_id, prompt_message_id=query.message.message_id)
+        memory_state.update(chat_id, user_id, prompt_message_id=(msg.message_id if msg else query.message.message_id))
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
@@ -2635,7 +2635,7 @@ async def _handle_shoot_comment_cb(query, parts, config, notion, memory_state):
         parse_mode="HTML",
         reply_markup=nlp_back_keyboard(model_id),
     )
-    memory_state.update(chat_id, user_id, prompt_message_id=query.message.message_id)
+    memory_state.update(chat_id, user_id, prompt_message_id=(msg.message_id if msg else query.message.message_id))
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
