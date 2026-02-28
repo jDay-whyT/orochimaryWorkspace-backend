@@ -19,6 +19,7 @@ In-memory TTL cache avoids repeated Notion queries within a short window.
 """
 
 import html
+import asyncio
 import logging
 import time
 from datetime import date, datetime
@@ -144,22 +145,32 @@ async def _build_card_text_impl(
     month_label = _month_ru(now.month)
     has_error = False
 
+    yyyy_mm = now.strftime("%Y-%m")
+    results = await asyncio.gather(
+        notion.query_open_orders(config.db_orders, model_page_id=model_id),
+        notion.query_upcoming_shoots(config.db_planner, model_page_id=model_id),
+        notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm),
+        return_exceptions=True,
+    )
+
+    orders_result, shoots_result, accounting_result = results
+
     # Orders open count
-    try:
-        orders = await notion.query_open_orders(
-            config.db_orders, model_page_id=model_id,
-        )
-        orders_count = str(len(orders))
-    except Exception:
+    if isinstance(orders_result, Exception):
         LOGGER.warning("model_card: failed to fetch orders for %s", model_id)
         orders_count = "—"
         has_error = True
+    else:
+        orders = orders_result
+        orders_count = str(len(orders))
 
     # Next shoot
-    try:
-        shoots = await notion.query_upcoming_shoots(
-            config.db_planner, model_page_id=model_id,
-        )
+    if isinstance(shoots_result, Exception):
+        LOGGER.warning("model_card: failed to fetch shoots for %s", model_id)
+        shoot_line = "—"
+        has_error = True
+    else:
+        shoots = shoots_result
         if shoots:
             s = shoots[0]
             s_date = _format_date_card(s.date)
@@ -167,26 +178,19 @@ async def _build_card_text_impl(
             shoot_line = f"{s_date} ({s_status})"
         else:
             shoot_line = "нет"
-    except Exception:
-        LOGGER.warning("model_card: failed to fetch shoots for %s", model_id)
-        shoot_line = "—"
-        has_error = True
 
     # Files current month
-    try:
-        yyyy_mm = now.strftime("%Y-%m")
-        record = await notion.get_monthly_record(
-            config.db_accounting, model_id, yyyy_mm,
-        )
+    if isinstance(accounting_result, Exception):
+        LOGGER.warning("model_card: failed to fetch accounting for %s", model_id)
+        files_line = "—"
+        has_error = True
+    else:
+        record = accounting_result
         if record:
             total_files = record.files
             files_line = format_accounting_progress(total_files, record.status)
         else:
             files_line = format_accounting_progress(0, None)
-    except Exception:
-        LOGGER.warning("model_card: failed to fetch accounting for %s", model_id)
-        files_line = "—"
-        has_error = True
 
     safe_name = html.escape(model_name)
 
