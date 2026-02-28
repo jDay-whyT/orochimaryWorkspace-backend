@@ -18,21 +18,26 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 
 ## ENV переменные
 
-> Формат списка ALLOWED_EDITORS: `"123,456"` (через запятую, без пробелов или с ними — ок).
+> Формат списка `ALLOWED_EDITORS`: `"123,456"` (через запятую, без пробелов или с ними — ок).
 
 | Переменная | Обязательно | Описание |
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | ✅ | Токен бота от @BotFather |
 | `NOTION_TOKEN` | ✅ | Integration token из Notion |
-| `NOTION_DB_MODELS_ID` | ✅ | ID базы **Models** |
-| `NOTION_DB_ORDERS_ID` | ✅ | ID базы **Orders** |
-| `NOTION_DB_PLANNER_ID` | ✅ | ID базы **Planner** |
-| `NOTION_DB_ACCOUNTING_ID` | ✅ | ID базы **Accounting** |
+| `DB_MODELS` | ✅ | ID базы **Models** (UUID) |
+| `DB_ORDERS` | ✅ | ID базы **Orders** (UUID) |
+| `DB_PLANNER` | ✅ | ID базы **Planner** (UUID) |
+| `DB_ACCOUNTING` | ✅ | ID базы **Accounting** (UUID) |
 | `ALLOWED_EDITORS` | ✅ | Список user_id с доступом к чтению/записи |
-| `WEBHOOK_SECRET` | ⚠️ | Секрет для проверки заголовка `X-Telegram-Bot-Api-Secret-Token` |
-| `LOG_LEVEL` | ⚠️ | Уровень логирования (например `INFO`, `DEBUG`) |
+| `CRM_TOPIC_THREAD_ID` | ✅ | ID топика CRM в Telegram (целое число > 0) |
+| `TELEGRAM_WEBHOOK_SECRET` | ⚠️ | Секрет для проверки заголовка `X-Telegram-Bot-Api-Secret-Token` |
+| `TIMEZONE` | ⚠️ | Таймзона, по умолчанию `Europe/Brussels` |
+| `FILES_PER_MONTH` | ⚠️ | Лимит файлов в месяц, по умолчанию `200` |
+| `INTERNAL_SECRET` | ⚠️ | Секрет для вызова `POST /internal/update-board` |
+| `MANAGERS_CHAT_ID` | ⚠️ | Telegram chat_id для менеджеров |
+| `MANAGERS_TOPIC_THREAD_ID` | ⚠️ | Telegram topic_thread_id для менеджеров |
 
-> В коде используются имена: `DB_MODELS`, `DB_ORDERS`, `DB_PLANNER`, `DB_ACCOUNTING`, а также `TELEGRAM_WEBHOOK_SECRET`. Ниже в примерах показано, как задать переменные в обоих форматах (удобно при деплое).
+> Бот валидирует конфиг при старте: если обязательные переменные не заданы, процесс завершится с ошибкой.
 
 ### Авторизация по user_id
 
@@ -58,21 +63,17 @@ pip install -r requirements.txt
 
 ```env
 TELEGRAM_BOT_TOKEN=...
+TELEGRAM_WEBHOOK_SECRET=...
 NOTION_TOKEN=...
-NOTION_DB_MODELS_ID=...
-NOTION_DB_ORDERS_ID=...
-NOTION_DB_PLANNER_ID=...
-NOTION_DB_ACCOUNTING_ID=...
+DB_MODELS=...
+DB_ORDERS=...
+DB_PLANNER=...
+DB_ACCOUNTING=...
 ALLOWED_EDITORS=123,456
-WEBHOOK_SECRET=...
-LOG_LEVEL=INFO
-
-# Маппинг на реальные env, которые читает код
-DB_MODELS=${NOTION_DB_MODELS_ID}
-DB_ORDERS=${NOTION_DB_ORDERS_ID}
-DB_PLANNER=${NOTION_DB_PLANNER_ID}
-DB_ACCOUNTING=${NOTION_DB_ACCOUNTING_ID}
-TELEGRAM_WEBHOOK_SECRET=${WEBHOOK_SECRET}
+CRM_TOPIC_THREAD_ID=123
+TIMEZONE=Europe/Brussels
+FILES_PER_MONTH=200
+INTERNAL_SECRET=...
 ```
 
 Затем экспортируйте:
@@ -85,38 +86,34 @@ export $(cat .env | xargs)
 
 ```bash
 export TELEGRAM_BOT_TOKEN=...
+export TELEGRAM_WEBHOOK_SECRET=...
 export NOTION_TOKEN=...
-export NOTION_DB_MODELS_ID=...
-export NOTION_DB_ORDERS_ID=...
-export NOTION_DB_PLANNER_ID=...
-export NOTION_DB_ACCOUNTING_ID=...
+export DB_MODELS=...
+export DB_ORDERS=...
+export DB_PLANNER=...
+export DB_ACCOUNTING=...
 export ALLOWED_EDITORS="123,456"
-export WEBHOOK_SECRET=...
-
-export DB_MODELS=$NOTION_DB_MODELS_ID
-export DB_ORDERS=$NOTION_DB_ORDERS_ID
-export DB_PLANNER=$NOTION_DB_PLANNER_ID
-export DB_ACCOUNTING=$NOTION_DB_ACCOUNTING_ID
-export TELEGRAM_WEBHOOK_SECRET=$WEBHOOK_SECRET
+export CRM_TOPIC_THREAD_ID=123
+export TIMEZONE="Europe/Brussels"
+export FILES_PER_MONTH=200
+export INTERNAL_SECRET=...
 ```
 
 ### ENV через PowerShell
 
 ```powershell
 $env:TELEGRAM_BOT_TOKEN="..."
+$env:TELEGRAM_WEBHOOK_SECRET="..."
 $env:NOTION_TOKEN="..."
-$env:NOTION_DB_MODELS_ID="..."
-$env:NOTION_DB_ORDERS_ID="..."
-$env:NOTION_DB_PLANNER_ID="..."
-$env:NOTION_DB_ACCOUNTING_ID="..."
+$env:DB_MODELS="..."
+$env:DB_ORDERS="..."
+$env:DB_PLANNER="..."
+$env:DB_ACCOUNTING="..."
 $env:ALLOWED_EDITORS="123,456"
-$env:WEBHOOK_SECRET="..."
-
-$env:DB_MODELS=$env:NOTION_DB_MODELS_ID
-$env:DB_ORDERS=$env:NOTION_DB_ORDERS_ID
-$env:DB_PLANNER=$env:NOTION_DB_PLANNER_ID
-$env:DB_ACCOUNTING=$env:NOTION_DB_ACCOUNTING_ID
-$env:TELEGRAM_WEBHOOK_SECRET=$env:WEBHOOK_SECRET
+$env:CRM_TOPIC_THREAD_ID="123"
+$env:TIMEZONE="Europe/Brussels"
+$env:FILES_PER_MONTH="200"
+$env:INTERNAL_SECRET="..."
 ```
 
 ### Запуск
@@ -164,18 +161,16 @@ gcloud run deploy orochimary-bot \
 gcloud run services update orochimary-bot \
   --region europe-west1 \
   --set-env-vars "TELEGRAM_BOT_TOKEN=..." \
+  --set-env-vars "TELEGRAM_WEBHOOK_SECRET=..." \
   --set-env-vars "NOTION_TOKEN=..." \
   --set-env-vars "ALLOWED_EDITORS=123,456" \
-  --set-env-vars "NOTION_DB_MODELS_ID=..." \
-  --set-env-vars "NOTION_DB_ORDERS_ID=..." \
-  --set-env-vars "NOTION_DB_PLANNER_ID=..." \
-  --set-env-vars "NOTION_DB_ACCOUNTING_ID=..." \
-  --set-env-vars "WEBHOOK_SECRET=..." \
   --set-env-vars "DB_MODELS=..." \
   --set-env-vars "DB_ORDERS=..." \
   --set-env-vars "DB_PLANNER=..." \
   --set-env-vars "DB_ACCOUNTING=..." \
-  --set-env-vars "TELEGRAM_WEBHOOK_SECRET=..."
+  --set-env-vars "CRM_TOPIC_THREAD_ID=123" \
+  --set-env-vars "TIMEZONE=Europe/Brussels" \
+  --set-env-vars "FILES_PER_MONTH=200"
 ```
 
 **Через Console:**
@@ -187,7 +182,7 @@ Cloud Run → Service → Edit & Deploy New Revision → **Variables & Secrets**
 ```bash
 curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
   -H "Content-Type: application/json" \
-  -d "{\"url\":\"https://YOUR_DOMAIN/tg/webhook\",\"secret_token\":\"$WEBHOOK_SECRET\"}"
+  -d "{\"url\":\"https://YOUR_DOMAIN/tg/webhook\",\"secret_token\":\"$TELEGRAM_WEBHOOK_SECRET\"}"
 ```
 
 ### Проверка
@@ -204,6 +199,7 @@ curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
 - `GET /` — короткая инфо-страница
 - `GET /healthz` — healthcheck
 - `POST /tg/webhook` — Telegram webhook
+- `POST /internal/update-board` — внутреннее обновление доски (по `X-Internal-Secret`)
 
 ## Troubleshooting
 
