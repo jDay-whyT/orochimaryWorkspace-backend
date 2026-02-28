@@ -2718,6 +2718,12 @@ async def _handle_more_actions(query, parts, config, notion, memory_state):
     except Exception:
         card_text = f"📊 <b>{html.escape(model_name)}</b>"
 
+    # Remove buttons from the ✅ success message before sending new card
+    try:
+        await query.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
     # Send as a NEW message — the ✅ message stays untouched in the chat
     sent = await query.message.answer(
         card_text,
