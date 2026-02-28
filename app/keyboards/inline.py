@@ -650,8 +650,6 @@ def nlp_order_qty_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="1", callback_data=f"nlp:oq:1{s}"),
             InlineKeyboardButton(text="2", callback_data=f"nlp:oq:2{s}"),
             InlineKeyboardButton(text="3", callback_data=f"nlp:oq:3{s}"),
-            InlineKeyboardButton(text="4", callback_data=f"nlp:oq:4{s}"),
-            InlineKeyboardButton(text="5", callback_data=f"nlp:oq:5{s}"),
             InlineKeyboardButton(text="+", callback_data=f"nlp:oq:custom{s}"),
         ],
         [nlp_back_button(model_id)],
