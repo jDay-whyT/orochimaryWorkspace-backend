@@ -1140,6 +1140,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
     """Handle free-text date input (DD.MM) in nlp_shoot / nlp_close flows."""
     import re
     from app.roles import is_editor
+    from app.state import generate_token
 
     user_id = message.from_user.id
     chat_id = message.chat.id
@@ -1195,7 +1196,6 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
                 memory_state.clear(chat_id, user_id)
                 return
 
-            from app.state import generate_token
             content_types = user_state.get("content_types", [])
             k = generate_token()
             memory_state.set(chat_id, user_id, {
