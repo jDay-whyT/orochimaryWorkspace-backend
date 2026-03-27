@@ -1960,11 +1960,11 @@ async def _handle_close_order_select(query, parts, config, memory_state):
 
 async def _handle_close_date(query, parts, config, notion, memory_state):
     """Handle close date selection. Callback: nlp:cd:{choice}[:{k}]"""
+    await query.answer()
     if len(parts) < 3:
         return
 
     date_choice = parts[2]
-    await query.answer()   
     chat_id, user_id = _state_ids_from_query(query)
 
     if not is_editor(user_id, config):
@@ -2463,6 +2463,7 @@ async def _handle_shoot_content_toggle(query, parts, config, memory_state):
 
 async def _handle_shoot_content_done(query, parts, config, notion, memory_state, recent_models):
     """Content selection done → proceed to date. Callback: nlp:scd:done[:{k}]"""
+    await query.answer()
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
     if not state:
@@ -2510,13 +2511,14 @@ async def _handle_shoot_content_done(query, parts, config, notion, memory_state,
             from app.keyboards.inline import nlp_action_complete_keyboard
             ct_str = ", ".join(content_types) if content_types else "—"
             await _clear_previous_screen_keyboard(query, memory_state)
-            msg = await query.message.edit_text(
+            await safe_edit_message(
+                query,
                 f"✅ Content обновлен\n\nКонтент: {ct_str}",
                 reply_markup=nlp_action_complete_keyboard(state.get("model_id", "")),
                 parse_mode="HTML",
             )
             memory_state.clear(chat_id, user_id)
-            _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+            _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
         except Exception as e:
             LOGGER.exception("Failed to update shoot content: %s", e)
             await query.message.edit_text("❌ Ошибка при сохранении Content.")
@@ -2684,6 +2686,7 @@ async def _handle_accounting_content_toggle(query, parts, config, memory_state):
 
 async def _handle_accounting_content_save(query, parts, config, notion, memory_state):
     """Save accounting content. Callback: nlp:accs:save[:{k}]"""
+    await query.answer()
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
         await query.message.edit_text("❌ Нет доступа.")
@@ -2712,7 +2715,8 @@ async def _handle_accounting_content_save(query, parts, config, notion, memory_s
         content_str = ", ".join(selected) if selected else "—"
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        await safe_edit_message(
+            query,
             f"✅ Content сохранён\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
             f"Content: {html.escape(content_str)}",
@@ -2720,7 +2724,7 @@ async def _handle_accounting_content_save(query, parts, config, notion, memory_s
             parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+        _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
     except Exception as e:
         LOGGER.exception("Failed to save accounting content: %s", e)
         await query.message.edit_text("❌ Ошибка при сохранении Content.")

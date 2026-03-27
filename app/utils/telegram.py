@@ -1,6 +1,9 @@
 """Telegram-related utilities."""
+import asyncio
+
 from aiogram.types import CallbackQuery
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import Message
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 
 
 async def safe_edit_message(
@@ -8,7 +11,7 @@ async def safe_edit_message(
     text: str,
     reply_markup=None,
     parse_mode: str = "HTML",
-) -> bool:
+) -> Message | None:
     """Safely edit message, ignoring 'message is not modified' errors.
 
     Args:
@@ -18,25 +21,32 @@ async def safe_edit_message(
         parse_mode: Message parse mode (default: HTML)
 
     Returns:
-        True if message was edited successfully, False if it was not modified or message is None.
+        Updated Message object if edited successfully, None if it was not modified
+        or message is None.
 
     Raises:
         TelegramBadRequest: For other Telegram errors (not message is not modified)
     """
     # Check if message exists
     if not query.message:
-        return False
+        return None
 
-    try:
-        await query.message.edit_text(
-            text,
-            reply_markup=reply_markup,
-            parse_mode=parse_mode,
-        )
-        return True
-    except TelegramBadRequest as e:
-        if "message is not modified" in str(e):
-            # Message content is identical, silently ignore
-            return False
-        # Re-raise other TelegramBadRequest errors
-        raise
+    retried_after_flood = False
+    while True:
+        try:
+            return await query.message.edit_text(
+                text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
+        except TelegramRetryAfter as e:
+            if retried_after_flood:
+                raise
+            retried_after_flood = True
+            await asyncio.sleep(e.retry_after)
+        except TelegramBadRequest as e:
+            if "message is not modified" in str(e):
+                # Message content is identical, silently ignore
+                return None
+            # Re-raise other TelegramBadRequest errors
+            raise
