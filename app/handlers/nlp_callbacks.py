@@ -1964,6 +1964,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         return
 
     date_choice = parts[2]
+    await query.answer()   
     chat_id, user_id = _state_ids_from_query(query)
 
     if not is_editor(user_id, config):
@@ -2003,13 +2004,12 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
         from app.keyboards.inline import nlp_action_complete_keyboard
-        msg = await query.message.edit_text(
+        await safe_edit_message(
+            query,
             f"✅ Заказ закрыт · {out_date.strftime('%d.%m')}",
             reply_markup=nlp_action_complete_keyboard(model_id_for_kb),
-            parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
     except Exception as e:
         LOGGER.exception("Failed to close order: %s", e)
         await query.message.edit_text("❌ Ошибка при закрытии заказа.")
