@@ -2012,7 +2012,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         memory_state.clear(chat_id, user_id)
     except Exception as e:
         LOGGER.exception("Failed to close order: %s", e)
-        await query.message.edit_text("❌ Ошибка при закрытии заказа.")
+        await safe_edit_message(query, "❌ Ошибка при закрытии заказа.")
 
 
 # ============================================================================
@@ -2521,7 +2521,7 @@ async def _handle_shoot_content_done(query, parts, config, notion, memory_state,
             _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
         except Exception as e:
             LOGGER.exception("Failed to update shoot content: %s", e)
-            await query.message.edit_text("❌ Ошибка при сохранении Content.")
+            await safe_edit_message(query, "❌ Ошибка при сохранении Content.")
         return
 
     from app.keyboards.inline import nlp_shoot_date_keyboard
@@ -2727,7 +2727,7 @@ async def _handle_accounting_content_save(query, parts, config, notion, memory_s
         _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
     except Exception as e:
         LOGGER.exception("Failed to save accounting content: %s", e)
-        await query.message.edit_text("❌ Ошибка при сохранении Content.")
+        await safe_edit_message(query, "❌ Ошибка при сохранении Content.")
         memory_state.clear(chat_id, user_id)
 
 
