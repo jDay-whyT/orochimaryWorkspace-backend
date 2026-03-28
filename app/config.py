@@ -30,6 +30,8 @@ class Config:
     managers_topic_thread_id: int = 0
     managers_chat_id: int = 0
     internal_secret: str = ""
+    rent_topic_thread_id: int = 0
+    rapidapi_key: str = ""
 
 
 def _parse_user_ids(value: str) -> set[int]:
@@ -138,6 +140,13 @@ def load_config(validate: bool = True) -> Config:
     internal_secret = os.getenv("INTERNAL_SECRET", "").strip()
 
     try:
+        rent_topic_thread_id = int(os.getenv("RENT_TOPIC_THREAD_ID", "0"))
+    except ValueError:
+        rent_topic_thread_id = 0
+
+    rapidapi_key = os.getenv("RAPIDAPI_KEY", "").strip()
+
+    try:
         timezone = ZoneInfo(timezone_name)
     except Exception as e:
         print(f"ERROR: Invalid TIMEZONE '{timezone_name}': {e}", file=sys.stderr)
@@ -158,6 +167,8 @@ def load_config(validate: bool = True) -> Config:
         managers_topic_thread_id=managers_topic_thread_id,
         managers_chat_id=managers_chat_id,
         internal_secret=internal_secret,
+        rent_topic_thread_id=rent_topic_thread_id,
+        rapidapi_key=rapidapi_key,
     )
     
     if validate:
