@@ -64,6 +64,8 @@ class RentTopicFilter(BaseFilter):
     """
 
     async def __call__(self, message: Message, config: Config) -> bool:
+        if message.chat.type == "private":
+            return True
         if config.rent_topic_thread_id == 0:
             return False
         if message.chat.type not in {"group", "supergroup"}:
