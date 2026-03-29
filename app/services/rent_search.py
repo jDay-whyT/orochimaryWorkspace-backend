@@ -32,8 +32,9 @@ async def _run_actor(
     headers = {"Authorization": f"Bearer {apify_token}"}
     async with httpx.AsyncClient(timeout=CLIENT_TIMEOUT) as client:
         # Start actor run
+        actor_id_url = actor_id.replace("/", "~")
         r = await client.post(
-            f"{APIFY_BASE}/v2/acts/{actor_id}/runs",
+            f"{APIFY_BASE}/v2/acts/{actor_id_url}/runs",
             headers=headers,
             json=input_data,
         )
