@@ -1,4 +1,4 @@
-"""Rent search service — parallel Booking.com + Airbnb via RapidAPI."""
+"""Rent search service — parallel Booking.com + Airbnb via Apify."""
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -8,9 +8,10 @@ import httpx
 
 LOGGER = logging.getLogger(__name__)
 
-BOOKING_HOST = "booking-com15.p.rapidapi.com"
-AIRBNB_HOST = "airbnb19.p.rapidapi.com"
-TIMEOUT = 10
+APIFY_BASE = "https://api.apify.com"
+CLIENT_TIMEOUT = 70
+POLL_INTERVAL = 3
+POLL_TIMEOUT = 60
 
 
 @dataclass
@@ -22,64 +23,93 @@ class RentListing:
     url: str
 
 
+async def _run_actor(
+    actor_id: str,
+    input_data: dict,
+    apify_token: str,
+) -> list[dict]:
+    """Start an Apify actor, poll until done, return dataset items."""
+    headers = {"Authorization": f"Bearer {apify_token}"}
+    async with httpx.AsyncClient(timeout=CLIENT_TIMEOUT) as client:
+        # Start actor run
+        r = await client.post(
+            f"{APIFY_BASE}/v2/acts/{actor_id}/runs",
+            headers=headers,
+            json=input_data,
+        )
+        r.raise_for_status()
+        run_id = r.json()["data"]["id"]
+
+        # Poll for completion
+        elapsed = 0
+        while elapsed < POLL_TIMEOUT:
+            await asyncio.sleep(POLL_INTERVAL)
+            elapsed += POLL_INTERVAL
+            r = await client.get(
+                f"{APIFY_BASE}/v2/actor-runs/{run_id}",
+                headers=headers,
+            )
+            r.raise_for_status()
+            status = r.json()["data"]["status"]
+            if status == "SUCCEEDED":
+                break
+            if status in ("FAILED", "ABORTED", "TIMED-OUT"):
+                LOGGER.warning("Apify actor %s run %s ended with status %s", actor_id, run_id, status)
+                return []
+        else:
+            LOGGER.warning("Apify actor %s run %s timed out after %ds", actor_id, run_id, POLL_TIMEOUT)
+            return []
+
+        # Fetch dataset items
+        r = await client.get(
+            f"{APIFY_BASE}/v2/actor-runs/{run_id}/dataset/items",
+            headers=headers,
+        )
+        r.raise_for_status()
+        return r.json()
+
+
 async def _search_booking(
     city: str,
     checkin: date,
     checkout: date,
     budget: int,
-    api_key: str,
+    apify_token: str,
 ) -> list[RentListing]:
-    nights = (checkout - checkin).days or 1
-    headers = {
-        "x-rapidapi-host": BOOKING_HOST,
-        "x-rapidapi-key": api_key,
-    }
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        r = await client.get(
-            f"https://{BOOKING_HOST}/api/v1/hotels/searchDestination",
-            params={"query": city},
-            headers=headers,
-        )
-        r.raise_for_status()
-        dest_data = r.json().get("data", [])
-        if not dest_data:
-            return []
-        dest_id = dest_data[0]["dest_id"]
-        search_type = dest_data[0]["search_type"]
-
-        r2 = await client.get(
-            f"https://{BOOKING_HOST}/api/v1/hotels/searchHotels",
-            params={
-                "dest_id": dest_id,
-                "search_type": search_type,
-                "arrival_date": checkin.isoformat(),
-                "departure_date": checkout.isoformat(),
-                "adults": 1,
-                "room_qty": 1,
-                "page_number": 1,
-                "currency_code": "USD",
-                "price_max": budget,
+    try:
+        items = await _run_actor(
+            "voyager/booking-scraper",
+            {
+                "destination": city,
+                "maxItems": 10,
+                "checkIn": checkin.isoformat(),
+                "checkOut": checkout.isoformat(),
+                "numberOfRooms": 1,
+                "numberOfAdults": 1,
+                "numberOfChildren": 0,
+                "currency": "USD",
+                "language": "en-gb",
+                "priceRange": f"0-{budget}",
+                "orderBy": "distance_from_search",
             },
-            headers=headers,
+            apify_token,
         )
-        r2.raise_for_status()
-        hotels = r2.json().get("data", {}).get("hotels", [])
+    except Exception as exc:
+        LOGGER.warning("Booking scraper error: %s", exc)
+        return []
 
     results: list[RentListing] = []
-    for h in hotels:
-        prop = h.get("property", {})
-        gross = prop.get("priceBreakdown", {}).get("grossPrice", {}).get("value")
-        if gross is None:
+    for item in items:
+        price = item.get("price")
+        if price is None:
             continue
-        country = prop.get("countryCode", "")
-        hotel_id = prop.get("id", "")
-        score = prop.get("reviewScore")
+        score = item.get("rating")
         results.append(RentListing(
             source="booking",
-            name=prop.get("name", ""),
-            price_per_night=gross / nights,
-            rating=float(score) if score else None,
-            url=f"https://www.booking.com/hotel/{country}/{hotel_id}.html",
+            name=item.get("name", ""),
+            price_per_night=float(price),
+            rating=float(score) if score is not None else None,
+            url=item.get("url", ""),
         ))
     return results
 
@@ -89,57 +119,39 @@ async def _search_airbnb(
     checkin: date,
     checkout: date,
     budget: int,
-    api_key: str,
+    apify_token: str,
 ) -> list[RentListing]:
-    headers = {
-        "x-rapidapi-host": AIRBNB_HOST,
-        "x-rapidapi-key": api_key,
-    }
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        r = await client.get(
-            f"https://{AIRBNB_HOST}/api/v2/searchPropertyByLocation",
-            params={
-                "query": city,
-                "checkin": checkin.isoformat(),
-                "checkout": checkout.isoformat(),
-                "adults": 1,
-                "totalRecords": 20,
+    try:
+        items = await _run_actor(
+            "tri_angle/airbnb-scraper",
+            {
+                "locationQueries": [city],
+                "checkIn": checkin.isoformat(),
+                "checkOut": checkout.isoformat(),
                 "currency": "USD",
-                "priceMax": budget,
+                "maximumPrice": budget,
+                "adults": 1,
+                "maxListings": 10,
             },
-            headers=headers,
+            apify_token,
         )
-        r.raise_for_status()
-        items = r.json().get("data", {}).get("list", [])
+    except Exception as exc:
+        LOGGER.warning("Airbnb scraper error: %s", exc)
+        return []
 
     results: list[RentListing] = []
     for item in items:
-        listing = item.get("listing", {})
-        listing_id = listing.get("id", "")
-
-        price_str: str = (
-            item.get("pricingQuote", {})
-            .get("structuredStayDisplayPrice", {})
-            .get("primaryLine", {})
-            .get("price", "")
-        )
-        try:
-            price_per_night = float(price_str.replace("$", "").replace(",", "").strip())
-        except (ValueError, AttributeError):
+        amount = item.get("pricing", {}).get("rate", {}).get("amount")
+        if amount is None:
             continue
-
-        rating: float | None = None
-        try:
-            rating = float(str(listing.get("avgRatingLocalized", "")).split()[0])
-        except (ValueError, IndexError, AttributeError):
-            pass
-
+        stars = item.get("stars")
+        photos = item.get("photos", [])
         results.append(RentListing(
             source="airbnb",
-            name=listing.get("name", ""),
-            price_per_night=price_per_night,
-            rating=rating,
-            url=f"https://www.airbnb.com/rooms/{listing_id}",
+            name=item.get("name", ""),
+            price_per_night=float(amount),
+            rating=float(stars) if stars is not None else None,
+            url=item.get("url", ""),
         ))
     return results
 
@@ -149,13 +161,14 @@ async def search_rentals(
     checkin: date,
     checkout: date,
     budget: int,
-    api_key: str,
+    apify_token: str,
 ) -> list[RentListing]:
-    """Search Booking.com and Airbnb in parallel, return up to 10 results sorted by price."""
-    booking_task = _search_booking(city, checkin, checkout, budget, api_key)
-    airbnb_task = _search_airbnb(city, checkin, checkout, budget, api_key)
-
-    raw = await asyncio.gather(booking_task, airbnb_task, return_exceptions=True)
+    """Параллельный поиск на Booking и Airbnb через Apify. Топ 7 по цене."""
+    raw = await asyncio.gather(
+        _search_booking(city, checkin, checkout, budget, apify_token),
+        _search_airbnb(city, checkin, checkout, budget, apify_token),
+        return_exceptions=True,
+    )
 
     combined: list[RentListing] = []
     for result in raw:
@@ -165,4 +178,4 @@ async def search_rentals(
         combined.extend(result)
 
     combined.sort(key=lambda x: x.price_per_night)
-    return combined[:10]
+    return combined[:7]
