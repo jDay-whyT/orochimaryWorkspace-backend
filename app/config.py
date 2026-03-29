@@ -31,7 +31,7 @@ class Config:
     managers_chat_id: int = 0
     internal_secret: str = ""
     rent_topic_thread_id: int = 0
-    rapidapi_key: str = ""
+    apify_token: str = ""
 
 
 def _parse_user_ids(value: str) -> set[int]:
@@ -144,7 +144,7 @@ def load_config(validate: bool = True) -> Config:
     except ValueError:
         rent_topic_thread_id = 0
 
-    rapidapi_key = os.getenv("RAPIDAPI_KEY", "").strip()
+    apify_token = os.getenv("APIFY_TOKEN", "").strip()
 
     try:
         timezone = ZoneInfo(timezone_name)
@@ -168,7 +168,7 @@ def load_config(validate: bool = True) -> Config:
         managers_chat_id=managers_chat_id,
         internal_secret=internal_secret,
         rent_topic_thread_id=rent_topic_thread_id,
-        rapidapi_key=rapidapi_key,
+        apify_token=apify_token,
     )
     
     if validate:
