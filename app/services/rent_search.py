@@ -141,17 +141,23 @@ async def _search_airbnb(
 
     results: list[RentListing] = []
     for item in items:
-        amount = item.get("pricing", {}).get("rate", {}).get("amount")
-        if amount is None:
+        base = item.get("price", {}).get("breakDown", {}).get("basePrice", {}).get("price", "")
+        if not base:
             continue
-        stars = item.get("stars")
-        photos = item.get("photos", [])
+        try:
+            price = float(base.replace("$", "").replace(",", "").strip())
+        except ValueError:
+            continue
+        rating_obj = item.get("rating")
+        rating = float(rating_obj["guestSatisfaction"]) if rating_obj and rating_obj.get("guestSatisfaction") else None
+        url = f"https://www.airbnb.com/rooms/{item['id']}"
+        name = item.get("title", "")
         results.append(RentListing(
             source="airbnb",
-            name=item.get("name", ""),
-            price_per_night=float(amount),
-            rating=float(stars) if stars is not None else None,
-            url=item.get("url", ""),
+            name=name,
+            price_per_night=price,
+            rating=rating,
+            url=url,
         ))
     return results
 
