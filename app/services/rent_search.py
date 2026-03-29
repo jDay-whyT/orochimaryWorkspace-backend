@@ -150,6 +150,8 @@ async def _search_airbnb(
             price = float(base.replace("$", "").replace(",", "").strip())
         except ValueError:
             continue
+        if price > budget:  
+            continue
         rating_obj = item.get("rating")
         rating = float(rating_obj["guestSatisfaction"]) if rating_obj and rating_obj.get("guestSatisfaction") else None
         url = f"https://www.airbnb.com/rooms/{item['id']}"
@@ -186,4 +188,4 @@ async def search_rentals(
         combined.extend(result)
 
     combined.sort(key=lambda x: x.price_per_night)
-    return combined[:7]
+    return combined[:13]
