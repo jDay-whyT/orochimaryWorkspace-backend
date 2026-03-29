@@ -90,7 +90,6 @@ async def _search_booking(
                 "numberOfChildren": 0,
                 "currency": "USD",
                 "language": "en-gb",
-                "priceRange": f"0-{budget}",
                 "orderBy": "distance_from_search",
             },
             apify_token,
@@ -103,6 +102,8 @@ async def _search_booking(
     for item in items:
         price = item.get("price")
         if price is None:
+            continue
+        if float(price) > budget:      # ← фильтр по бюджету
             continue
         score = item.get("rating")
         results.append(RentListing(
