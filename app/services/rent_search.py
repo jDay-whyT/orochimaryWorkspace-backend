@@ -34,7 +34,7 @@ async def _run_actor(
         # Start actor run
         actor_id_url = actor_id.replace("/", "~")
         r = await client.post(
-            f"{APIFY_BASE}/v2/acts/{actor_id_url}/runs?maxTotalChargeUsd=0.10",
+            f"{APIFY_BASE}/v2/acts/{actor_id_url}/runs?maxTotalChargeUsd=0.04",
             headers=headers,
             json=input_data,
         )
@@ -82,7 +82,7 @@ async def _search_booking(
             "voyager/booking-scraper",
             {
                 "search": city,
-                "maxItems": 10,
+                "maxItems": 6,
                 "checkIn": checkin.isoformat(),
                 "checkOut": checkout.isoformat(),
                 "numberOfRooms": 1,
