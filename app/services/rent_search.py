@@ -57,7 +57,6 @@ async def _search_booking(
                 "adults": 1,
                 "room_qty": 1,
                 "page_number": 1,
-                "sort_by": "popularity",
                 "currency_code": "USD",
                 "price_max": budget,
             },
