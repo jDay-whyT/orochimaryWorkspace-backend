@@ -100,7 +100,7 @@ async def _search_airbnb(
         r = await client.get(
             f"https://{AIRBNB_HOST}/api/v2/searchPropertyByLocation",
             params={
-                "location": city,
+                "query": city,
                 "checkin": checkin.isoformat(),
                 "checkout": checkout.isoformat(),
                 "adults": 1,
