@@ -68,7 +68,8 @@ async def _run_actor(
             headers=headers,
         )
         r.raise_for_status()
-        return r.json().get("items", [])
+        data = r.json()
+        return data if isinstance(data, list) else data.get("items", [])
 
 
 async def _search_booking(
