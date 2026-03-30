@@ -10,9 +10,9 @@ LOGGER = logging.getLogger(__name__)
 
 APIFY_BASE = "https://api.apify.com"
 OMKAR_BASE = "https://airbnb-scraper-api.omkar.cloud"
-CLIENT_TIMEOUT = 100
+CLIENT_TIMEOUT = 130
 POLL_INTERVAL = 3
-POLL_TIMEOUT = 90
+POLL_TIMEOUT = 120
 
 
 @dataclass
@@ -170,7 +170,7 @@ async def _search_airbnb(
             rating=float(rating) if rating is not None else None,
             url=url,
         ))
-    return results
+    return results[:6]
 
 
 async def search_rentals(
