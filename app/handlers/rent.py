@@ -88,12 +88,13 @@ async def _run_search(
     checkout: date,
     budget: int,
     api_key: str,
+    omkar_token: str,
     memory_state: MemoryState,
     chat_id: int,
     user_id: int,
 ) -> None:
     memory_state.clear(chat_id, user_id)
-    listings = await search_rentals(city, checkin, checkout, budget, api_key)
+    listings = await search_rentals(city, checkin, checkout, budget, api_key, omkar_token=omkar_token)
     nights = (checkout - checkin).days
     header = (
         f"🏠 {city} · {checkin} → {checkout} ({nights} н.) · до ${budget}/ночь\n\n"
@@ -192,6 +193,7 @@ async def handle_rent_text(
             checkout=date.fromisoformat(checkout_str),
             budget=budget,
             api_key=config.apify_token,
+            omkar_token=config.omkar_token,
             memory_state=memory_state,
             chat_id=chat_id,
             user_id=user_id,
@@ -364,6 +366,7 @@ async def rent_callback(
             checkout=date.fromisoformat(checkout_str),
             budget=budget,
             api_key=config.apify_token,
+            omkar_token=config.omkar_token,
             memory_state=memory_state,
             chat_id=chat_id,
             user_id=user_id,
