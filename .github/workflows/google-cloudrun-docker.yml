@@ -115,7 +115,6 @@ jobs:
             TIMEZONE=${{ vars.TIMEZONE }}
             FILES_TARGET_WORK=${{ vars.FILES_TARGET_WORK }}
             FILES_TARGET_NEW=${{ vars.FILES_TARGET_NEW }}
-            APIFY_TOKEN=${{ secrets.APIFY_TOKEN }}
-            OMKAR_TOKEN=${{ secrets.OMKAR_TOKEN }}
+            
 
       
