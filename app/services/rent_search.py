@@ -68,7 +68,7 @@ async def _run_actor(
             headers=headers,
         )
         r.raise_for_status()
-        return r.json()
+        return r.json().get("items", [])
 
 
 async def _search_booking(
@@ -144,7 +144,7 @@ async def _search_airbnb(
                 headers={"API-Key": omkar_token},
             )
             r.raise_for_status()
-            items = r.json()
+            items = r.json().get("listings", [])
     except Exception as exc:
         LOGGER.warning("Airbnb scraper error: %s", exc)
         return []
