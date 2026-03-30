@@ -1,4 +1,4 @@
-"""Rent search service — parallel Booking.com + Airbnb via Apify."""
+"""Rent search service — parallel Booking.com + Airbnb."""
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -9,6 +9,7 @@ import httpx
 LOGGER = logging.getLogger(__name__)
 
 APIFY_BASE = "https://api.apify.com"
+OMKAR_BASE = "https://airbnb-scraper-api.omkar.cloud"
 CLIENT_TIMEOUT = 70
 POLL_INTERVAL = 3
 POLL_TIMEOUT = 60
@@ -121,46 +122,45 @@ async def _search_airbnb(
     checkin: date,
     checkout: date,
     budget: int,
-    apify_token: str,
+    omkar_token: str,
 ) -> list[RentListing]:
     try:
-        items = await _run_actor(
-            "tri_angle/airbnb-scraper",
-            {
-                "locationQueries": [city],
-                "checkIn": checkin.isoformat(),
-                "checkOut": checkout.isoformat(),
-                "currency": "USD",
-                "maximumPrice": budget,
-                "adults": 1,
-                "maxListings": 10,
-            },
-            apify_token,
-        )
+        async with httpx.AsyncClient(timeout=CLIENT_TIMEOUT) as client:
+            r = await client.get(
+                f"{OMKAR_BASE}/airbnb/listings/search",
+                params={
+                    "destination_query": city,
+                    "arrival_date": checkin.isoformat(),
+                    "departure_date": checkout.isoformat(),
+                    "adult_guests": 1,
+                },
+                headers={"API-Key": omkar_token},
+            )
+            r.raise_for_status()
+            items = r.json()
     except Exception as exc:
         LOGGER.warning("Airbnb scraper error: %s", exc)
         return []
 
     results: list[RentListing] = []
     for item in items:
-        base = item.get("price", {}).get("breakDown", {}).get("basePrice", {}).get("price", "")
-        if not base:
+        price_raw = item.get("pricing", {}).get("nightly_rate")
+        if price_raw is None:
             continue
         try:
-            price = float(base.replace("$", "").replace(",", "").strip())
-        except ValueError:
+            price = float(price_raw)
+        except (ValueError, TypeError):
             continue
-        if price > budget:  
+        if float(price) > budget:
             continue
-        rating_obj = item.get("rating")
-        rating = float(rating_obj["guestSatisfaction"]) if rating_obj and rating_obj.get("guestSatisfaction") else None
-        url = f"https://www.airbnb.com/rooms/{item['id']}"
-        name = item.get("title", "")
+        rating = item.get("overall_rating")
+        url = item["listing_url"]
+        name = item.get("name", "")
         results.append(RentListing(
             source="airbnb",
             name=name,
             price_per_night=price,
-            rating=rating,
+            rating=float(rating) if rating is not None else None,
             url=url,
         ))
     return results
@@ -172,11 +172,12 @@ async def search_rentals(
     checkout: date,
     budget: int,
     apify_token: str,
+    omkar_token: str = "",
 ) -> list[RentListing]:
-    """Параллельный поиск на Booking и Airbnb через Apify. Топ 7 по цене."""
+    """Параллельный поиск на Booking (Apify) и Airbnb (omkar.cloud). Топ 13 по цене."""
     raw = await asyncio.gather(
         _search_booking(city, checkin, checkout, budget, apify_token),
-        _search_airbnb(city, checkin, checkout, budget, apify_token),
+        _search_airbnb(city, checkin, checkout, budget, omkar_token),
         return_exceptions=True,
     )
 
