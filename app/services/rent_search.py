@@ -10,9 +10,9 @@ LOGGER = logging.getLogger(__name__)
 
 APIFY_BASE = "https://api.apify.com"
 OMKAR_BASE = "https://airbnb-scraper-api.omkar.cloud"
-CLIENT_TIMEOUT = 70
+CLIENT_TIMEOUT = 100
 POLL_INTERVAL = 3
-POLL_TIMEOUT = 60
+POLL_TIMEOUT = 90
 
 
 @dataclass
@@ -104,7 +104,14 @@ async def _search_booking(
         price = item.get("price")
         if price is None:
             continue
-        if float(price) > budget:      # ← фильтр по бюджету
+        if isinstance(price, str):
+            try:
+                price = float(price.replace("$", "").replace(",", "").strip())
+            except ValueError:
+                continue
+        else:
+            price = float(price)
+        if price > budget:
             continue
         score = item.get("rating")
         results.append(RentListing(
