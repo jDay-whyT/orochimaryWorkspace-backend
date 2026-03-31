@@ -8,7 +8,7 @@ import httpx
 
 LOGGER = logging.getLogger(__name__)
 
-APIFY_BASE = "https://api.apify.com"
+# APIFY_BASE = "https://api.apify.com"
 OMKAR_BASE = "https://airbnb-scraper-api.omkar.cloud"
 CLIENT_TIMEOUT = 130
 POLL_INTERVAL = 3
@@ -181,7 +181,6 @@ async def search_rentals(
     checkin: date,
     checkout: date,
     budget: int,
-    apify_token: str,
     omkar_token: str = "",
 ) -> list[RentListing]:
     """Поиск на Airbnb (omkar.cloud). Топ 15 по цене."""
