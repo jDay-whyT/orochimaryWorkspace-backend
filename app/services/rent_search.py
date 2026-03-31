@@ -101,6 +101,7 @@ async def _search_booking(
         return []
 
     results: list[RentListing] = []
+    nights = (checkout - checkin).days or 1
     for item in items:
         price = item.get("price")
         if price is None:
@@ -112,6 +113,7 @@ async def _search_booking(
                 continue
         else:
             price = float(price)
+        price = price / nights
         if price > budget:
             continue
         score = item.get("rating")
