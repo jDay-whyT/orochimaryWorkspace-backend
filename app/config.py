@@ -32,7 +32,6 @@ class Config:
     internal_secret: str = ""
     rent_topic_thread_id: int = 0
     apify_token: str = ""
-    omkar_token: str = ""
 
 
 def _parse_user_ids(value: str) -> set[int]:
@@ -146,7 +145,6 @@ def load_config(validate: bool = True) -> Config:
         rent_topic_thread_id = 0
 
     apify_token = os.getenv("APIFY_TOKEN", "").strip()
-    omkar_token = os.getenv("OMKAR_TOKEN", "").strip()
 
     try:
         timezone = ZoneInfo(timezone_name)
@@ -171,7 +169,6 @@ def load_config(validate: bool = True) -> Config:
         internal_secret=internal_secret,
         rent_topic_thread_id=rent_topic_thread_id,
         apify_token=apify_token,
-        omkar_token=omkar_token,
     )
     
     if validate:
