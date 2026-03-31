@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 import httpx
 
@@ -134,26 +134,47 @@ async def _search_airbnb(
     budget: int,
     omkar_token: str,
 ) -> list[RentListing]:
-    try:
-        async with httpx.AsyncClient(timeout=CLIENT_TIMEOUT) as client:
-            r = await client.get(
-                f"{OMKAR_BASE}/airbnb/listings/search",
-                params={
-                    "destination_query": city,
-                    "arrival_date": checkin.isoformat(),
-                    "departure_date": checkout.isoformat(),
-                    "adult_guests": 1,
-                },
-                headers={"API-Key": omkar_token},
-            )
-            r.raise_for_status()
-            items = r.json().get("listings", [])
-    except Exception as exc:
-        LOGGER.warning("Airbnb scraper error: %s", exc)
-        return []
+    nights = (checkout - checkin).days or 1
+    day_pairs = [
+        (checkin + timedelta(days=i), checkin + timedelta(days=i + 1))
+        for i in range(nights)
+    ]
+
+    async def fetch_one(arrival: date, departure: date) -> list[dict]:
+        try:
+            async with httpx.AsyncClient(timeout=CLIENT_TIMEOUT) as client:
+                r = await client.get(
+                    f"{OMKAR_BASE}/airbnb/listings/search",
+                    params={
+                        "destination_query": city,
+                        "arrival_date": arrival.isoformat(),
+                        "departure_date": departure.isoformat(),
+                        "adult_guests": 1,
+                    },
+                    headers={"API-Key": omkar_token},
+                )
+                r.raise_for_status()
+                return r.json().get("listings", [])
+        except Exception as exc:
+            LOGGER.warning("Airbnb scraper error (%s→%s): %s", arrival, departure, exc)
+            return []
+
+    all_pages = await asyncio.gather(*(fetch_one(a, d) for a, d in day_pairs))
+
+    SKIP_TYPES = {"private room", "shared room", "hotel room", "hostel"}
+
+    seen: dict[str, dict] = {}
+    for items in all_pages:
+        for item in items:
+            url = item.get("listing_url", "")
+            if url and url not in seen:
+                seen[url] = item
 
     results: list[RentListing] = []
-    for item in items:
+    for item in seen.values():
+        prop_type = (item.get("property_type") or "").lower()
+        if any(skip in prop_type for skip in SKIP_TYPES):
+            continue
         price_raw = item.get("pricing", {}).get("nightly_rate")
         if price_raw is None:
             continue
@@ -161,19 +182,22 @@ async def _search_airbnb(
             price = float(price_raw)
         except (ValueError, TypeError):
             continue
-        if float(price) > budget:
+        if price > budget:
             continue
-        rating = item.get("overall_rating")
-        url = item["listing_url"]
-        name = item.get("name", "")
+        rating_raw = item.get("overall_rating")
+        rating = float(rating_raw) if rating_raw is not None else None
+        if rating is not None and rating < 4.3:
+            continue
         results.append(RentListing(
             source="airbnb",
-            name=name,
+            name=item.get("name", ""),
             price_per_night=price,
-            rating=float(rating) if rating is not None else None,
-            url=url,
+            rating=rating,
+            url=item["listing_url"],
         ))
-    return results
+
+    results.sort(key=lambda x: x.price_per_night)
+    return results[:15]
 
 
 async def search_rentals(
