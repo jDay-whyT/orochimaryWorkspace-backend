@@ -92,7 +92,7 @@ async def _search_booking(
                 "numberOfChildren": 0,
                 "currency": "USD",
                 "language": "en-gb",
-                "orderBy": "distance_from_search",
+                "orderBy": "price",
             },
             apify_token,
         )
