@@ -128,7 +128,15 @@ async def _fetch_all_models(
 ) -> list[dict[str, Any]]:
     """Fetch all models with all analytics-relevant fields."""
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
-    items = await _fetch_all_pages(notion, url, {})
+    payload = {
+        "filter": {
+            "or": [
+                {"property": "status", "status": {"equals": "work"}},
+                {"property": "status", "status": {"equals": "inactive"}},
+            ]
+        }
+    }
+    items = await _fetch_all_pages(notion, url, payload)
     models = []
     for item in items:
         title = await notion._extract_model_title(item)
@@ -459,7 +467,11 @@ def _write_sheets_sync(
     import gspread
     from google.oauth2.service_account import Credentials
 
-    sa_info = json.loads(service_account_json)
+    try:
+        sa_info = json.loads(service_account_json)
+    except json.JSONDecodeError:
+        import base64
+        sa_info = json.loads(base64.b64decode(service_account_json))
     creds   = Credentials.from_service_account_info(sa_info, scopes=GOOGLE_SCOPES)
     gc      = gspread.authorize(creds)
     sh      = gc.open_by_key(spreadsheet_id)
@@ -588,7 +600,10 @@ async def run_analytics_sync(
     def _unwrap(label: str, val: Any) -> list:
         if isinstance(val, BaseException):
             LOGGER.error("Analytics: fetch failed [%s]: %s", label, val)
-            result.errors.append(f"{label}: {val}")
+            if label == "forms":
+                result.errors.append("⚠️ forms: недоступна")
+            else:
+                result.errors.append(f"{label}: {val}")
             return []
         return val  # type: ignore[return-value]
 
