@@ -112,6 +112,7 @@ jobs:
             DB_ORDERS=${{ secrets.DB_ORDERS }}
             DB_PLANNER=${{ secrets.DB_PLANNER }}
             DB_ACCOUNTING=${{ secrets.DB_ACCOUNTING }}
+            DB_FORMS=${{ secrets.DB_FORMS }}
             GOOGLE_SERVICE_ACCOUNT_JSON=${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
             ANALYTICS_SPREADSHEET_ID=${{ secrets.ANALYTICS_SPREADSHEET_ID }}
             TIMEZONE=${{ vars.TIMEZONE }}
