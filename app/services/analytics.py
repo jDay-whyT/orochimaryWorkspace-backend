@@ -464,14 +464,30 @@ def _write_sheets_sync(
     sheets_data: dict[str, list[list]],
 ) -> None:
     """Clear and rewrite each tab. Must be called inside asyncio.to_thread()."""
+    import base64
+
     import gspread
     from google.oauth2.service_account import Credentials
 
+    raw = service_account_json
+    if not raw:
+        raise ValueError("GOOGLE_SERVICE_ACCOUNT_JSON is empty")
+
     try:
-        sa_info = json.loads(service_account_json)
-    except json.JSONDecodeError:
-        import base64
-        sa_info = json.loads(base64.b64decode(service_account_json))
+        sa_info = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        try:
+            sa_info = json.loads(base64.b64decode(raw + "==").decode("utf-8"))
+        except Exception as e:
+            raise ValueError(
+                f"Не могу распарсить GOOGLE_SERVICE_ACCOUNT_JSON: {e}. "
+                f"Первые 50 символов: {raw[:50]!r}"
+            )
+
+    LOGGER.info(
+        "Sheets JSON parsed OK, client_email=%s",
+        sa_info.get("client_email"),
+    )
     creds   = Credentials.from_service_account_info(sa_info, scopes=GOOGLE_SCOPES)
     gc      = gspread.authorize(creds)
     sh      = gc.open_by_key(spreadsheet_id)
