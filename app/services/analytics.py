@@ -730,9 +730,10 @@ async def run_analytics_sync(
             spreadsheet_id,
             sheets_data,
         )
-    except Exception as exc:
-        LOGGER.error("Analytics: Sheets write failed: %s", exc)
-        result.errors.append(f"Sheets: {exc}")
+    except Exception as e:
+        import traceback
+        LOGGER.error(f"Analytics: Sheets write failed: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+        raise
 
     # ── 6. Write winrates back to Notion ──────────────────────────────────────
     LOGGER.info("Analytics: patching %d Notion winrates", len(winrate_updates))
