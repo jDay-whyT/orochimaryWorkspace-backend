@@ -22,6 +22,11 @@ LOGGER = logging.getLogger(__name__)
 DB_FORMS_DEFAULT = "22932bee-e7a0-80d4-b955-000b38c07a68"
 ANALYTICS_SPREADSHEET_ID_DEFAULT = "1UjOVnivgJmZfmZGib2nkaorCSOR1LgLiFy2VXN4NAQo"
 
+ANALYTICS_ASSISTANTS = os.getenv(
+    "ANALYTICS_ASSISTANTS",
+    "@cuterr12345,@gggqqq33"
+).split(",")
+
 FILES_TARGET_WORK = 200
 FILES_TARGET_NEW  = 150
 
@@ -128,11 +133,20 @@ async def _fetch_all_models(
 ) -> list[dict[str, Any]]:
     """Fetch all models with all analytics-relevant fields."""
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
+    assist_filters = [
+        {"property": "assist", "select": {"equals": a.strip()}}
+        for a in ANALYTICS_ASSISTANTS
+    ]
     payload = {
         "filter": {
-            "or": [
-                {"property": "status", "status": {"equals": "work"}},
-                {"property": "status", "status": {"equals": "inactive"}},
+            "and": [
+                {
+                    "or": [
+                        {"property": "status", "status": {"equals": "work"}},
+                        {"property": "status", "status": {"equals": "inactive"}},
+                    ]
+                },
+                {"or": assist_filters},
             ]
         }
     }
