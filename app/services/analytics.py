@@ -270,10 +270,18 @@ async def _fetch_accounting_for_month(
     for item in all_items:
         files_raw   = _extract_number(item, "Files")
         last_edited = item.get("last_edited_time", "")
-        raw_mid = _extract_relation_id(item, "model")
+
+        # Explicitly extract relation ID to avoid URL-vs-ID mismatch
+        rel = item.get("properties", {}).get("model", {}).get("relation", [])
+        if rel:
+            raw_id   = rel[0].get("id", "")
+            model_id = raw_id.replace("-", "") if raw_id else None
+        else:
+            model_id = None
+
         records.append({
             "page_id":   item["id"],
-            "model_id":  raw_mid.replace("-", "") if raw_mid else None,
+            "model_id":  model_id,
             "title":     _extract_any_title(item) or "",
             "status":    _extract_status(item, "status"),
             "content":   _extract_multi_select(item, "Content"),
@@ -671,6 +679,18 @@ async def run_analytics_sync(
         result.n_accounting, len(acc_prev_raw), result.n_forms,
     )
 
+    # Debug: dump accounting model_ids and a few model page_ids to diagnose join issues
+    for acc in acc_cur_raw + acc_prev_raw:
+        LOGGER.info(
+            "ACC: model_id=%s title=%s files=%s",
+            acc.get("model_id"), acc.get("title"), acc.get("files"),
+        )
+    for m in models_raw[:3]:
+        LOGGER.info(
+            "MODEL: page_id=%s name=%s",
+            m.get("page_id"), m.get("model"),
+        )
+
     # ── 2. Index accounting ────────────────────────────────────────────────────
     # Keep only first record per model (most recently edited, because of sort)
     acc_cur: dict[str, dict[str, Any]] = {}
@@ -692,6 +712,14 @@ async def run_analytics_sync(
     # page_ids are already stored without dashes (normalized in _fetch_all_models)
     name_by_id: dict[str, str] = {m["page_id"]: m["model"] for m in models_raw}
 
+    # All orders (Open + Done + Canceled) — same dataset used for metrics
+    LOGGER.info(
+        "Analytics: orders for Sheets — total=%d open=%d done=%d canceled=%d",
+        len(orders_raw),
+        sum(1 for o in orders_raw if o.get("status") == "Open"),
+        sum(1 for o in orders_raw if o.get("status") == "Done"),
+        sum(1 for o in orders_raw if o.get("status") in {"Canceled", "Cancelled"}),
+    )
     orders_rows = [
         [
             name_by_id.get(o.get("model_id", ""), ""),
@@ -708,10 +736,10 @@ async def run_analytics_sync(
 
     shoots_rows = [
         [
-            name_by_id.get(s.get("model_id", ""), ""),
-            s["date"]     or "",
-            s["status"]   or "",
-            s["location"] or "",
+            name_by_id.get(s.get("model_id") or "", ""),
+            s.get("date")     or "",
+            s.get("status")   or "",
+            s.get("location") or "",
             ", ".join(s.get("content") or []),
         ]
         for s in planner_raw
