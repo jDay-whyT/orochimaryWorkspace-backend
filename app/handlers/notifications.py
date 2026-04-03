@@ -15,7 +15,7 @@ LOGGER = logging.getLogger(__name__)
 router = Router()
 router.message.filter(ManagersTopicFilter())
 
-SHOOTS_DAYS = 3
+SHOOTS_DAYS = 7
 
 WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -45,7 +45,7 @@ def _format_board(shoots: list) -> str:
         lines = [f"<b>{model}</b>  {_format_day_header(d)}"]
         lines.append(f"└ {status}")
         if shoot.content:
-            lines.append(f"▸ {', '.join(shoot.content)}")
+            lines.append(f"▸ <b>{' | '.join(shoot.content)}</b>")
         if shoot.location:
             lines.append(f"• {shoot.location}")
         segments.append("\n".join(lines))
