@@ -158,16 +158,16 @@ async def _fetch_all_models(
             LOGGER.debug("Skipping model %s — no title", item.get("id"))
             continue
         models.append({
-            "page_id":  item["id"],
+            "page_id":  item["id"].replace("-", ""),
             "model":    title,
             "status":   _extract_status(item, "status"),
             "project":  _extract_select(item, "project"),
             "assist":   _extract_person_or_select(item, "assist"),
             "scout":    _extract_person_or_select(item, "scout"),
             "winrate":  _extract_select(item, "winrate"),
-            "language": _extract_select(item, "language"),
-            "anal":     _extract_select(item, "anal"),
-            "calls":    _extract_select(item, "calls"),
+            "language": ", ".join(_extract_multi_select(item, "language")),
+            "anal":     ", ".join(_extract_multi_select(item, "anal")),
+            "calls":    ", ".join(_extract_multi_select(item, "calls")),
         })
     return models
 
@@ -203,9 +203,10 @@ async def _fetch_all_orders(
             except ValueError:
                 pass
 
+        raw_mid = _extract_relation_id(item, "model")
         orders.append({
             "page_id":  item["id"],
-            "model_id": _extract_relation_id(item, "model"),
+            "model_id": raw_mid.replace("-", "") if raw_mid else None,
             "type":     _extract_select(item, "type"),
             "status":   status,
             "date_in":  in_date,
@@ -225,17 +226,18 @@ async def _fetch_all_planner(
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
     payload = {"sorts": [{"property": "date", "direction": "descending"}]}
     items = await _fetch_all_pages(notion, url, payload)
-    return [
-        {
+    rows = []
+    for item in items:
+        raw_mid = _extract_relation_id(item, "model")
+        rows.append({
             "page_id":  item["id"],
-            "model_id": _extract_relation_id(item, "model"),
+            "model_id": raw_mid.replace("-", "") if raw_mid else None,
             "date":     _extract_date(item, "date"),
             "status":   _extract_select(item, "status"),
             "location": _extract_select(item, "location"),
             "content":  _extract_multi_select(item, "content"),
-        }
-        for item in items
-    ]
+        })
+    return rows
 
 
 async def _fetch_accounting_for_month(
@@ -268,9 +270,10 @@ async def _fetch_accounting_for_month(
     for item in all_items:
         files_raw   = _extract_number(item, "Files")
         last_edited = item.get("last_edited_time", "")
+        raw_mid = _extract_relation_id(item, "model")
         records.append({
             "page_id":   item["id"],
-            "model_id":  _extract_relation_id(item, "model"),
+            "model_id":  raw_mid.replace("-", "") if raw_mid else None,
             "title":     _extract_any_title(item) or "",
             "status":    _extract_status(item, "status"),
             "content":   _extract_multi_select(item, "Content"),
@@ -287,10 +290,12 @@ async def _fetch_all_forms(
     """Fetch all Forms entries (reference data, rewritten each sync)."""
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
     items = await _fetch_all_pages(notion, url, {})
-    return [
-        {
+    rows = []
+    for item in items:
+        raw_mid = _extract_relation_id(item, "model")
+        rows.append({
             "page_id":  item["id"],
-            "model_id": _extract_relation_id(item, "model"),
+            "model_id": raw_mid.replace("-", "") if raw_mid else None,
             "model":    _extract_any_title(item) or "",
             "status":   (
                 _extract_select(item, "status")
@@ -300,9 +305,8 @@ async def _fetch_all_forms(
             "anal":     _extract_select(item, "anal"),
             "calls":    _extract_select(item, "calls"),
             "optional": _extract_multi_select(item, "optional"),
-        }
-        for item in items
-    ]
+        })
+    return rows
 
 
 # ── Date helpers ───────────────────────────────────────────────────────────────
@@ -356,7 +360,7 @@ def _build_model_rows(
     winrate_updates: list[tuple[str, str]] = []
 
     for m in models:
-        pid    = m["page_id"]
+        pid    = m["page_id"].replace("-", "")
         mstatus = m["status"] or ""
 
         # ── Orders metrics (all fetched orders are already date-filtered) ──────
@@ -459,7 +463,7 @@ def _build_model_rows(
             m.get("language") or "",
             m.get("anal") or "",
             m.get("calls") or "",
-            "yes" if needs_rent else "",
+            True if needs_rent else False,
             acc_content,
         ])
 
@@ -517,7 +521,16 @@ def _write_sheets_sync(
             )
         ws.clear()
         if rows:
-            ws.update("A1", rows)
+            headers = [h for h in rows[0] if h is not None]
+            n = len(headers)
+            clean = [headers] + [
+                [
+                    str(r[i]) if i < len(r) and r[i] is not None else ""
+                    for i in range(n)
+                ]
+                for r in rows[1:]
+            ]
+            ws.update("A1", clean, value_input_option="RAW")
 
 
 # ── Notion winrate write-back ──────────────────────────────────────────────────
@@ -676,6 +689,7 @@ async def run_analytics_sync(
     )
 
     # ── 4. Build denormalized rows for other tabs ─────────────────────────────
+    # page_ids are already stored without dashes (normalized in _fetch_all_models)
     name_by_id: dict[str, str] = {m["page_id"]: m["model"] for m in models_raw}
 
     orders_rows = [
