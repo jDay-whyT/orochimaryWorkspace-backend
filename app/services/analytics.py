@@ -172,50 +172,88 @@ async def _fetch_all_models(
     return models
 
 
-async def _fetch_all_orders(
+async def _fetch_orders_for_analytics(
     notion: NotionClient,
     db_id: str,
     since: date,
 ) -> list[dict[str, Any]]:
-    """Fetch all non-archived orders where date_in >= since."""
-    url = f"https://api.notion.com/v1/databases/{db_id}/query"
-    payload = {
+    """
+    Fetch orders for analytics as three separate queries combined:
+      - Done orders filtered by date_out >= since  (for winrate)
+      - Canceled/Cancelled orders filtered by date_out >= since  (for winrate)
+      - Open orders without date filter  (for debt/penalty)
+    Returns a combined flat list.
+    """
+    url   = f"https://api.notion.com/v1/databases/{db_id}/query"
+    today = date.today()
+
+    def _parse(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        result = []
+        for item in items:
+            in_date  = _extract_date(item, "in")
+            out_date = _extract_date(item, "out")
+            status   = _extract_select(item, "status")
+            days_raw = _extract_number(item, "days")
+            cnt_raw  = _extract_number(item, "count")
+
+            days_open: int | None = None
+            if status == "Open" and in_date:
+                try:
+                    days_open = (today - date.fromisoformat(in_date)).days
+                except ValueError:
+                    pass
+
+            raw_mid = _extract_relation_id(item, "model")
+            result.append({
+                "page_id":   item["id"],
+                "model_id":  raw_mid.replace("-", "") if raw_mid else None,
+                "type":      _extract_select(item, "type"),
+                "status":    status,
+                "date_in":   in_date,
+                "date_out":  out_date,
+                "days":      int(days_raw) if days_raw is not None else None,
+                "days_open": days_open,
+                "count":     int(cnt_raw) if cnt_raw is not None else None,
+            })
+        return result
+
+    since_str = since.isoformat()
+
+    done_payload = {
         "filter": {
-            "property": "in",
-            "date": {"on_or_after": since.isoformat()},
+            "and": [
+                {"property": "out",    "date":   {"on_or_after": since_str}},
+                {"property": "status", "select": {"equals": "Done"}},
+            ]
         },
+        "sorts": [{"property": "out", "direction": "ascending"}],
+    }
+    canceled_payload = {
+        "filter": {
+            "and": [
+                {"property": "out", "date": {"on_or_after": since_str}},
+                {
+                    "or": [
+                        {"property": "status", "select": {"equals": "Canceled"}},
+                        {"property": "status", "select": {"equals": "Cancelled"}},
+                    ]
+                },
+            ]
+        },
+        "sorts": [{"property": "out", "direction": "ascending"}],
+    }
+    open_payload = {
+        "filter": {"property": "status", "select": {"equals": "Open"}},
         "sorts": [{"property": "in", "direction": "ascending"}],
     }
-    items = await _fetch_all_pages(notion, url, payload)
-    today = date.today()
-    orders = []
-    for item in items:
-        in_date  = _extract_date(item, "in")
-        out_date = _extract_date(item, "out")
-        status   = _extract_select(item, "status")
-        days_raw = _extract_number(item, "days")
-        cnt_raw  = _extract_number(item, "count")
 
-        days_open: int | None = None
-        if status == "Open" and in_date:
-            try:
-                days_open = (today - date.fromisoformat(in_date)).days
-            except ValueError:
-                pass
+    done_items, canceled_items, open_items = await asyncio.gather(
+        _fetch_all_pages(notion, url, done_payload),
+        _fetch_all_pages(notion, url, canceled_payload),
+        _fetch_all_pages(notion, url, open_payload),
+    )
 
-        raw_mid = _extract_relation_id(item, "model")
-        orders.append({
-            "page_id":  item["id"],
-            "model_id": raw_mid.replace("-", "") if raw_mid else None,
-            "type":     _extract_select(item, "type"),
-            "status":   status,
-            "date_in":  in_date,
-            "date_out": out_date,
-            "days":     int(days_raw) if days_raw is not None else None,
-            "days_open": days_open,
-            "count":    int(cnt_raw) if cnt_raw is not None else None,
-        })
-    return orders
+    return _parse(done_items) + _parse(canceled_items) + _parse(open_items)
 
 
 async def _fetch_all_planner(
@@ -342,10 +380,14 @@ def _build_model_rows(
     orders: list[dict[str, Any]],
     planner: list[dict[str, Any]],
     acc_cur: dict[str, dict[str, Any]],
-    acc_prev_ids: set[str],
+    acc_prev: dict[str, dict[str, Any]],
 ) -> tuple[list[list], list[tuple[str, str]]]:
     """
     Compute per-model metrics and assemble models-sheet rows.
+
+    orders must contain:
+      - Done/Canceled entries filtered by date_out (for winrate)
+      - Open entries without date filter (for penalty/debt)
 
     Returns:
         rows            — list of value lists for the models sheet
@@ -421,15 +463,16 @@ def _build_model_rows(
         )
 
         # ── Accounting metrics ────────────────────────────────────────────────
-        acc_rec     = acc_cur.get(pid)
-        total_files = acc_rec["files"] if acc_rec else 0
+        # Use current month; fall back to previous month if no current record
+        acc_rec      = acc_cur.get(pid) or acc_prev.get(pid)
+        total_files  = acc_rec["files"] if acc_rec else 0
         files_target = FILES_TARGET_WORK if mstatus == "work" else FILES_TARGET_NEW
         files_pct    = total_files / files_target if files_target > 0 else 0.0
         acc_content  = (
             ", ".join(acc_rec["content"])
             if acc_rec and acc_rec.get("content") else ""
         )
-        has_files = bool(acc_rec) or (pid in acc_prev_ids)
+        has_files = bool(acc_rec)
 
         # ── Performance score ─────────────────────────────────────────────────
         if has_shoots and has_files:
@@ -638,7 +681,7 @@ async def run_analytics_sync(
     LOGGER.info("Analytics: starting parallel Notion fetch")
     gathered = await asyncio.gather(
         _fetch_all_models(notion, db_models),
-        _fetch_all_orders(notion, db_orders, orders_since),
+        _fetch_orders_for_analytics(notion, db_orders, orders_since),
         _fetch_all_planner(notion, db_planner),
         _fetch_accounting_for_month(notion, db_accounting, cur_yyyy_mm),
         _fetch_accounting_for_month(notion, db_accounting, prev_yyyy_mm),
@@ -699,20 +742,23 @@ async def run_analytics_sync(
         if mid and mid not in acc_cur:
             acc_cur[mid] = rec
 
-    acc_prev_ids: set[str] = {
-        rec["model_id"] for rec in acc_prev_raw if rec.get("model_id")
-    }
+    acc_prev: dict[str, dict[str, Any]] = {}
+    for rec in acc_prev_raw:
+        mid = rec.get("model_id")
+        if mid and mid not in acc_prev:
+            acc_prev[mid] = rec
 
     # ── 3. Calculate model metrics ────────────────────────────────────────────
+    # planner_raw contains ALL shoots (no date filter) → shoots_reliability is accurate
     model_rows, winrate_updates = _build_model_rows(
-        models_raw, orders_raw, planner_raw, acc_cur, acc_prev_ids
+        models_raw, orders_raw, planner_raw, acc_cur, acc_prev
     )
 
     # ── 4. Build denormalized rows for other tabs ─────────────────────────────
     # page_ids are already stored without dashes (normalized in _fetch_all_models)
     name_by_id: dict[str, str] = {m["page_id"]: m["model"] for m in models_raw}
 
-    # All orders (Open + Done + Canceled) — same dataset used for metrics
+    # Orders: Done/Canceled by date_out >= since (winrate) + all Open (debt/penalty)
     LOGGER.info(
         "Analytics: orders for Sheets — total=%d open=%d done=%d canceled=%d",
         len(orders_raw),
@@ -734,6 +780,9 @@ async def run_analytics_sync(
         for o in orders_raw
     ]
 
+    # Sheets shoots tab: only last 2 months for readability.
+    # Metrics (shoots_reliability) already use the full planner_raw above.
+    shoots_cutoff = orders_since.isoformat()
     shoots_rows = [
         [
             name_by_id.get(s.get("model_id") or "", ""),
@@ -743,6 +792,7 @@ async def run_analytics_sync(
             ", ".join(s.get("content") or []),
         ]
         for s in planner_raw
+        if (s.get("date") or "") >= shoots_cutoff
     ]
 
     accounting_rows = [
