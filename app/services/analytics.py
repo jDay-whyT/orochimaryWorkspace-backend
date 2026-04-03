@@ -231,13 +231,8 @@ async def _fetch_orders_for_analytics(
     canceled_payload = {
         "filter": {
             "and": [
-                {"property": "out", "date": {"on_or_after": since_str}},
-                {
-                    "or": [
-                        {"property": "status", "select": {"equals": "Canceled"}},
-                        {"property": "status", "select": {"equals": "Cancelled"}},
-                    ]
-                },
+                {"property": "out",    "date":   {"on_or_after": since_str}},
+                {"property": "status", "select": {"equals": "Canceled"}},
             ]
         },
         "sorts": [{"property": "out", "direction": "ascending"}],
@@ -260,9 +255,18 @@ async def _fetch_all_planner(
     notion: NotionClient,
     db_id: str,
 ) -> list[dict[str, Any]]:
-    """Fetch all planner entries (all statuses; formula uses done/cancelled/stuck)."""
+    """Fetch planner entries with status 'done' for the last 2 months."""
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
-    payload = {"sorts": [{"property": "date", "direction": "descending"}]}
+    start_date = _first_day_of_last_month()
+    payload = {
+        "filter": {
+            "and": [
+                {"property": "status", "select": {"equals": "done"}},
+                {"property": "date",   "date":   {"on_or_after": start_date.isoformat()}},
+            ]
+        },
+        "sorts": [{"property": "date", "direction": "descending"}],
+    }
     items = await _fetch_all_pages(notion, url, payload)
     rows = []
     for item in items:
@@ -333,9 +337,12 @@ async def _fetch_all_forms(
     notion: NotionClient,
     db_id: str,
 ) -> list[dict[str, Any]]:
-    """Fetch all Forms entries (reference data, rewritten each sync)."""
+    """Fetch Forms entries with status 'work' (reference data, rewritten each sync)."""
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
-    items = await _fetch_all_pages(notion, url, {})
+    payload = {
+        "filter": {"property": "status", "select": {"equals": "work"}}
+    }
+    items = await _fetch_all_pages(notion, url, payload)
     rows = []
     for item in items:
         raw_mid = _extract_relation_id(item, "model")
@@ -442,7 +449,7 @@ def _build_model_rows(
         )
 
         dcs = shoots_done + shoots_cancelled + shoots_stuck
-        has_shoots = dcs > 0
+        has_shoots = shoots_done > 0
         shoots_rel = shoots_done / dcs if dcs > 0 else 0.0
 
         # Last shoot date among done/cancelled/stuck
@@ -780,9 +787,7 @@ async def run_analytics_sync(
         for o in orders_raw
     ]
 
-    # Sheets shoots tab: only last 2 months for readability.
-    # Metrics (shoots_reliability) already use the full planner_raw above.
-    shoots_cutoff = orders_since.isoformat()
+    # Sheets shoots tab: only done shoots for the last 2 months (filtered at API level).
     shoots_rows = [
         [
             name_by_id.get(s.get("model_id") or "", ""),
@@ -792,7 +797,6 @@ async def run_analytics_sync(
             ", ".join(s.get("content") or []),
         ]
         for s in planner_raw
-        if (s.get("date") or "") >= shoots_cutoff
     ]
 
     accounting_rows = [
