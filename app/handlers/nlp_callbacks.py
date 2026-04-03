@@ -1522,6 +1522,11 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
         await _session_expired(query, memory_state)
         return
 
+    # Re-entry guard: prevent duplicate Notion writes on double-tap / Telegram retry
+    if state.get("shoot_location_processing"):
+        await query.answer("Подождите...")
+        return
+
     model_id = state.get("model_id", "")
     model_name = state.get("model_name", "")
     shoot_date_str = state.get("shoot_date")
@@ -1534,9 +1539,18 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
     shoot_date = date.fromisoformat(shoot_date_str)
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.answer()
+        try:
+            await query.message.edit_text("❌ Нет прав.")
+        except Exception:
+            # Ignore "message is not modified" and similar edit errors
+            pass
         memory_state.clear(chat_id, user_id)
         return
+
+    # Acknowledge the callback before the slow Notion API call to prevent Telegram retries
+    await query.answer()
+    memory_state.update(chat_id, user_id, shoot_location_processing=True)
 
     auto_status = _compute_shoot_status(shoot_date.isoformat(), content_types)
     title = f"{model_name} · {shoot_date.strftime('%d.%m')}"
@@ -1558,18 +1572,30 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
-        msg = await query.message.edit_text(
-            f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}\n"
-            f"Контент: {ct_str}\nЛокация: {location}\nСтатус: {auto_status}",
-            reply_markup=nlp_action_complete_keyboard(model_id),
-            parse_mode="HTML",
-        )
+        try:
+            msg = await query.message.edit_text(
+                f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}\n"
+                f"Контент: {ct_str}\nЛокация: {location}\nСтатус: {auto_status}",
+                reply_markup=nlp_action_complete_keyboard(model_id),
+                parse_mode="HTML",
+            )
+        except Exception:
+            # Ignore "message is not modified" and similar edit errors
+            msg = None
         memory_state.clear(chat_id, user_id)
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
     except Exception as e:
         LOGGER.exception("Failed to create shoot: %s", e)
-        await query.message.edit_text("❌ Ошибка при создании съемки.")
+        try:
+            await query.message.edit_text("❌ Ошибка при создании съемки.")
+        except Exception:
+            pass
         memory_state.clear(chat_id, user_id)
+    finally:
+        # Release processing lock in case state was not cleared (e.g. partial failure)
+        current_state = memory_state.get(chat_id, user_id)
+        if current_state:
+            memory_state.update(chat_id, user_id, shoot_location_processing=False)
 
 
 async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state):
