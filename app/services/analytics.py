@@ -21,6 +21,8 @@ LOGGER = logging.getLogger(__name__)
 
 DB_FORMS_DEFAULT = "22932beee7a0802492b2fd8b16ece74b"
 ANALYTICS_SPREADSHEET_ID_DEFAULT = "1UjOVnivgJmZfmZGib2nkaorCSOR1LgLiFy2VXN4NAQo"
+JAN_ORDERS_DB = "2fd32bee-e7a0-8182-bab4-000bd6e6efa8"
+FEB_ORDERS_DB = "31632bee-e7a0-81dc-bfe0-000bfd2ca861"
 
 ANALYTICS_ASSISTANTS = os.getenv(
     "ANALYTICS_ASSISTANTS",
@@ -176,13 +178,17 @@ async def _fetch_all_models(
 async def _fetch_orders_for_analytics(
     notion: NotionClient,
     db_id: str,
-    since: date,
 ) -> list[dict[str, Any]]:
     """
     Fetch orders for analytics as three separate queries combined:
-      - Done orders filtered by date_out >= since  (for winrate)
-      - Canceled/Cancelled orders filtered by date_out >= since  (for winrate)
+      - Done orders without date filter  (for winrate)
+      - Canceled orders without date filter  (for winrate)
       - Open orders without date filter  (for debt/penalty)
+
+    Archive databases are queried separately for Done/Canceled and merged in:
+      - JAN_ORDERS_DB (Done + Canceled)
+      - FEB_ORDERS_DB (Done + Canceled)
+
     Returns a combined flat list.
     """
     url   = f"https://api.notion.com/v1/databases/{db_id}/query"
@@ -218,23 +224,17 @@ async def _fetch_orders_for_analytics(
             })
         return result
 
-    since_str = since.isoformat()
-
     done_payload = {
         "filter": {
-            "and": [
-                {"property": "out",    "date":   {"on_or_after": since_str}},
-                {"property": "status", "select": {"equals": "Done"}},
-            ]
+            "property": "status",
+            "select": {"equals": "Done"},
         },
         "sorts": [{"property": "out", "direction": "ascending"}],
     }
     canceled_payload = {
         "filter": {
-            "and": [
-                {"property": "out",    "date":   {"on_or_after": since_str}},
-                {"property": "status", "select": {"equals": "Canceled"}},
-            ]
+            "property": "status",
+            "select": {"equals": "Canceled"},
         },
         "sorts": [{"property": "out", "direction": "ascending"}],
     }
@@ -248,8 +248,59 @@ async def _fetch_orders_for_analytics(
         _fetch_all_pages(notion, url, canceled_payload),
         _fetch_all_pages(notion, url, open_payload),
     )
+    archive_orders = await _fetch_archive_orders(notion)
 
-    return _parse(done_items) + _parse(canceled_items) + _parse(open_items)
+    return _parse(done_items) + _parse(canceled_items) + _parse(open_items) + archive_orders
+
+
+async def _fetch_archive_orders(notion: NotionClient) -> list[dict[str, Any]]:
+    """Fetch Done/Canceled orders from archive Orders databases."""
+
+    async def _fetch_archive_by_status(db_id: str, status: str) -> list[dict[str, Any]]:
+        url = f"https://api.notion.com/v1/databases/{db_id}/query"
+        payload = {
+            "filter": {
+                "property": "status",
+                "select": {"equals": status},
+            },
+            "sorts": [{"property": "out", "direction": "ascending"}],
+        }
+        return await _fetch_all_pages(notion, url, payload)
+
+    archived_done_jan, archived_canceled_jan, archived_done_feb, archived_canceled_feb = await asyncio.gather(
+        _fetch_archive_by_status(JAN_ORDERS_DB, "Done"),
+        _fetch_archive_by_status(JAN_ORDERS_DB, "Canceled"),
+        _fetch_archive_by_status(FEB_ORDERS_DB, "Done"),
+        _fetch_archive_by_status(FEB_ORDERS_DB, "Canceled"),
+    )
+
+    today = date.today()
+    result: list[dict[str, Any]] = []
+    for item in archived_done_jan + archived_canceled_jan + archived_done_feb + archived_canceled_feb:
+        in_date = _extract_date(item, "in")
+        status = _extract_select(item, "status")
+        days_raw = _extract_number(item, "days")
+        cnt_raw = _extract_number(item, "count")
+        days_open: int | None = None
+        if status == "Open" and in_date:
+            try:
+                days_open = (today - date.fromisoformat(in_date)).days
+            except ValueError:
+                pass
+
+        raw_mid = _extract_relation_id(item, "model")
+        result.append({
+            "page_id": item["id"],
+            "model_id": raw_mid.replace("-", "") if raw_mid else None,
+            "type": _extract_select(item, "type"),
+            "status": status,
+            "date_in": in_date,
+            "date_out": _extract_date(item, "out"),
+            "days": int(days_raw) if days_raw is not None else None,
+            "days_open": days_open,
+            "count": int(cnt_raw) if cnt_raw is not None else None,
+        })
+    return result
 
 
 async def _fetch_all_planner(
@@ -695,13 +746,12 @@ async def run_analytics_sync(
     today        = date.today()
     cur_yyyy_mm  = today.strftime("%Y-%m")
     prev_yyyy_mm = _first_day_of_last_month().strftime("%Y-%m")
-    orders_since = _first_day_of_last_month()
 
     # ── 1. Parallel Notion fetch ───────────────────────────────────────────────
     LOGGER.info("Analytics: starting parallel Notion fetch")
     gathered = await asyncio.gather(
         _fetch_all_models(notion, db_models),
-        _fetch_orders_for_analytics(notion, db_orders, orders_since),
+        _fetch_orders_for_analytics(notion, db_orders),
         _fetch_all_planner(notion, db_planner),
         _fetch_accounting_for_month(notion, db_accounting, cur_yyyy_mm),
         _fetch_accounting_for_month(notion, db_accounting, prev_yyyy_mm),
