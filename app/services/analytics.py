@@ -34,9 +34,9 @@ ACTIVE_STATUSES = {"work", "new", "inactive"}
 
 # score → stars  (descending threshold order)
 _STAR_MAP = [
-    (86, "★★★★★"),
-    (71, "★★★★☆"),
-    (56, "★★★☆☆"),
+    (91, "★★★★★"),
+    (76, "★★★★☆"),
+    (61, "★★★☆☆"),
     (41, "★★☆☆☆"),
     (21, "★☆☆☆☆"),
     ( 0, "☆☆☆☆☆"),
@@ -50,6 +50,7 @@ GOOGLE_SCOPES = [
 # Sheet tab names (must match actual spreadsheet tabs)
 _TAB_MODELS     = "models"
 _TAB_ORDERS     = "orders"
+_TAB_DEBTS      = "debts"
 _TAB_SHOOTS     = "shoots"
 _TAB_ACCOUNTING = "accounting"
 _TAB_FORMS      = "forms"
@@ -336,8 +337,10 @@ async def _fetch_accounting_for_month(
 async def _fetch_all_forms(
     notion: NotionClient,
     db_id: str,
+    name_by_id: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch Forms entries with status 'work' (reference data, rewritten each sync)."""
+    name_by_id = name_by_id or {}
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
     payload = {
         "filter": {"property": "status", "select": {"equals": "work"}}
@@ -345,11 +348,15 @@ async def _fetch_all_forms(
     items = await _fetch_all_pages(notion, url, payload)
     rows = []
     for item in items:
-        raw_mid = _extract_relation_id(item, "model")
+        props = item.get("properties", {})
+        rel = props.get("model", {}).get("relation", [])
+        raw_mid = rel[0].get("id", "") if rel else ""
+        model_id = raw_mid.replace("-", "") if raw_mid else None
+        model_name = name_by_id.get(model_id or "", "")
         rows.append({
             "page_id":  item["id"],
-            "model_id": raw_mid.replace("-", "") if raw_mid else None,
-            "model":    _extract_any_title(item) or "",
+            "model_id": model_id,
+            "model_name": model_name,
             "status":   (
                 _extract_select(item, "status")
                 or _extract_status(item, "status")
@@ -388,6 +395,7 @@ def _build_model_rows(
     planner: list[dict[str, Any]],
     acc_cur: dict[str, dict[str, Any]],
     acc_prev: dict[str, dict[str, Any]],
+    forms_by_model: dict[str, dict[str, Any]],
 ) -> tuple[list[list], list[tuple[str, str]]]:
     """
     Compute per-model metrics and assemble models-sheet rows.
@@ -435,8 +443,8 @@ def _build_model_rows(
             if o["status"] == "Open" and (o.get("days_open") or 0) > 5:
                 penalties += 5
 
-        closed = orders_done + orders_canceled
-        orders_winrate = orders_done / closed if closed > 0 else 0.0
+        total_with_open = orders_done + orders_open
+        orders_winrate = orders_done / total_with_open if total_with_open > 0 else 0.0
 
         # ── Shoots metrics ────────────────────────────────────────────────────
         model_shoots     = planner_by_model.get(pid, [])
@@ -495,6 +503,10 @@ def _build_model_rows(
         stars = _score_to_stars(score)
 
         # ── Assemble row ──────────────────────────────────────────────────────
+        forms_rec = forms_by_model.get(pid, {})
+        language = m.get("language") or forms_rec.get("lang", "")
+        anal = m.get("anal") or forms_rec.get("anal", "")
+        calls = m.get("calls") or forms_rec.get("calls", "")
         rows.append([
             m["model"],
             m.get("project") or "",
@@ -518,9 +530,9 @@ def _build_model_rows(
             total_files,
             files_target,
             round(files_pct * 100, 1),        # files_pct (%)
-            m.get("language") or "",
-            m.get("anal") or "",
-            m.get("calls") or "",
+            language,
+            anal,
+            calls,
             True if needs_rent else False,
             acc_content,
         ])
@@ -641,9 +653,10 @@ _MODELS_HEADER = [
 ]
 
 _ORDERS_HEADER     = ["model", "type", "status", "date_in", "date_out", "days", "days_open", "count"]
+_DEBTS_HEADER      = ["model", "type", "status", "date_in", "date_out", "days", "days_open", "count"]
 _SHOOTS_HEADER     = ["model", "date", "status", "location", "content_types"]
 _ACCOUNTING_HEADER = ["model", "title", "status", "content", "files", "edited_at"]
-_FORMS_HEADER      = ["model", "status", "lang", "anal", "calls", "optional"]
+_FORMS_HEADER      = ["model", "model_name", "status", "lang", "anal", "calls", "optional"]
 
 
 # ── Main entry point ───────────────────────────────────────────────────────────
@@ -729,18 +742,6 @@ async def run_analytics_sync(
         result.n_accounting, len(acc_prev_raw), result.n_forms,
     )
 
-    # Debug: dump accounting model_ids and a few model page_ids to diagnose join issues
-    for acc in acc_cur_raw + acc_prev_raw:
-        LOGGER.info(
-            "ACC: model_id=%s title=%s files=%s",
-            acc.get("model_id"), acc.get("title"), acc.get("files"),
-        )
-    for m in models_raw[:3]:
-        LOGGER.info(
-            "MODEL: page_id=%s name=%s",
-            m.get("page_id"), m.get("model"),
-        )
-
     # ── 2. Index accounting ────────────────────────────────────────────────────
     # Keep only first record per model (most recently edited, because of sort)
     acc_cur: dict[str, dict[str, Any]] = {}
@@ -755,17 +756,30 @@ async def run_analytics_sync(
         if mid and mid not in acc_prev:
             acc_prev[mid] = rec
 
+    for mid, rec in list(acc_cur.items())[:5]:
+        LOGGER.info("ACC_CUR: mid=%s files=%s title=%s", mid, rec.get("files"), rec.get("title"))
+    for m in models_raw[:3]:
+        LOGGER.info(
+            "RAW_MODEL: id=%s name=%s",
+            m.get("page_id", "").replace("-", ""),
+            m.get("model"),
+        )
+
     # ── 3. Calculate model metrics ────────────────────────────────────────────
     # planner_raw contains ALL shoots (no date filter) → shoots_reliability is accurate
+    forms_by_model = {
+        f["model_id"]: f for f in forms_raw
+        if f.get("model_id")
+    }
     model_rows, winrate_updates = _build_model_rows(
-        models_raw, orders_raw, planner_raw, acc_cur, acc_prev
+        models_raw, orders_raw, planner_raw, acc_cur, acc_prev, forms_by_model
     )
 
     # ── 4. Build denormalized rows for other tabs ─────────────────────────────
     # page_ids are already stored without dashes (normalized in _fetch_all_models)
     name_by_id: dict[str, str] = {m["page_id"]: m["model"] for m in models_raw}
 
-    # Orders: Done/Canceled by date_out >= since (winrate) + all Open (debt/penalty)
+    # Orders: only closed orders (Done/Canceled); open orders go to debts tab
     LOGGER.info(
         "Analytics: orders for Sheets — total=%d open=%d done=%d canceled=%d",
         len(orders_raw),
@@ -773,6 +787,9 @@ async def run_analytics_sync(
         sum(1 for o in orders_raw if o.get("status") == "Done"),
         sum(1 for o in orders_raw if o.get("status") in {"Canceled", "Cancelled"}),
     )
+    closed_orders = [o for o in orders_raw if o.get("status") in {"Done", "Canceled", "Cancelled"}]
+    open_orders = [o for o in orders_raw if o.get("status") == "Open"]
+
     orders_rows = [
         [
             name_by_id.get(o.get("model_id", ""), ""),
@@ -784,7 +801,21 @@ async def run_analytics_sync(
             o["days_open"] if o["days_open"] is not None else "",
             o["count"]    if o["count"]     is not None else "",
         ]
-        for o in orders_raw
+        for o in closed_orders
+    ]
+
+    debts_rows = [
+        [
+            name_by_id.get(o.get("model_id", ""), ""),
+            o["type"]     or "",
+            o["status"]   or "",
+            o["date_in"]  or "",
+            o["date_out"] or "",
+            o["days"]     if o["days"]      is not None else "",
+            o["days_open"] if o["days_open"] is not None else "",
+            o["count"]    if o["count"]     is not None else "",
+        ]
+        for o in open_orders
     ]
 
     # Sheets shoots tab: only done shoots for the last 2 months (filtered at API level).
@@ -813,7 +844,8 @@ async def run_analytics_sync(
 
     forms_rows = [
         [
-            name_by_id.get(f.get("model_id", ""), f["model"]),
+            f.get("model_id", ""),
+            name_by_id.get(f.get("model_id", ""), f.get("model_name", "")),
             f["status"]   or "",
             f["lang"]     or "",
             f["anal"]     or "",
@@ -826,6 +858,7 @@ async def run_analytics_sync(
     sheets_data = {
         _TAB_MODELS:     [_MODELS_HEADER]     + model_rows,
         _TAB_ORDERS:     [_ORDERS_HEADER]     + orders_rows,
+        _TAB_DEBTS:      [_DEBTS_HEADER]      + debts_rows,
         _TAB_SHOOTS:     [_SHOOTS_HEADER]     + shoots_rows,
         _TAB_ACCOUNTING: [_ACCOUNTING_HEADER] + accounting_rows,
         _TAB_FORMS:      [_FORMS_HEADER]      + forms_rows,
