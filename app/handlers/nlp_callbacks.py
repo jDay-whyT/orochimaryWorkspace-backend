@@ -29,6 +29,7 @@ import logging
 from datetime import date, datetime, timedelta
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
 
 from app.config import Config
@@ -66,9 +67,12 @@ def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
 SESSION_EXPIRED_MSG = "Сессия устарела, откройте модель заново"
 STALE_MSG = "Сессия устарела, откройте модель заново"
 
-# Actions that do NOT require token verification (always safe)
+# Actions that do NOT require token verification (always safe).
+# "sm" is exempt because model_id lives in the callback data itself —
+# if state was lost (bot restart, 30-min TTL expiry) clicking a stale
+# disambiguation button should still open the model card, not error out.
 _NO_TOKEN_ACTIONS = {"x", "bk", "noop", "om", "op", "cp", "fm", "smn", "sctm",
-                     "more_actions", "done"}
+                     "more_actions", "done", "sm"}
 
 
 async def _safe_edit_reply_markup(bot, chat_id: int, message_id: int) -> None:
@@ -811,11 +815,7 @@ async def _handle_back_to_card(
     })
     card_text, _ = await build_model_card(model_id, model_name, config, notion)
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
-        card_text,
-        reply_markup=model_card_keyboard(k),
-        parse_mode="HTML",
-    )
+    msg = await safe_edit_message(query, card_text, reply_markup=model_card_keyboard(k))
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
@@ -855,15 +855,20 @@ async def _show_orders_menu(
         else f"📦 <b>{html.escape(model_name)}</b>\n\nНет открытых заказов."
     )
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
-        text,
-        reply_markup=nlp_orders_menu_keyboard(
-            can_edit=can_edit,
-            has_orders=has_orders,
-            model_id=model_id,
-        ),
-        parse_mode="HTML",
-    )
+    try:
+        msg = await query.message.edit_text(
+            text,
+            reply_markup=nlp_orders_menu_keyboard(
+                can_edit=can_edit,
+                has_orders=has_orders,
+                model_id=model_id,
+            ),
+            parse_mode="HTML",
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            raise
+        msg = None
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
@@ -919,11 +924,16 @@ async def _show_orders_view(
         "page": page,
     })
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
-        text,
-        reply_markup=nlp_orders_view_keyboard(page, total_pages, model_id),
-        parse_mode="HTML",
-    )
+    try:
+        msg = await query.message.edit_text(
+            text,
+            reply_markup=nlp_orders_view_keyboard(page, total_pages, model_id),
+            parse_mode="HTML",
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            raise
+        msg = None
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
@@ -940,10 +950,15 @@ async def _show_close_picker(
     if not is_editor(user_id, config):
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            "❌ Нет доступа.",
-            reply_markup=nlp_back_keyboard(model_id),
-        )
+        try:
+            msg = await query.message.edit_text(
+                "❌ Нет доступа.",
+                reply_markup=nlp_back_keyboard(model_id),
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+            msg = None
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
@@ -952,11 +967,16 @@ async def _show_close_picker(
     if not orders:
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            f"✅ Нет открытых заказов для {html.escape(model_name)}",
-            reply_markup=nlp_back_keyboard(model_id),
-            parse_mode="HTML",
-        )
+        try:
+            msg = await query.message.edit_text(
+                f"✅ Нет открытых заказов для {html.escape(model_name)}",
+                reply_markup=nlp_back_keyboard(model_id),
+                parse_mode="HTML",
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+            msg = None
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
@@ -976,16 +996,21 @@ async def _show_close_picker(
         "page": current_page,
     })
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
-        f"📦 <b>{html.escape(model_name)}</b> · Какой заказ закрыть?",
-        reply_markup=nlp_close_order_select_keyboard(
-            page_orders,
-            current_page,
-            total_pages,
-            model_id,
-        ),
-        parse_mode="HTML",
-    )
+    try:
+        msg = await query.message.edit_text(
+            f"📦 <b>{html.escape(model_name)}</b> · Какой заказ закрыть?",
+            reply_markup=nlp_close_order_select_keyboard(
+                page_orders,
+                current_page,
+                total_pages,
+                model_id,
+            ),
+            parse_mode="HTML",
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            raise
+        msg = None
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
@@ -1124,11 +1149,16 @@ async def _show_files_menu(
     if not can_edit:
         text = f"📁 <b>{html.escape(model_name)}</b>\n\n❌ Нет доступа."
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
-        text,
-        reply_markup=nlp_files_menu_keyboard(can_edit=can_edit, model_id=model_id),
-        parse_mode="HTML",
-    )
+    try:
+        msg = await query.message.edit_text(
+            text,
+            reply_markup=nlp_files_menu_keyboard(can_edit=can_edit, model_id=model_id),
+            parse_mode="HTML",
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            raise
+        msg = None
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
@@ -1154,10 +1184,15 @@ async def _handle_files_menu_action(
     if not is_editor(user_id, config):
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            "❌ Нет доступа.",
-            reply_markup=nlp_back_keyboard(model_id),
-        )
+        try:
+            msg = await query.message.edit_text(
+                "❌ Нет доступа.",
+                reply_markup=nlp_back_keyboard(model_id),
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+            msg = None
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
@@ -1171,11 +1206,16 @@ async def _handle_files_menu_action(
             "k": k,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            f"📁 <b>{html.escape(model_name)}</b> · Сколько файлов?",
-            reply_markup=nlp_files_qty_keyboard(model_id, k),
-            parse_mode="HTML",
-        )
+        try:
+            msg = await query.message.edit_text(
+                f"📁 <b>{html.escape(model_name)}</b> · Сколько файлов?",
+                reply_markup=nlp_files_qty_keyboard(model_id, k),
+                parse_mode="HTML",
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+            msg = None
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
@@ -1185,10 +1225,15 @@ async def _handle_files_menu_action(
     if not record:
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            "Нет записи accounting за этот месяц. Сначала добавьте файлы.",
-            reply_markup=nlp_back_keyboard(model_id),
-        )
+        try:
+            msg = await query.message.edit_text(
+                "Нет записи accounting за этот месяц. Сначала добавьте файлы.",
+                reply_markup=nlp_back_keyboard(model_id),
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+            msg = None
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
@@ -1206,12 +1251,17 @@ async def _handle_files_menu_action(
             "k": k,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            f"🗂 <b>{html.escape(model_name)}</b> · Content\n\n"
-            "Выберите типы контента:",
-            reply_markup=nlp_accounting_content_keyboard(existing_content, model_id, k),
-            parse_mode="HTML",
-        )
+        try:
+            msg = await query.message.edit_text(
+                f"🗂 <b>{html.escape(model_name)}</b> · Content\n\n"
+                "Выберите типы контента:",
+                reply_markup=nlp_accounting_content_keyboard(existing_content, model_id, k),
+                parse_mode="HTML",
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+            msg = None
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
@@ -1225,11 +1275,16 @@ async def _handle_files_menu_action(
             "accounting_id": record.page_id,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            f"💬 <b>{html.escape(model_name)}</b> · Введите комментарий:",
-            parse_mode="HTML",
-            reply_markup=nlp_back_keyboard(model_id),
-        )
+        try:
+            msg = await query.message.edit_text(
+                f"💬 <b>{html.escape(model_name)}</b> · Введите комментарий:",
+                parse_mode="HTML",
+                reply_markup=nlp_back_keyboard(model_id),
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+            msg = None
         prompt_message_id = msg.message_id if msg else query.message.message_id
         memory_state.update(chat_id, user_id, prompt_message_id=prompt_message_id)
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
@@ -1277,15 +1332,20 @@ async def _show_shoot_menu(
     if not can_edit:
         text = f"📅 <b>{html.escape(model_name)}</b>\n\n❌ Нет доступа."
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
-        text,
-        reply_markup=nlp_shoot_menu_keyboard(
-            has_shoot=bool(shoot),
-            can_edit=can_edit,
-            model_id=model_id,
-        ),
-        parse_mode="HTML",
-    )
+    try:
+        msg = await query.message.edit_text(
+            text,
+            reply_markup=nlp_shoot_menu_keyboard(
+                has_shoot=bool(shoot),
+                can_edit=can_edit,
+                model_id=model_id,
+            ),
+            parse_mode="HTML",
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            raise
+        msg = None
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
@@ -1468,17 +1528,26 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
             from app.keyboards.inline import nlp_action_complete_keyboard
             await _clear_previous_screen_keyboard(query, memory_state)
             await _cleanup_prompt_message(query, memory_state)
-            msg = await query.message.edit_text(
-                f"✅ Съемка перенесена с {old_label} на {shoot_date.strftime('%d.%m')}",
-                reply_markup=nlp_action_complete_keyboard(model_id),
-                parse_mode="HTML",
-            )
+            try:
+                msg = await query.message.edit_text(
+                    f"✅ Съемка перенесена с {old_label} на {shoot_date.strftime('%d.%m')}",
+                    reply_markup=nlp_action_complete_keyboard(model_id),
+                    parse_mode="HTML",
+                )
+            except TelegramBadRequest as e:
+                if "message is not modified" not in str(e):
+                    raise
+                msg = None
             memory_state.clear(chat_id, user_id)
             _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
     else:
         # Create shoot
         if not is_editor(user_id, config):
-            await query.message.edit_text("❌ Нет прав.")
+            try:
+                await query.message.edit_text("❌ Нет прав.")
+            except TelegramBadRequest as e:
+                if "message is not modified" not in str(e):
+                    raise
             memory_state.clear(chat_id, user_id)
             return
 
@@ -1498,16 +1567,25 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
         from app.keyboards.inline import nlp_shoot_location_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
-        msg = await query.message.edit_text(
-            f"📍 <b>{html.escape(model_name)}</b> · Локация:",
-            reply_markup=nlp_shoot_location_keyboard(model_id, k),
-            parse_mode="HTML",
-        )
+        try:
+            msg = await query.message.edit_text(
+                f"📍 <b>{html.escape(model_name)}</b> · Локация:",
+                reply_markup=nlp_shoot_location_keyboard(model_id, k),
+                parse_mode="HTML",
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+            msg = None
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
 async def _handle_shoot_location(query, parts, config, notion, memory_state, recent_models):
     """Handle shoot location selection. Callback: nlp:sl:{location}[:{k}]"""
+    # Acknowledge immediately to prevent Telegram from retrying the callback
+    # while the slow Notion API call is in-flight.
+    await query.answer()
+
     if len(parts) < 3:
         return
 
@@ -1539,7 +1617,6 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
     shoot_date = date.fromisoformat(shoot_date_str)
 
     if not is_editor(user_id, config):
-        await query.answer()
         try:
             await query.message.edit_text("❌ Нет прав.")
         except Exception:
@@ -1548,8 +1625,6 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
         memory_state.clear(chat_id, user_id)
         return
 
-    # Acknowledge the callback before the slow Notion API call to prevent Telegram retries
-    await query.answer()
     memory_state.update(chat_id, user_id, shoot_location_processing=True)
 
     auto_status = _compute_shoot_status(shoot_date.isoformat(), content_types)
@@ -1736,11 +1811,16 @@ async def _handle_order_type(query, parts, config, memory_state):
     from app.router.entities_v2 import get_order_type_display_name
     type_label = get_order_type_display_name(order_type)
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
-        f"📦 <b>{html.escape(model_name)}</b> · {type_label}\n\nСколько?",
-        reply_markup=nlp_order_qty_keyboard(state.get("model_id", ""), k),
-        parse_mode="HTML",
-    )
+    try:
+        msg = await query.message.edit_text(
+            f"📦 <b>{html.escape(model_name)}</b> · {type_label}\n\nСколько?",
+            reply_markup=nlp_order_qty_keyboard(state.get("model_id", ""), k),
+            parse_mode="HTML",
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            raise
+        msg = None
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
@@ -1776,12 +1856,17 @@ async def _handle_order_qty(query, parts, config, notion, memory_state):
         memory_state.update(chat_id, user_id, step="awaiting_custom_count", k=k)
 
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            f"📦 <b>{html.escape(model_name)}</b> · {type_label}\n\n"
-            f"Введите количество:",
-            reply_markup=nlp_back_keyboard(model_id),
-            parse_mode="HTML",
-        )
+        try:
+            msg = await query.message.edit_text(
+                f"📦 <b>{html.escape(model_name)}</b> · {type_label}\n\n"
+                f"Введите количество:",
+                reply_markup=nlp_back_keyboard(model_id),
+                parse_mode="HTML",
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+            msg = None
         memory_state.update(chat_id, user_id, prompt_message_id=(msg.message_id if msg else query.message.message_id))
         _remember_screen_message(
             memory_state,
@@ -1802,11 +1887,16 @@ async def _handle_order_qty(query, parts, config, notion, memory_state):
     k = generate_token()
     memory_state.update(chat_id, user_id, step="awaiting_date", count=count, k=k)
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
-        f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\nДата заказа:",
-        reply_markup=nlp_order_date_keyboard(model_id, k),
-        parse_mode="HTML",
-    )
+    try:
+        msg = await query.message.edit_text(
+            f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\nДата заказа:",
+            reply_markup=nlp_order_date_keyboard(model_id, k),
+            parse_mode="HTML",
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            raise
+        msg = None
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
@@ -1829,7 +1919,11 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
     count = state.get("count", 1)
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        try:
+            await query.message.edit_text("❌ Нет прав.")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
         memory_state.clear(chat_id, user_id)
         return
 
@@ -1842,10 +1936,15 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
         memory_state.update(chat_id, user_id, step="awaiting_custom_date")
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            "Введите дату (ДД.ММ):",
-            reply_markup=nlp_back_keyboard(model_id),
-        )
+        try:
+            msg = await query.message.edit_text(
+                "Введите дату (ДД.ММ):",
+                reply_markup=nlp_back_keyboard(model_id),
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+            msg = None
         prompt_message_id = msg.message_id if msg else query.message.message_id
         memory_state.update(chat_id, user_id, prompt_message_id=prompt_message_id)
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
@@ -1859,12 +1958,17 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
     k = generate_token()
     memory_state.update(chat_id, user_id, step="awaiting_confirm", in_date=in_date.isoformat(), k=k)
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
-        f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\n"
-        f"Дата заказа: <b>{in_date.strftime('%d.%m')}</b>\n\nСоздать заказ?",
-        reply_markup=nlp_order_confirm_keyboard(model_id, k),
-        parse_mode="HTML",
-    )
+    try:
+        msg = await query.message.edit_text(
+            f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\n"
+            f"Дата заказа: <b>{in_date.strftime('%d.%m')}</b>\n\nСоздать заказ?",
+            reply_markup=nlp_order_confirm_keyboard(model_id, k),
+            parse_mode="HTML",
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            raise
+        msg = None
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
