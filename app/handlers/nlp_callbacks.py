@@ -48,6 +48,20 @@ from app.utils import PAGE_SIZE
 from app.utils.telegram import safe_edit_message
 
 
+async def _safe_confirm(
+    query,
+    text: str,
+    reply_markup=None,
+    parse_mode: str = "HTML",
+) -> None:
+    """После Notion-операции: пробует edit, при ошибке шлёт новое сообщение."""
+    try:
+        await safe_edit_message(query, text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception:
+        if query.message:
+            await query.message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
+
 LOGGER = logging.getLogger(__name__)
 router = Router()
 
@@ -1647,18 +1661,15 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
-        try:
-            msg = await query.message.edit_text(
-                f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}\n"
-                f"Контент: {ct_str}\nЛокация: {location}\nСтатус: {auto_status}",
-                reply_markup=nlp_action_complete_keyboard(model_id),
-                parse_mode="HTML",
-            )
-        except Exception:
-            # Ignore "message is not modified" and similar edit errors
-            msg = None
+        await _safe_confirm(
+            query,
+            f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}\n"
+            f"Контент: {ct_str}\nЛокация: {location}\nСтатус: {auto_status}",
+            reply_markup=nlp_action_complete_keyboard(model_id),
+            parse_mode="HTML",
+        )
         memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+        _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
     except Exception as e:
         LOGGER.exception("Failed to create shoot: %s", e)
         try:
@@ -1692,12 +1703,13 @@ async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state)
         model_id = shoot.model_id if shoot else ""
         planner_cache.clear_cache(model_id)
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        await _safe_confirm(
+            query,
             "✅ Съемка выполнена",
             reply_markup=nlp_action_complete_keyboard(model_id),
         )
         memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+        _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
     except Exception as e:
         LOGGER.exception("Failed to mark shoot as done: %s", e)
         await query.message.edit_text("❌ Ошибка.")
@@ -1723,12 +1735,13 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
         planner_cache.clear_cache(model_id)
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        await _safe_confirm(
+            query,
             "✅ Съемка выполнена",
             reply_markup=nlp_action_complete_keyboard(model_id),
         )
         memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+        _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
 
     elif action == "reschedule":
         shoot = await notion.get_shoot(shoot_id)
@@ -2035,7 +2048,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
             type_label = get_order_type_display_name(order_type)
             await _clear_previous_screen_keyboard(query, memory_state)
             await _cleanup_prompt_message(query, memory_state)
-            await safe_edit_message(
+            await _safe_confirm(
                 query,
                 f"✅ Создано {count}x {type_label}\n"
                 f"<b>{html.escape(model_name)}</b> · {in_date.strftime('%d.%m')}",
@@ -2134,7 +2147,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
         from app.keyboards.inline import nlp_action_complete_keyboard
-        await safe_edit_message(
+        await _safe_confirm(
             query,
             f"✅ Заказ закрыт · {out_date.strftime('%d.%m')}",
             reply_markup=nlp_action_complete_keyboard(model_id_for_kb),
@@ -2332,7 +2345,8 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
         memory_state.clear(chat_id, user_id)
 
         from app.keyboards.inline import nlp_action_complete_keyboard
-        await query.message.edit_text(
+        await _safe_confirm(
+            query,
             f"✅ +{count} файлов ({new_files} всего)\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
             f"Файлов: {progress_line}",
@@ -2531,7 +2545,8 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
         from app.keyboards.inline import nlp_action_complete_keyboard
-        msg = await query.message.edit_text(
+        await _safe_confirm(
+            query,
             f"✅ +{count} файлов ({new_files} всего)\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
             f"Файлов: {progress_line}",
@@ -2539,7 +2554,7 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
             parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+        _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
     except Exception as e:
         LOGGER.exception("Failed to add files: %s", e)
         await query.message.edit_text("❌ Не смог обновить Notion, попробуй позже.")
@@ -2845,7 +2860,7 @@ async def _handle_accounting_content_save(query, parts, config, notion, memory_s
         content_str = ", ".join(selected) if selected else "—"
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        await safe_edit_message(
+        await _safe_confirm(
             query,
             f"✅ Content сохранён\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
