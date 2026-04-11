@@ -48,5 +48,8 @@ async def safe_edit_message(
             if "message is not modified" in str(e):
                 # Message content is identical, silently ignore
                 return None
+            if "message to edit not found" in str(e):
+                # Message was deleted or is no longer accessible
+                return None
             # Re-raise other TelegramBadRequest errors
             raise
