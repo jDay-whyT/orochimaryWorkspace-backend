@@ -456,6 +456,43 @@ def _score_to_stars(score: float) -> str:
     return "☆☆☆☆☆"
 
 
+def calc_performance_score(
+    orders_done: int,
+    orders_open: int,
+    shoots_done: int,
+    files_pct: float,      # 0–100
+    open_penalties: float,
+) -> float:
+    """Adaptive performance score (0–100).
+
+    Averages only non-empty components so a model without shoots
+    isn't penalised for the missing dimension.
+    """
+    components: list[float] = []
+
+    # Orders component (0-100)
+    if orders_done > 0 or orders_open > 0:
+        orders_score = orders_done / (orders_done + orders_open) * 100
+        components.append(orders_score)
+
+    # Shoots component (0-100, каждая съёмка = 20 очков, макс 5 съёмок)
+    if shoots_done > 0:
+        shoots_score = min(shoots_done * 20, 100)
+        components.append(shoots_score)
+
+    # Files component (0-100)
+    if files_pct > 0:
+        components.append(min(files_pct, 100))
+
+    if not components:
+        return 0.0
+
+    # Среднее из непустых компонентов минус штраф
+    score = sum(components) / len(components)
+    score = max(0.0, score - open_penalties)
+    return round(score, 1)
+
+
 # ── Model metrics calculation ──────────────────────────────────────────────────
 
 def _build_model_rows(
@@ -559,16 +596,13 @@ def _build_model_rows(
         has_files = bool(acc_rec)
 
         # ── Performance score ─────────────────────────────────────────────────
-        if has_shoots and has_files:
-            score = orders_winrate * 50 + shoots_rel * 25 + files_pct * 25
-        elif not has_shoots and has_files:
-            score = orders_winrate * 67 + files_pct * 33
-        elif has_shoots and not has_files:
-            score = orders_winrate * 67 + shoots_rel * 33
-        else:
-            score = orders_winrate * 100
-
-        score = max(0.0, min(100.0, score - penalties))
+        score = calc_performance_score(
+            orders_done=orders_done,
+            orders_open=orders_open,
+            shoots_done=shoots_done,
+            files_pct=files_pct * 100,   # convert fraction → percentage
+            open_penalties=penalties,
+        )
         stars = _score_to_stars(score)
 
         # ── Assemble row ──────────────────────────────────────────────────────
