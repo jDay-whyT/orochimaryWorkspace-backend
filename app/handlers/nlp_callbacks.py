@@ -26,6 +26,7 @@ flow and step match what the action expects. On mismatch the user sees
 
 import html
 import logging
+import time
 from datetime import date, datetime, timedelta
 
 from aiogram import F, Router
@@ -70,6 +71,12 @@ router = Router()
 # Telegram retry while the first Notion API call is still in-flight).
 # asyncio is single-threaded so set membership checks are effectively atomic.
 _oc_in_progress: set[tuple[int, int]] = set()
+
+# Deduplication for callback_query events: Telegram sometimes retries the same
+# button press with a new update_id. We silently drop identical (user_id,
+# callback_data) pairs arriving within _CALLBACK_DEDUP_TTL seconds of the first.
+_CALLBACK_DEDUP_TTL = 5.0
+_callback_dedup: dict[tuple, float] = {}
 router.callback_query.filter(TopicAccessCallbackFilter())
 
 
@@ -264,6 +271,19 @@ async def handle_nlp_callback(
     if not is_authorized(query.from_user.id, config):
         await query.answer("Access denied", show_alert=True)
         return
+
+    # Dedup: silently drop Telegram retries with same (user_id, callback_data)
+    # arriving within _CALLBACK_DEDUP_TTL seconds of the first delivery.
+    _dedup_key = (query.from_user.id, query.data)
+    _now = time.monotonic()
+    if _now - _callback_dedup.get(_dedup_key, 0) < _CALLBACK_DEDUP_TTL:
+        await query.answer()
+        return
+    _callback_dedup[_dedup_key] = _now
+    if len(_callback_dedup) > 1000:
+        _cutoff = _now - _CALLBACK_DEDUP_TTL
+        for _k in [_k for _k, _v in _callback_dedup.items() if _v < _cutoff]:
+            del _callback_dedup[_k]
 
     parts = query.data.split(":")
     if len(parts) < 2:
