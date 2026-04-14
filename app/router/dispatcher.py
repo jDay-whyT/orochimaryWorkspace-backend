@@ -149,25 +149,29 @@ async def route_message(
             return  # Let FlowFilter-based handlers pick this up
 
         if current_flow.startswith("nlp_"):
-            current_step = user_state.get("step", "")
+            if current_flow == "nlp_disambiguate":
+                memory_state.clear(chat_id, user_id)
+                # fall through — обработать текст как новый запрос
+            else:
+                current_step = user_state.get("step", "")
 
-            # Dispatch to step-specific text handler if one exists.
-            # _find_nlp_text_handler is defined at the bottom of this module.
-            handler = _find_nlp_text_handler(current_flow, current_step)
-            if handler:
-                await handler(message, text, user_state, config, notion, memory_state)
+                # Dispatch to step-specific text handler if one exists.
+                # _find_nlp_text_handler is defined at the bottom of this module.
+                handler = _find_nlp_text_handler(current_flow, current_step)
+                if handler:
+                    await handler(message, text, user_state, config, notion, memory_state)
+                    return
+
+                # nlp_* flows expect button presses, not free text.
+                # Respond with a prompt instead of silently swallowing the message.
+                LOGGER.info("ROUTE_MESSAGE SKIP: user=%s in nlp flow=%s, prompting for button", user_id, current_flow)
+                from app.keyboards.inline import nlp_flow_waiting_keyboard
+                await message.answer(
+                    "⏳ Жду нажатия кнопки или сбросьте состояние.",
+                    reply_markup=nlp_flow_waiting_keyboard(),
+                    parse_mode="HTML",
+                )
                 return
-
-            # nlp_* flows expect button presses, not free text.
-            # Respond with a prompt instead of silently swallowing the message.
-            LOGGER.info("ROUTE_MESSAGE SKIP: user=%s in nlp flow=%s, prompting for button", user_id, current_flow)
-            from app.keyboards.inline import nlp_flow_waiting_keyboard
-            await message.answer(
-                "⏳ Жду нажатия кнопки или сбросьте состояние.",
-                reply_markup=nlp_flow_waiting_keyboard(),
-                parse_mode="HTML",
-            )
-            return
 
         # Unknown flow — clear stale state and continue through NLP pipeline
         LOGGER.warning("User %s has unknown flow=%s, clearing state", user_id, current_flow)
