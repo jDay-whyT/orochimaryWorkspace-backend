@@ -21,8 +21,15 @@ LOGGER = logging.getLogger(__name__)
 
 DB_FORMS_DEFAULT = "22932beee7a0802492b2fd8b16ece74b"
 ANALYTICS_SPREADSHEET_ID_DEFAULT = "1UjOVnivgJmZfmZGib2nkaorCSOR1LgLiFy2VXN4NAQo"
-JAN_ORDERS_DB = "2fd32bee-e7a0-8182-bab4-000bd6e6efa8"
-FEB_ORDERS_DB = "31632bee-e7a0-81dc-bfe0-000bfd2ca861"
+JAN_ORDERS_DB = "2fd32bee-e7a0-80d6-b8a5-ee7bd1001052"
+FEB_ORDERS_DB = "31632bee-e7a0-8038-ba59-c2ef293fb1c4"
+MAR_ORDERS_DB = "33532bee-e7a0-80eb-bc7e-d80aff13e400"
+
+ARCHIVE_ORDERS_DBS = [
+    "2fd32bee-e7a0-80d6-b8a5-ee7bd1001052",  # Jan
+    "31632bee-e7a0-8038-ba59-c2ef293fb1c4",  # Feb
+    "33532bee-e7a0-80eb-bc7e-d80aff13e400",  # Mar
+]
 
 ANALYTICS_ASSISTANTS = os.getenv(
     "ANALYTICS_ASSISTANTS",
@@ -188,6 +195,7 @@ async def _fetch_orders_for_analytics(
     Archive databases are queried separately for Done/Canceled and merged in:
       - JAN_ORDERS_DB (Done + Canceled)
       - FEB_ORDERS_DB (Done + Canceled)
+      - MAR_ORDERS_DB (Done + Canceled)
 
     Returns a combined flat list.
     """
@@ -267,16 +275,26 @@ async def _fetch_archive_orders(notion: NotionClient) -> list[dict[str, Any]]:
         }
         return await _fetch_all_pages(notion, url, payload)
 
-    archived_done_jan, archived_canceled_jan, archived_done_feb, archived_canceled_feb = await asyncio.gather(
+    (
+        archived_done_jan, archived_canceled_jan,
+        archived_done_feb, archived_canceled_feb,
+        archived_done_mar, archived_canceled_mar,
+    ) = await asyncio.gather(
         _fetch_archive_by_status(JAN_ORDERS_DB, "Done"),
         _fetch_archive_by_status(JAN_ORDERS_DB, "Canceled"),
         _fetch_archive_by_status(FEB_ORDERS_DB, "Done"),
         _fetch_archive_by_status(FEB_ORDERS_DB, "Canceled"),
+        _fetch_archive_by_status(MAR_ORDERS_DB, "Done"),
+        _fetch_archive_by_status(MAR_ORDERS_DB, "Canceled"),
     )
 
     today = date.today()
     result: list[dict[str, Any]] = []
-    for item in archived_done_jan + archived_canceled_jan + archived_done_feb + archived_canceled_feb:
+    for item in (
+        archived_done_jan + archived_canceled_jan
+        + archived_done_feb + archived_canceled_feb
+        + archived_done_mar + archived_canceled_mar
+    ):
         in_date = _extract_date(item, "in")
         status = _extract_select(item, "status")
         days_raw = _extract_number(item, "days")
