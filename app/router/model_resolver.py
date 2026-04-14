@@ -20,7 +20,7 @@ from app.router.command_filters import normalize_text
 LOGGER = logging.getLogger(__name__)
 
 # Config
-FUZZY_THRESHOLD_RECENT = 0.85
+FUZZY_THRESHOLD_RECENT = 0.82  # чуть мягче для опечаток
 FUZZY_THRESHOLD_GENERAL = 0.80
 MIN_QUERY_LENGTH = 3
 FUZZY_MIN_QUERY_LENGTH = 4
@@ -186,9 +186,8 @@ async def resolve_model(
         if len(recent_matches) == 1:
             m = recent_matches[0]
             LOGGER.info("Model resolved from recent: %s (score=%.2f, type=%s)", m["name"], m["score"], m["match_type"])
-            # Fuzzy-only single match → require confirmation
-            if m["match_type"] == "fuzzy":
-                return {"status": "confirm", "model": m, "models": []}
+            # Recent модели — всегда found, без подтверждения
+            # (пользователь недавно работал с ней, высокая вероятность правильного матча)
             return {"status": "found", "model": m, "models": []}
         if len(recent_matches) > 1:
             # Check if top match is clearly better (exact or alias)
