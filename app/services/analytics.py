@@ -759,7 +759,7 @@ _ORDERS_HEADER     = ["model", "type", "status", "date_in", "date_out", "days", 
 _DEBTS_HEADER      = ["model", "type", "status", "date_in", "date_out", "days", "days_open", "count"]
 _SHOOTS_HEADER     = ["model", "date", "status", "location", "content_types"]
 _ACCOUNTING_HEADER = ["model", "title", "status", "content", "files", "edited_at"]
-_FORMS_HEADER      = ["model", "model_name", "status", "lang", "anal", "calls", "optional"]
+_FORMS_HEADER      = ["model_name", "status", "lang", "anal", "calls", "optional"]
 
 
 # ── Main entry point ───────────────────────────────────────────────────────────
@@ -946,7 +946,6 @@ async def run_analytics_sync(
 
     forms_rows = [
         [
-            f.get("model_id", ""),
             name_by_id.get(f.get("model_id", ""), f.get("model_name", "")),
             f["status"]   or "",
             f["lang"]     or "",
