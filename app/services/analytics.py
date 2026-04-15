@@ -113,6 +113,13 @@ def _extract_person_or_select(page: dict[str, Any], prop_name: str) -> str | Non
     return None
 
 
+def _extract_lang(item: dict) -> str | None:
+    prop = item.get("properties", {}).get("lang", {})
+    frags = prop.get("rich_text", [])
+    text = "".join(f.get("plain_text", "") for f in frags).strip()
+    return text or None
+
+
 # ── Pagination helper ──────────────────────────────────────────────────────────
 
 async def _fetch_all_pages(
@@ -430,9 +437,9 @@ async def _fetch_all_forms(
                 _extract_select(item, "status")
                 or _extract_status(item, "status")
             ),
-            "lang":     _extract_select(item, "lang"),
-            "anal":     _extract_select(item, "anal"),
-            "calls":    _extract_select(item, "calls"),
+            "lang":     _extract_lang(item),
+            "anal":     ", ".join(_extract_multi_select(item, "anal")),
+            "calls":    ", ".join(_extract_multi_select(item, "calls")),
             "optional": _extract_multi_select(item, "optional"),
         })
     return rows
@@ -702,14 +709,14 @@ def _write_sheets_sync(
                 if isinstance(v, bool):
                     return str(v)
                 if isinstance(v, (int, float)):
-                    return v  # числа передаём как есть
+                    return v  # числа передаём как числа
                 return str(v)
 
-clean = [headers] + [
-    [_cell(r[i]) if i < len(r) else "" for i in range(n)]
-    for r in rows[1:]
-]
-ws.update("A1", clean, value_input_option="USER_ENTERED")
+            clean = [headers] + [
+                [_cell(r[i]) if i < len(r) else "" for i in range(n)]
+                for r in rows[1:]
+            ]
+            ws.update("A1", clean, value_input_option="USER_ENTERED")
 
 
 # ── Notion winrate write-back ──────────────────────────────────────────────────
@@ -952,7 +959,7 @@ async def run_analytics_sync(
 
     forms_rows = [
         [
-            name_by_id.get(f.get("model_id", ""), f.get("model_name", "")),
+            name_by_id.get(f.get("model_id", ""), ""),
             f["status"]   or "",
             f["lang"]     or "",
             f["anal"]     or "",
@@ -960,6 +967,7 @@ async def run_analytics_sync(
             ", ".join(f.get("optional") or []),
         ]
         for f in forms_raw
+        if f.get("model_id") and name_by_id.get(f.get("model_id", ""))  # только модели твоих ассистентов
     ]
 
     sheets_data = {
