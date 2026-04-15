@@ -696,14 +696,20 @@ def _write_sheets_sync(
         if rows:
             headers = [h for h in rows[0] if h is not None]
             n = len(headers)
-            clean = [headers] + [
-                [
-                    str(r[i]) if i < len(r) and r[i] is not None else ""
-                    for i in range(n)
-                ]
-                for r in rows[1:]
-            ]
-            ws.update("A1", clean, value_input_option="RAW")
+            def _cell(v):
+                if v is None:
+                    return ""
+                if isinstance(v, bool):
+                    return str(v)
+                if isinstance(v, (int, float)):
+                    return v  # числа передаём как есть
+                return str(v)
+
+clean = [headers] + [
+    [_cell(r[i]) if i < len(r) else "" for i in range(n)]
+    for r in rows[1:]
+]
+ws.update("A1", clean, value_input_option="USER_ENTERED")
 
 
 # ── Notion winrate write-back ──────────────────────────────────────────────────
