@@ -361,10 +361,10 @@ def accounting_quick_files_keyboard(page_id: str, current: int) -> InlineKeyboar
     """Quick file count buttons."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="5", callback_data=f"account|files|{page_id}|5"),
-            InlineKeyboardButton(text="10", callback_data=f"account|files|{page_id}|10"),
-            InlineKeyboardButton(text="15", callback_data=f"account|files|{page_id}|15"),
             InlineKeyboardButton(text="20", callback_data=f"account|files|{page_id}|20"),
+            InlineKeyboardButton(text="50", callback_data=f"account|files|{page_id}|50"),
+            InlineKeyboardButton(text="80", callback_data=f"account|files|{page_id}|80"),
+            InlineKeyboardButton(text="Ввод", callback_data=f"account|files|{page_id}|custom"),
         ],
         [InlineKeyboardButton(text="◀️ Back", callback_data="account|back|list")],
     ])
@@ -984,9 +984,9 @@ def nlp_files_qty_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
     s = f":{k}" if k else ""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="+15", callback_data=f"nlp:af:15{s}"),
-            InlineKeyboardButton(text="+30", callback_data=f"nlp:af:30{s}"),
-            InlineKeyboardButton(text="+50", callback_data=f"nlp:af:50{s}"),
+            InlineKeyboardButton(text="20", callback_data=f"nlp:af:20{s}"),
+            InlineKeyboardButton(text="50", callback_data=f"nlp:af:50{s}"),
+            InlineKeyboardButton(text="80", callback_data=f"nlp:af:80{s}"),
             InlineKeyboardButton(text="Ввод", callback_data=f"nlp:af:custom{s}"),
         ],
         [nlp_back_button(model_id)],
