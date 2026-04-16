@@ -132,12 +132,18 @@ async def route_message(
     LOGGER.info("ROUTE_MESSAGE HIT user=%s text=%r", user_id, text[:80])
 
     # ===== Step 1: State Check =====
-    # Only skip NLP for flows that have FlowFilter-equipped handlers.
-    # nlp_* flows are handled via callbacks (buttons), not text —
-    # if user sends text while in nlp_* flow, we must respond, not stay silent.
+    # Flows that have FlowFilter-equipped handlers.
     _FLOW_FILTER_FLOWS = {
         "search", "new_order", "view", "comment",
         "summary", "planner", "accounting",
+    }
+    # Subset of flows that actually expect free-text user input.
+    # Callback-only flows must not swallow text messages.
+    _TEXT_INPUT_FLOWS = {
+        "search",
+        "new_order",
+        "comment",
+        "accounting",
     }
 
     user_state = memory_state.get(chat_id, user_id)
@@ -145,8 +151,19 @@ async def route_message(
         current_flow = user_state["flow"]
 
         if current_flow in _FLOW_FILTER_FLOWS:
-            LOGGER.info("ROUTE_MESSAGE SKIP: user=%s active flow=%s, deferring to FlowFilter", user_id, current_flow)
-            return  # Let FlowFilter-based handlers pick this up
+            if current_flow in _TEXT_INPUT_FLOWS:
+                LOGGER.info(
+                    "ROUTE_MESSAGE SKIP: user=%s active flow=%s, deferring to FlowFilter",
+                    user_id,
+                    current_flow,
+                )
+                return  # Let FlowFilter-based handlers pick this up
+            LOGGER.warning(
+                "ROUTE_MESSAGE stale callback-only flow=%s for user=%s, clearing state and continuing NLP routing",
+                current_flow,
+                user_id,
+            )
+            memory_state.clear(chat_id, user_id)
 
         if current_flow.startswith("nlp_"):
             if current_flow == "nlp_disambiguate":
