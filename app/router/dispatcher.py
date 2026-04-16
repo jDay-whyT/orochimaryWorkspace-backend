@@ -30,7 +30,7 @@ from app.router.entities_v2 import (
     validate_model_name,
     get_order_type_display_name,
 )
-from app.router.command_filters import CommandIntent
+from app.router.command_filters import CommandIntent, extract_scout_model_name
 from app.router.model_resolver import resolve_model
 from app.utils.formatting import format_appended_comment, MAX_COMMENT_LENGTH
 from app.utils.accounting import calculate_accounting_progress, format_accounting_progress
@@ -324,7 +324,7 @@ async def route_message(
     # ===== Step 6 & 7: Validation & Execute Handler =====
     _t_handler = time.time()
     try:
-        await _execute_handler(message, intent, model, entities, config, notion, memory_state, recent_models)
+        await _execute_handler(message, text, intent, model, entities, config, notion, memory_state, recent_models)
     except asyncio.TimeoutError:
         LOGGER.warning(
             "route_message TIMEOUT in handler_execution user=%s text=%r",
@@ -346,12 +346,14 @@ def _intent_requires_model(intent: CommandIntent) -> bool:
         CommandIntent.SHOW_ORDERS,
         CommandIntent.SHOW_PLANNER,
         CommandIntent.SHOW_ACCOUNT,
+        CommandIntent.SCOUT_CARD,
     }
     return intent not in no_model_intents
 
 
 async def _execute_handler(
     message: Message,
+    text: str,
     intent: CommandIntent,
     model: dict | None,
     entities,
@@ -451,6 +453,24 @@ async def _execute_handler(
 
     if intent == CommandIntent.AMBIGUOUS:
         await _handle_ambiguous(message, model, entities, config, memory_state)
+        return
+
+    # ===== SCOUT CARD (priority 110) =====
+
+    if intent == CommandIntent.SCOUT_CARD:
+        from app.services.scout_card import build_scout_report_card
+
+        model_name = extract_scout_model_name(text)
+        if not model_name:
+            await message.answer("Модель не найдена")
+            return
+
+        card = await build_scout_report_card(model_name)
+        if card is None:
+            await message.answer("Модель не найдена")
+            return
+
+        await message.answer(card)
         return
 
     # ===== SEARCH MODEL (priority 0) =====
