@@ -18,15 +18,14 @@ the card still renders with "—" placeholders.
 In-memory TTL cache avoids repeated Notion queries within a short window.
 """
 
-import html
 import asyncio
+import html
 import logging
 import time
 from datetime import date, datetime
 
 from app.config import Config
 from app.services.notion import NotionClient
-from app.utils.accounting import format_accounting_progress
 
 LOGGER = logging.getLogger(__name__)
 
@@ -82,7 +81,7 @@ async def build_model_card_text(
     if cached is not None:
         return cached
 
-    text, is_error = await _build_card_text_impl(model_id, model_name, config, notion)
+    text, is_error, _ = await _build_card_text_impl(model_id, model_name, config, notion)
     _cache_set(cache_key, text, is_error)
     return text
 
@@ -106,10 +105,8 @@ async def build_model_card(
     if cached is not None and cached_orders is not None:
         return cached, cached_orders
 
-    text, is_error = await _build_card_text_impl(model_id, model_name, config, notion)
+    text, is_error, open_orders = await _build_card_text_impl(model_id, model_name, config, notion)
     _cache_set(cache_key, text, is_error)
-
-    open_orders = _extract_orders_count(text)
     _orders_count_cache[cache_key] = open_orders
     return text, open_orders
 
@@ -118,32 +115,24 @@ async def build_model_card(
 _orders_count_cache: dict[str, int] = {}
 
 
-def _extract_orders_count(text: str) -> int:
-    """Extract open orders count from card text. Returns -1 on error."""
-    import re
-    m = re.search(r'open (\d+)', text)
-    if m:
-        return int(m.group(1))
-    return -1
-
-
 async def _build_card_text_impl(
     model_id: str,
     model_name: str,
     config: Config,
     notion: NotionClient,
-) -> tuple[str, bool]:
+) -> tuple[str, bool, int]:
     """
-    Actual card building logic. Returns (text, is_error).
+    Actual card building logic. Returns (text, is_error, open_orders_count).
     is_error=True when any Notion call failed (contains "—").
     """
     now = datetime.now(tz=config.timezone)
+    today = now.date()
 
-    orders_count = "—"
+    orders_line = "нет"
     shoot_line = "нет"
-    files_line = format_accounting_progress(0, None)
-    month_label = _month_ru(now.month)
+    files_line = "0"
     has_error = False
+    open_orders_count = -1
 
     yyyy_mm = now.strftime("%Y-%m")
     results = await asyncio.gather(
@@ -158,11 +147,25 @@ async def _build_card_text_impl(
     # Orders open count
     if isinstance(orders_result, Exception):
         LOGGER.warning("model_card: failed to fetch orders for %s", model_id)
-        orders_count = "—"
+        orders_line = "—"
         has_error = True
     else:
         orders = orders_result
-        orders_count = str(len(orders))
+        open_orders_count = len(orders)
+        if not orders:
+            orders_line = "нет"
+        else:
+            orders_with_days: list[tuple[int, str]] = []
+            for order in orders:
+                days = _calc_days_open(order.in_date, today)
+                order_type = (order.order_type or "order").strip() or "order"
+                orders_with_days.append((days, f"{order_type} {days}д"))
+            orders_with_days.sort(key=lambda item: item[0], reverse=True)
+            visible = [item[1] for item in orders_with_days[:2]]
+            orders_line = " · ".join(visible)
+            hidden = len(orders_with_days) - 2
+            if hidden > 0:
+                orders_line += f" (+{hidden} ещё)"
 
     # Next shoot
     if isinstance(shoots_result, Exception):
@@ -171,13 +174,23 @@ async def _build_card_text_impl(
         has_error = True
     else:
         shoots = shoots_result
-        if shoots:
-            s = shoots[0]
-            s_date = _format_date_card(s.date)
-            s_status = s.status or "planned"
-            shoot_line = f"{s_date} ({s_status})"
-        else:
-            shoot_line = "нет"
+        upcoming = []
+        for shoot in shoots:
+            if not shoot.date:
+                continue
+            if (shoot.status or "").lower() not in {"scheduled", "planned"}:
+                continue
+            parsed = _parse_iso_date(shoot.date)
+            if parsed is None or parsed < today:
+                continue
+            upcoming.append((parsed, shoot))
+        if upcoming:
+            upcoming.sort(key=lambda pair: pair[0])
+            _, nearest = upcoming[0]
+            s_date = _format_date_card(nearest.date)
+            content = "/".join(nearest.content or []) or "—"
+            status = nearest.status or "planned"
+            shoot_line = f"{s_date} · {content} · {status}"
 
     # Files current month
     if isinstance(accounting_result, Exception):
@@ -187,21 +200,30 @@ async def _build_card_text_impl(
     else:
         record = accounting_result
         if record:
-            total_files = record.files
-            files_line = format_accounting_progress(total_files, record.status)
-        else:
-            files_line = format_accounting_progress(0, None)
+            total = int(getattr(record, "total", 0) or 0)
+            if total == 0:
+                total = int(getattr(record, "files", 0) or 0)
+            typed_counts = [
+                ("reddit", int(getattr(record, "reddit_files", 0) or 0)),
+                ("twitter", int(getattr(record, "twitter_files", 0) or 0)),
+                ("of", int(getattr(record, "of_files", 0) or 0)),
+                ("fansly", int(getattr(record, "fansly_files", 0) or 0)),
+                ("social", int(getattr(record, "social_files", 0) or 0)),
+                ("req", int(getattr(record, "request_files", 0) or 0)),
+            ]
+            non_zero_parts = [f"{label} {value}" for label, value in typed_counts if value > 0]
+            files_line = str(total) if not non_zero_parts else f"{total} · {', '.join(non_zero_parts)}"
 
     safe_name = html.escape(model_name)
 
     text = (
         f"📌 <b>{safe_name}</b>\n"
-        f"📦 Заказы: open {orders_count}\n"
-        f"📅 Съёмка: {shoot_line}\n"
-        f"📁 Файлы ({month_label}): {files_line}\n\n"
-        f"Что делаем?"
+        f"\n"
+        f"📦 {orders_line}\n"
+        f"📅 {shoot_line}\n"
+        f"📁 {files_line}"
     )
-    return text, has_error
+    return text, has_error, open_orders_count
 
 
 # ===== Helpers =====
@@ -212,19 +234,35 @@ _MONTHS_RU = [
 ]
 
 
+def _format_date_card(date_str: str | None) -> str:
+    """Format ISO date string to 'D mon' (e.g. 20 апр)."""
+    if not date_str:
+        return "?"
+    try:
+        d = date.fromisoformat(date_str[:10])
+        return f"{d.day} {_month_ru(d.month)}"
+    except (ValueError, TypeError):
+        return "?"
+
+
+def _parse_iso_date(date_str: str | None) -> date | None:
+    if not date_str:
+        return None
+    try:
+        return date.fromisoformat(date_str[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _calc_days_open(in_date_str: str | None, today: date) -> int:
+    opened = _parse_iso_date(in_date_str)
+    if opened is None:
+        return 0
+    return max(0, (today - opened).days)
+
+
 def _month_ru(month: int) -> str:
     """Return short Russian month name (1-indexed)."""
     if 1 <= month <= 12:
         return _MONTHS_RU[month - 1]
     return "?"
-
-
-def _format_date_card(date_str: str | None) -> str:
-    """Format ISO date string to DD.MM."""
-    if not date_str:
-        return "?"
-    try:
-        d = date.fromisoformat(date_str[:10])
-        return d.strftime("%d.%m")
-    except (ValueError, TypeError):
-        return "?"
