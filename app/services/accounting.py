@@ -102,8 +102,10 @@ class AccountingService:
             raise ValueError(f"Unknown content type: {content_type}")
 
         if record:
-            new_files = await self.notion.update_accounting_files_by_type(
-                record.page_id, content_type, files_to_add
+            current_by_type = int(getattr(record, field_name, 0) or 0)
+            new_files = current_by_type + files_to_add
+            await self.notion.update_accounting_files_by_type(
+                record.page_id, field_name, new_files
             )
             await self.notion.add_to_accounting_content(
                 record.page_id, content_type

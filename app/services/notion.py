@@ -58,6 +58,13 @@ class NotionAccounting:
     model_id: str | None = None
     model_title: str | None = None
     files: int = 0
+    reddit_files: int = 0
+    twitter_files: int = 0
+    of_files: int = 0
+    fansly_files: int = 0
+    basic_files: int = 0
+    event_files: int = 0
+    request_files: int = 0
     comment: str | None = None
     status: str | None = None
     last_edited: str | None = None
@@ -661,39 +668,12 @@ class NotionClient:
     async def update_accounting_files_by_type(
         self,
         page_id: str,
-        content_type: str,
-        files_to_add: int,
-    ) -> int:
-        """
-        Update specific content type field and return new value.
-
-        Args:
-            page_id: Accounting record page ID
-            content_type: Content type (e.g. "reddit", "main pack")
-            files_to_add: Number to ADD (not replace)
-
-        Returns:
-            New value of the updated field
-        """
-        from app.utils.content_mapping import get_field_for_content_type
-
-        field_name = get_field_for_content_type(content_type)
-        if not field_name:
-            LOGGER.warning("Unknown content type: %s", content_type)
-            raise ValueError(f"Unknown content type: {content_type}")
-
-        page = await self._request("GET", f"https://api.notion.com/v1/pages/{page_id}")
-        current_value = page["properties"].get(field_name, {}).get("number", 0) or 0
-        new_value = current_value + files_to_add
-
+        field_name: str,
+        new_value: int,
+    ) -> None:
+        """Update one typed files field only (does not touch legacy Files)."""
         payload = {"properties": {field_name: {"number": new_value}}}
         await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json=payload)
-
-        LOGGER.info(
-            "Updated %s: %d + %d = %d for page %s (content_type: %s)",
-            field_name, current_value, files_to_add, new_value, page_id, content_type,
-        )
-        return new_value
 
     async def add_to_accounting_content(
         self,
@@ -1021,12 +1001,30 @@ def _parse_planner(item: dict[str, Any]) -> NotionPlanner:
 def _parse_accounting(item: dict[str, Any]) -> NotionAccounting:
     """Parse accounting entry from Notion API response."""
     files_val = _extract_number(item, "Files")
+    reddit_files = int(_extract_number(item, "reddit_files") or 0)
+    twitter_files = int(_extract_number(item, "twitter_files") or 0)
+    of_files = int(_extract_number(item, "of_files") or 0)
+    fansly_files = int(_extract_number(item, "fansly_files") or 0)
+    basic_files = int(_extract_number(item, "basic_files") or 0)
+    event_files = int(_extract_number(item, "event_files") or 0)
+    request_files = int(_extract_number(item, "request_files") or 0)
+    total_by_types = (
+        reddit_files + twitter_files + of_files + fansly_files
+        + basic_files + event_files + request_files
+    )
     last_edited = item.get("last_edited_time")
     return NotionAccounting(
         page_id=item["id"],
         title=_extract_any_title(item) or "(no title)",
         model_id=_extract_relation_id(item, "model"),
-        files=int(files_val) if files_val is not None else 0,
+        files=int(files_val) if files_val is not None else total_by_types,
+        reddit_files=reddit_files,
+        twitter_files=twitter_files,
+        of_files=of_files,
+        fansly_files=fansly_files,
+        basic_files=basic_files,
+        event_files=event_files,
+        request_files=request_files,
         comment=_extract_rich_text(item, "Comment"),
         status=_extract_status(item, "status"),
         last_edited=last_edited,
