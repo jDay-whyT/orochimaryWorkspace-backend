@@ -1004,7 +1004,7 @@ def nlp_files_content_type_keyboard(model_id: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="OF ▶", callback_data="nlp:fct:of"),
             InlineKeyboardButton(text="Extras ▶", callback_data="nlp:fct:extras"),
         ],
-        [InlineKeyboardButton(text="← Back", callback_data="nlp:fct:back")],
+        [nlp_back_button(model_id)],
     ])
 
 
