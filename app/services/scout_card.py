@@ -125,15 +125,14 @@ def _format_scout_card(model_name: str, row: dict[str, Any]) -> str:
     )
 
 
-def _load_model_from_sheet_sync(model_name: str) -> dict[str, Any] | None:
+def _load_model_from_sheet_sync(
+    model_name: str,
+    service_account_json: str,
+    spreadsheet_id: str,
+) -> dict[str, Any] | None:
     import gspread
     from google.oauth2.service_account import Credentials
 
-    service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    spreadsheet_id = os.getenv(
-        "ANALYTICS_SPREADSHEET_ID",
-        ANALYTICS_SPREADSHEET_ID_DEFAULT,
-    ).strip()
     if not service_account_json or not spreadsheet_id:
         return None
 
@@ -158,7 +157,17 @@ def _load_model_from_sheet_sync(model_name: str) -> dict[str, Any] | None:
 
 async def build_scout_report_card(model_name: str) -> str | None:
     """Build scout card from Google Sheets models row, no caching."""
-    pythonrow = await asyncio.to_thread(_load_model_from_sheet_sync, model_name)
+    service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    spreadsheet_id = os.getenv(
+        "ANALYTICS_SPREADSHEET_ID",
+        ANALYTICS_SPREADSHEET_ID_DEFAULT,
+    ).strip()
+    pythonrow = await asyncio.to_thread(
+        _load_model_from_sheet_sync,
+        model_name,
+        service_account_json,
+        spreadsheet_id,
+    )
     if not pythonrow:
         return None
     return _format_scout_card(model_name, pythonrow)
