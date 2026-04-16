@@ -11,16 +11,22 @@ LOGGER = logging.getLogger(__name__)
 
 
 class TopicAccessMessageFilter(BaseFilter):
-    """Allow all private messages, restrict group messages to CRM topic and editors."""
+    """Restrict access by topic/chat and user role."""
 
     async def __call__(self, message: Message, config: Config) -> bool:
+        if not message.from_user:
+            return False
+        user_id = message.from_user.id
+
         if message.chat.type == "private":
-            return True
+            return user_id in config.allowed_editors
         if message.chat.type not in {"group", "supergroup"}:
             return False
+        if config.scouts_chat_id and message.chat.id == config.scouts_chat_id:
+            return user_id in (config.allowed_editors | config.report_viewers)
         if message.message_thread_id != config.crm_topic_thread_id:
             return False
-        return message.from_user.id in config.allowed_editors
+        return user_id in config.allowed_editors
 
 
 class ManagersTopicFilter(BaseFilter):
