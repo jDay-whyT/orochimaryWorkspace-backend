@@ -152,20 +152,15 @@ async def _build_card_text_impl(
     else:
         orders = orders_result
         open_orders_count = len(orders)
-        if not orders:
+        total = len(orders)
+        overdue = sum(1 for order in orders if _calc_days_open(order.in_date, today) > 3)
+
+        if total == 0:
             orders_line = "нет"
+        elif overdue == 0:
+            orders_line = f"{total} откр"
         else:
-            orders_with_days: list[tuple[int, str]] = []
-            for order in orders:
-                days = _calc_days_open(order.in_date, today)
-                order_type = (order.order_type or "order").strip() or "order"
-                orders_with_days.append((days, f"{order_type} {days}д"))
-            orders_with_days.sort(key=lambda item: item[0], reverse=True)
-            visible = [item[1] for item in orders_with_days[:2]]
-            orders_line = " · ".join(visible)
-            hidden = len(orders_with_days) - 2
-            if hidden > 0:
-                orders_line += f" (+{hidden} ещё)"
+            orders_line = f"{total} откр · {overdue} >3д"
 
     # Next shoot
     if isinstance(shoots_result, Exception):
