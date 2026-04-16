@@ -2,6 +2,7 @@
 Intent classification v2 using centralized filter database.
 
 Priority-based classification:
+110: SCOUT_CARD ("скаут <модель>")
 100: SHOOT domain ("съемка"/"шут"/"заплан")
  90: FILES domain ("файлы"/"фото"/"сняла" + число)
  80: ORDERS with type ("кастом"/"шорт"/"колл"/"ад реквест")
@@ -125,6 +126,7 @@ def get_intent_description(intent: CommandIntent) -> str:
     """Get human-readable description of intent."""
     descriptions = {
         CommandIntent.SHOOT_CREATE: "Создание съемки",
+        CommandIntent.SCOUT_CARD: "Скаут-карточка",
         CommandIntent.SHOOT_DONE: "Завершение съемки",
         CommandIntent.SHOOT_RESCHEDULE: "Перенос съемки",
         CommandIntent.ADD_FILES: "Добавление файлов",
@@ -150,6 +152,7 @@ def get_intent_priority(intent: CommandIntent) -> int:
     """Get priority level for intent."""
     priorities = {
         CommandIntent.SHOOT_CREATE: 100,
+        CommandIntent.SCOUT_CARD: 110,
         CommandIntent.SHOOT_DONE: 102,
         CommandIntent.SHOOT_RESCHEDULE: 101,
         CommandIntent.ADD_FILES: 90,
