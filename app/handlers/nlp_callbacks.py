@@ -2532,7 +2532,7 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
     from app.keyboards.inline import (
         nlp_files_content_type_keyboard,
         nlp_files_of_type_keyboard,
-        nlp_files_social_type_keyboard,
+        nlp_files_extras_type_keyboard,
     )
 
     if content_type == "of":
@@ -2545,12 +2545,12 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
         )
         return
 
-    if content_type == "social":
+    if content_type == "extras":
         await _clear_previous_screen_keyboard(query, memory_state)
         await safe_edit_message(
             query,
-            f"📁 <b>{html.escape(model_name)}</b> · {count} файлов\n\nВыберите Social тип контента:",
-            reply_markup=nlp_files_social_type_keyboard(),
+            f"📁 <b>{html.escape(model_name)}</b> · {count} файлов\n\nВыберите Extras тип контента:",
+            reply_markup=nlp_files_extras_type_keyboard(),
             parse_mode="HTML",
         )
         return
