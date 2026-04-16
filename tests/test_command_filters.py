@@ -13,7 +13,7 @@ from app.router.entities_v2 import (
     validate_model_name,
     get_order_type_display_name,
 )
-from app.router.command_filters import CommandIntent
+from app.router.command_filters import CommandIntent, extract_scout_model_name
 
 
 class TestIntentClassification:
@@ -101,6 +101,13 @@ class TestIntentClassification:
         """Test report in English."""
         assert classify_intent_v2("report melissa") == CommandIntent.GET_REPORT
         assert classify_intent_v2("stats sophia") == CommandIntent.GET_REPORT
+
+    # ========== SCOUT_CARD ==========
+
+    def test_scout_card_requires_model_after_prefix(self):
+        """Test explicit scout card command format."""
+        assert classify_intent_v2("скаут курага") == CommandIntent.SCOUT_CARD
+        assert classify_intent_v2("скаут") != CommandIntent.SCOUT_CARD
 
     # ========== SHOW_SUMMARY ==========
 
@@ -373,6 +380,13 @@ class TestUtilityFunctions:
         assert get_order_type_display_name("short") == "Шорт"
         assert get_order_type_display_name("call") == "Колл"
         assert get_order_type_display_name("ad request") == "Ad Request"
+
+    def test_extract_scout_model_name(self):
+        """Test model extraction from explicit scout command."""
+        assert extract_scout_model_name("скаут курага") == "курага"
+        assert extract_scout_model_name("  СКАУТ   Mona Lisa  ") == "Mona Lisa"
+        assert extract_scout_model_name("курага") is None
+        assert extract_scout_model_name("скаут") is None
 
 
 if __name__ == "__main__":
