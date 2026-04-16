@@ -593,13 +593,15 @@ class NotionClient:
         model_name: str,
         files: int,
         yyyy_mm: str,
+        content_type: str = "basic",
     ) -> str:
         """
-        Create new monthly accounting record.
+        Create new monthly accounting record with files in specific field.
 
         Title format: "{MODEL_NAME} {месяц_ru_lower} {year}" e.g. "КЛЕЩ февраль 2026"
         """
         from app.utils.formatting import MONTHS_RU_LOWER
+        from app.utils.content_mapping import get_field_for_content_type
 
         model = await self.get_model(model_page_id)
         status = (
@@ -613,12 +615,20 @@ class NotionClient:
         month_label = MONTHS_RU_LOWER[month_idx]
         title = f"{model_name} {month_label} {year}"
 
+        field_name = get_field_for_content_type(content_type)
+        if not field_name:
+            LOGGER.warning("Unknown content type '%s', defaulting to of_files", content_type)
+            field_name = "of_files"
+
         properties: dict[str, Any] = {
             "Title": {"title": [{"text": {"content": title}}]},
             "model": {"relation": [{"id": model_page_id}]},
-            "Files": {"number": files},
+            field_name: {"number": files},
             "status": {"status": {"name": status}},
         }
+
+        if content_type and content_type != "no content":
+            properties["Content"] = {"multi_select": [{"name": content_type}]}
 
         payload = {
             "parent": {"database_id": database_id},
@@ -626,8 +636,8 @@ class NotionClient:
         }
 
         LOGGER.info(
-            "Creating accounting record: database_id=%s, title='%s'",
-            database_id, title,
+            "Creating accounting record: database_id=%s, title='%s', %s=%d, content_type=%s",
+            database_id, title, field_name, files, content_type,
         )
 
         url = "https://api.notion.com/v1/pages"
@@ -639,7 +649,7 @@ class NotionClient:
         page_id: str,
         files: int,
     ) -> None:
-        """Update accounting Files number."""
+        """Update accounting Files number (legacy — use update_accounting_files_by_type for new code)."""
         payload = {
             "properties": {
                 "Files": {"number": files},
@@ -647,6 +657,66 @@ class NotionClient:
         }
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
+
+    async def update_accounting_files_by_type(
+        self,
+        page_id: str,
+        content_type: str,
+        files_to_add: int,
+    ) -> int:
+        """
+        Update specific content type field and return new value.
+
+        Args:
+            page_id: Accounting record page ID
+            content_type: Content type (e.g. "reddit", "main pack")
+            files_to_add: Number to ADD (not replace)
+
+        Returns:
+            New value of the updated field
+        """
+        from app.utils.content_mapping import get_field_for_content_type
+
+        field_name = get_field_for_content_type(content_type)
+        if not field_name:
+            LOGGER.warning("Unknown content type: %s", content_type)
+            raise ValueError(f"Unknown content type: {content_type}")
+
+        page = await self._request("GET", f"https://api.notion.com/v1/pages/{page_id}")
+        current_value = page["properties"].get(field_name, {}).get("number", 0) or 0
+        new_value = current_value + files_to_add
+
+        payload = {"properties": {field_name: {"number": new_value}}}
+        await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json=payload)
+
+        LOGGER.info(
+            "Updated %s: %d + %d = %d for page %s (content_type: %s)",
+            field_name, current_value, files_to_add, new_value, page_id, content_type,
+        )
+        return new_value
+
+    async def add_to_accounting_content(
+        self,
+        page_id: str,
+        content_type: str,
+    ) -> None:
+        """
+        Add content type to Content multi_select if not already present.
+        Tracks which content types were used during the month.
+        """
+        if content_type == "no content":
+            return
+
+        page = await self._request("GET", f"https://api.notion.com/v1/pages/{page_id}")
+        current_content = page["properties"].get("Content", {}).get("multi_select", [])
+        current_names = {item["name"] for item in current_content}
+
+        if content_type in current_names:
+            return
+
+        updated_content = current_content + [{"name": content_type}]
+        payload = {"properties": {"Content": {"multi_select": updated_content}}}
+        await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json=payload)
 
     async def update_accounting_comment(self, page_id: str, comment: str) -> None:
         """Update accounting Comment."""

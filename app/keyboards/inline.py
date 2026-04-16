@@ -370,6 +370,33 @@ def accounting_quick_files_keyboard(page_id: str, current: int) -> InlineKeyboar
     ])
 
 
+def content_type_selection_keyboard() -> InlineKeyboardMarkup:
+    """Single-select keyboard for content type selection when adding files."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Reddit", callback_data="account|content_type|reddit"),
+            InlineKeyboardButton(text="Twitter", callback_data="account|content_type|twitter"),
+        ],
+        [
+            InlineKeyboardButton(text="Main Pack", callback_data="account|content_type|main pack"),
+            InlineKeyboardButton(text="New Main", callback_data="account|content_type|new main"),
+        ],
+        [
+            InlineKeyboardButton(text="Basic", callback_data="account|content_type|basic"),
+            InlineKeyboardButton(text="Event", callback_data="account|content_type|event"),
+        ],
+        [
+            InlineKeyboardButton(text="Fansly", callback_data="account|content_type|fansly"),
+            InlineKeyboardButton(text="Snapchat", callback_data="account|content_type|snapchat"),
+        ],
+        [
+            InlineKeyboardButton(text="Instagram", callback_data="account|content_type|IG"),
+            InlineKeyboardButton(text="Ad Request", callback_data="account|content_type|ad request"),
+        ],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="account|back|menu")],
+    ])
+
+
 def nlp_accounting_content_keyboard(
     selected: list[str],
     model_id: str,
@@ -595,7 +622,6 @@ def nlp_files_menu_keyboard(can_edit: bool, model_id: str, k: str = "") -> Inlin
     rows: list[list[InlineKeyboardButton]] = []
     if can_edit:
         rows.append([InlineKeyboardButton(text="➕ добавить файлы", callback_data=f"nlp:fm:add{s}")])
-        rows.append([InlineKeyboardButton(text="🗂 тип (контент)", callback_data=f"nlp:fm:content{s}")])
         rows.append([InlineKeyboardButton(text="💬 обновить коммент", callback_data=f"nlp:fm:comment{s}")])
     rows.append([nlp_back_button(model_id)])
     return InlineKeyboardMarkup(inline_keyboard=rows)

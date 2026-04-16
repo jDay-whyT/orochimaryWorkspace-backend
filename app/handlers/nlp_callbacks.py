@@ -752,46 +752,6 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
     elif action == "shoot":
         await _show_shoot_menu(query, config, notion, memory_state)
 
-    elif action == "content":
-        # Show accounting content multi-select
-        if not is_editor(user_id, config):
-            await query.message.edit_text("❌ Нет доступа.")
-            return
-        now = datetime.now(tz=config.timezone)
-        yyyy_mm = now.strftime("%Y-%m")
-        record = await accounting_cache.get_cached_monthly_record(notion, config, model_id, yyyy_mm)
-        existing_content = record.content if record and record.content else []
-        accounting_id = record.page_id if record else None
-
-        if not accounting_id:
-            await query.answer("Нет записи accounting за этот месяц. Сначала добавьте файлы.", show_alert=True)
-            return
-
-        from app.keyboards.inline import nlp_accounting_content_keyboard
-        k = generate_token()
-        memory_state.set(chat_id, user_id, {
-            "flow": "nlp_acc_content",
-            "step": "selecting",
-            "model_id": model_id,
-            "model_name": model_name,
-            "accounting_id": accounting_id,
-            "selected_content": existing_content,
-            "k": k,
-        })
-        await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            f"🗂 <b>{html.escape(model_name)}</b> · Content\n\n"
-            "Выберите типы контента:",
-            reply_markup=nlp_accounting_content_keyboard(existing_content, model_id, k),
-            parse_mode="HTML",
-        )
-        _remember_screen_message(
-            memory_state,
-            chat_id,
-            user_id,
-            msg.message_id if msg else query.message.message_id,
-        )
-
     elif action == "report":
         # Show report inline
         k = generate_token()
@@ -1263,34 +1223,6 @@ async def _handle_files_menu_action(
             msg = await query.message.edit_text(
                 "Нет записи accounting за этот месяц. Сначала добавьте файлы.",
                 reply_markup=nlp_back_keyboard(model_id),
-            )
-        except TelegramBadRequest as e:
-            if "message is not modified" not in str(e):
-                raise
-            msg = None
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-        return
-
-    if action == "content":
-        from app.keyboards.inline import nlp_accounting_content_keyboard
-        existing_content = record.content if record.content else []
-        k = generate_token()
-        memory_state.set(chat_id, user_id, {
-            "flow": "nlp_acc_content",
-            "step": "selecting",
-            "model_id": model_id,
-            "model_name": model_name,
-            "accounting_id": record.page_id,
-            "selected_content": existing_content,
-            "k": k,
-        })
-        await _clear_previous_screen_keyboard(query, memory_state)
-        try:
-            msg = await query.message.edit_text(
-                f"🗂 <b>{html.escape(model_name)}</b> · Content\n\n"
-                "Выберите типы контента:",
-                reply_markup=nlp_accounting_content_keyboard(existing_content, model_id, k),
-                parse_mode="HTML",
             )
         except TelegramBadRequest as e:
             if "message is not modified" not in str(e):
@@ -2340,36 +2272,27 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
         return
 
     model_name = model_data.title
+    content_type = "basic"  # Default для быстрого добавления
 
     try:
+        from app.services.accounting import AccountingService
         now = datetime.now(tz=config.timezone)
         yyyy_mm = now.strftime("%Y-%m")
 
-        record = await accounting_cache.get_cached_monthly_record(notion, config, model_id, yyyy_mm)
+        svc = AccountingService(config)
+        result = await svc.add_files(model_id, model_name, count, content_type)
+        accounting_cache.clear_cache(model_id, yyyy_mm)
 
-        if not record:
-            await notion.create_accounting_record(
-                config.db_accounting, model_id, model_name, count, yyyy_mm,
-            )
-            accounting_cache.clear_cache(model_id, yyyy_mm)
-            new_files = count
-            record_status = None
-        else:
-            new_files = record.files + count
-            await notion.update_accounting_files(record.page_id, new_files)
-            accounting_cache.clear_cache(model_id, yyyy_mm)
-            record_status = record.status
-
-        progress_line = format_accounting_progress(new_files, record_status)
+        progress_line = format_accounting_progress(result["files"], result.get("status"))
         recent_models.add(user_id, model_id, model_name)
         memory_state.clear(chat_id, user_id)
 
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _safe_confirm(
             query,
-            f"✅ +{count} файлов ({new_files} всего)\n\n"
+            f"✅ +{count} файлов ({content_type})\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
-            f"Файлов: {progress_line}",
+            f"{result['field_name']}: {result['files']}",
             reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )
@@ -2540,26 +2463,17 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
         await _session_expired(query, memory_state)
         return
 
+    content_type = "basic"  # Default для быстрого добавления
+
     try:
+        from app.services.accounting import AccountingService
         now = datetime.now(tz=config.timezone)
         yyyy_mm = now.strftime("%Y-%m")
 
-        record = await accounting_cache.get_cached_monthly_record(notion, config, model_id, yyyy_mm)
+        svc = AccountingService(config)
+        result = await svc.add_files(model_id, model_name, count, content_type)
+        accounting_cache.clear_cache(model_id, yyyy_mm)
 
-        if not record:
-            await notion.create_accounting_record(
-                config.db_accounting, model_id, model_name, count, yyyy_mm,
-            )
-            accounting_cache.clear_cache(model_id, yyyy_mm)
-            new_files = count
-            record_status = None
-        else:
-            new_files = record.files + count
-            await notion.update_accounting_files(record.page_id, new_files)
-            accounting_cache.clear_cache(model_id, yyyy_mm)
-            record_status = record.status
-
-        progress_line = format_accounting_progress(new_files, record_status)
         recent_models.add(user_id, model_id, model_name)
 
         await _clear_previous_screen_keyboard(query, memory_state)
@@ -2567,9 +2481,9 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _safe_confirm(
             query,
-            f"✅ +{count} файлов ({new_files} всего)\n\n"
+            f"✅ +{count} файлов ({content_type})\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
-            f"Файлов: {progress_line}",
+            f"{result['field_name']}: {result['files']}",
             reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )

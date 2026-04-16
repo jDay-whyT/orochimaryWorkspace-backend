@@ -17,6 +17,7 @@ from app.filters.topic_access import TopicAccessCallbackFilter, TopicAccessMessa
 from app.keyboards.inline import (
     accounting_menu_keyboard,
     accounting_quick_files_keyboard,
+    content_type_selection_keyboard,
     recent_models_keyboard,
     models_keyboard,
     back_keyboard,
@@ -94,6 +95,9 @@ async def handle_accounting_callback(
             page_id = parts[2]
             count = int(parts[3])
             await _add_files_to_record(query, config, memory_state, page_id, count)
+        elif action == "content_type":
+            await _process_content_type_selection(query, config, memory_state, value)
+            return  # answer() already called inside
         elif action == "back":
             await _handle_back(query, config, memory_state, value)
         elif action == "cancel":
@@ -278,39 +282,94 @@ async def _select_model(query: CallbackQuery, config: Config, memory_state: Memo
 
 
 async def _add_files_to_record(query: CallbackQuery, config: Config, memory_state: MemoryState, page_id: str, count: int) -> None:
+    """After selecting file count, show content type selection."""
     if not is_editor(query.from_user.id, config):
         await query.answer("Only editors can add files", show_alert=True)
         return
 
-    try:
-        chat_id, user_id = _state_ids_from_query(query)
-        data = memory_state.get(chat_id, user_id) or {}
-        model_id = data.get("model_id") or page_id
-        model_name = data.get("model_name", "Unknown")
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
+    model_name = data.get("model_name", "Unknown")
 
+    memory_state.update(
+        chat_id,
+        user_id,
+        step="select_content_type",
+        files_count=count,
+        processing=False,
+    )
+
+    await query.message.edit_text(
+        f"💰 <b>{html.escape(model_name)}</b>\n\n"
+        f"Добавить: {count} файлов\n\n"
+        f"Выберите тип контента:",
+        reply_markup=content_type_selection_keyboard(),
+        parse_mode="HTML",
+    )
+    await query.answer()
+
+
+async def _process_content_type_selection(
+    query: CallbackQuery,
+    config: Config,
+    memory_state: MemoryState,
+    content_type: str,
+) -> None:
+    """Process content type selection and add files to Notion."""
+    await query.answer()
+
+    if not is_editor(query.from_user.id, config):
+        await query.answer("Only editors can add files", show_alert=True)
+        return
+
+    chat_id, user_id = _state_ids_from_query(query)
+    data = memory_state.get(chat_id, user_id) or {}
+
+    if data.get("processing"):
+        return
+
+    model_id = data.get("model_id")
+    model_name = data.get("model_name", "Unknown")
+    files_count = data.get("files_count")
+
+    if not model_id or not files_count:
+        await query.message.edit_text("❌ Сессия устарела, начните заново")
+        memory_state.clear(chat_id, user_id)
+        return
+
+    memory_state.update(chat_id, user_id, processing=True)
+
+    try:
         svc = AccountingService(config)
-        result = await svc.add_files(model_id, model_name, count)
+        result = await svc.add_files(model_id, model_name, files_count, content_type)
         yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
         accounting_cache.clear_cache(model_id, yyyy_mm)
 
         await query.message.edit_text(
-            f"✅ <b>Files added!</b>\n\n"
+            f"✅ <b>Добавлено!</b>\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
-            f"Total: {_files_display(result['files'], result.get('status'))}\n"
-            f"Added: +{count}",
-            reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
+            f"Тип: {content_type}\n"
+            f"+{files_count} файлов\n"
+            f"Всего в {result['field_name']}: {result['files']}",
+            reply_markup=accounting_menu_keyboard(),
+            parse_mode="HTML",
         )
-        memory_state.clear(chat_id, user_id)
     except Exception:
-        LOGGER.exception("Error adding files to accounting record")
-        await query.answer("Не смог обновить Notion, попробуй позже", show_alert=True)
+        LOGGER.exception("Error adding files with content type")
+        await query.message.edit_text(
+            "❌ Не смог обновить Notion, попробуй позже",
+            reply_markup=accounting_menu_keyboard(),
+            parse_mode="HTML",
+        )
+    finally:
+        memory_state.clear(chat_id, user_id)
 
 
 # --------------------------------------------------------- custom input
 async def _process_custom_files(message: Message, config: Config, memory_state: MemoryState) -> None:
     chat_id, user_id = _state_ids_from_message(message)
     data = memory_state.get(chat_id, user_id) or {}
-    chat_id = data.get("screen_chat_id")
+    screen_chat_id = data.get("screen_chat_id")
     msg_id = data.get("screen_message_id")
 
     try:
@@ -318,10 +377,10 @@ async def _process_custom_files(message: Message, config: Config, memory_state: 
         if count < 1 or count > 500:
             raise ValueError
     except ValueError:
-        if chat_id and msg_id:
+        if screen_chat_id and msg_id:
             await message.bot.edit_message_text(
                 "❌ Введите число от 1 до 500:",
-                chat_id=chat_id, message_id=msg_id, parse_mode="HTML",
+                chat_id=screen_chat_id, message_id=msg_id, parse_mode="HTML",
             )
         return
 
@@ -330,29 +389,23 @@ async def _process_custom_files(message: Message, config: Config, memory_state: 
     if not model_id:
         return
 
-    try:
-        svc = AccountingService(config)
-        result = await svc.add_files(model_id, model_name, count)
-        yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
-        accounting_cache.clear_cache(model_id, yyyy_mm)
+    memory_state.update(
+        chat_id,
+        user_id,
+        step="select_content_type",
+        files_count=count,
+        processing=False,
+    )
 
-        if chat_id and msg_id:
-            await message.bot.edit_message_text(
-                f"✅ <b>Files added!</b>\n\n"
-                f"<b>{html.escape(model_name)}</b>\n"
-                f"Total: {_files_display(result['files'], result.get('status'))}\n"
-                f"Added: +{count}",
-                chat_id=chat_id, message_id=msg_id,
-                reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
-            )
-        memory_state.clear(chat_id, user_id)
-    except Exception:
-        LOGGER.exception("Error adding custom files")
-        if chat_id and msg_id:
-            await message.bot.edit_message_text(
-                "❌ Не смог обновить Notion, попробуй позже",
-                chat_id=chat_id, message_id=msg_id, parse_mode="HTML",
-            )
+    if screen_chat_id and msg_id:
+        await message.bot.edit_message_text(
+            f"💰 <b>{html.escape(model_name)}</b>\n\n"
+            f"Добавить: {count} файлов\n\n"
+            f"Выберите тип контента:",
+            chat_id=screen_chat_id, message_id=msg_id,
+            reply_markup=content_type_selection_keyboard(),
+            parse_mode="HTML",
+        )
 
 
 async def _process_comment(message: Message, config: Config, memory_state: MemoryState) -> None:
@@ -415,7 +468,7 @@ async def handle_add_files_nlp(
         return
 
     if not entities.numbers:
-        await message.answer("❌ Укажите количество файлов. Пример: 'мелиса 30 файлов'")
+        await message.answer("❌ Укажите количество файлов. Пример: 'мелиса 30 файлов реддит'")
         return
 
     count = entities.numbers[0]
@@ -423,32 +476,44 @@ async def handle_add_files_nlp(
         await message.answer("❌ Количество должно быть от 1 до 500")
         return
 
+    # Auto-detect content type from message text
+    text_lower = message.text.lower()
+    content_type = "basic"  # default
+
+    if "реддит" in text_lower or "reddit" in text_lower:
+        content_type = "reddit"
+    elif "твит" in text_lower or "twitter" in text_lower:
+        content_type = "twitter"
+    elif "фансли" in text_lower or "fansly" in text_lower:
+        content_type = "fansly"
+    elif "снеп" in text_lower or "snapchat" in text_lower:
+        content_type = "snapchat"
+    elif "инста" in text_lower or "instagram" in text_lower:
+        content_type = "IG"
+    elif "мейн" in text_lower or "main" in text_lower:
+        if "new" in text_lower or "нью" in text_lower:
+            content_type = "new main"
+        else:
+            content_type = "main pack"
+    elif "ивент" in text_lower or "event" in text_lower:
+        content_type = "event"
+    elif "реклам" in text_lower or "request" in text_lower or "ad" in text_lower:
+        content_type = "ad request"
+
     model_id = model["id"]
     model_name = model["name"]
     yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
 
     try:
-        record = await accounting_cache.get_cached_monthly_record(
-            notion, config, model_id, yyyy_mm,
-        )
-        if not record:
-            await notion.create_accounting_record(
-                config.db_accounting, model_id, model_name, count, yyyy_mm,
-            )
-            accounting_cache.clear_cache(model_id, yyyy_mm)
-            new_files = count
-            record_status = None
-        else:
-            new_files = record.files + count
-            await notion.update_accounting_files(record.page_id, new_files)
-            accounting_cache.clear_cache(model_id, yyyy_mm)
-            record_status = record.status
+        svc = AccountingService(config)
+        result = await svc.add_files(model_id, model_name, count, content_type)
+        accounting_cache.clear_cache(model_id, yyyy_mm)
 
         from app.keyboards.inline import nlp_action_complete_keyboard
         await message.answer(
-            f"✅ +{count} файлов\n\n"
+            f"✅ +{count} файлов ({content_type})\n\n"
             f"<b>{html.escape(model_name)}</b>\n"
-            f"Файлов: {_files_display(new_files, record_status)}",
+            f"{result['field_name']}: {result['files']}",
             reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )
