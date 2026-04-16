@@ -82,26 +82,40 @@ class AccountingService:
         model_id: str,
         model_name: str,
         files_to_add: int,
+        content_type: str = "basic",
     ) -> dict[str, Any]:
         """
-        Add files to current-month record.  Creates if missing.
+        Add files to specific content type in current-month record.
+        Creates record if missing.
 
-        Returns dict with keys: id, files, model_id, model_name.
+        Returns dict with keys: id, files, model_id, model_name, status, field_name, content_type.
         """
+        from app.utils.content_mapping import get_field_for_content_type
+
         yyyy_mm = _yyyy_mm(self.config)
         record = await self.notion.get_monthly_record(
             self.config.db_accounting, model_id, yyyy_mm,
         )
 
+        field_name = get_field_for_content_type(content_type)
+        if not field_name:
+            raise ValueError(f"Unknown content type: {content_type}")
+
         if record:
-            new_files = record.files + files_to_add
-            await self.notion.update_accounting_files(record.page_id, new_files)
+            new_files = await self.notion.update_accounting_files_by_type(
+                record.page_id, content_type, files_to_add
+            )
+            await self.notion.add_to_accounting_content(
+                record.page_id, content_type
+            )
             return {
                 "id": record.page_id,
                 "files": new_files,
                 "model_id": model_id,
                 "model_name": model_name,
                 "status": record.status,
+                "field_name": field_name,
+                "content_type": content_type,
             }
         else:
             page_id = await self.notion.create_accounting_record(
@@ -110,6 +124,7 @@ class AccountingService:
                 model_name=model_name,
                 files=files_to_add,
                 yyyy_mm=yyyy_mm,
+                content_type=content_type,
             )
             return {
                 "id": page_id,
@@ -117,6 +132,8 @@ class AccountingService:
                 "model_id": model_id,
                 "model_name": model_name,
                 "status": None,
+                "field_name": field_name,
+                "content_type": content_type,
             }
 
     async def get_all_month_records(self) -> list[dict[str, Any]]:

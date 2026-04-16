@@ -387,7 +387,7 @@ async def _fetch_accounting_for_month(
 
     records = []
     for item in all_items:
-        files_raw   = _extract_number(item, "Files")
+        files_raw   = _extract_number(item, "Total") or _extract_number(item, "Files")
         last_edited = item.get("last_edited_time", "")
 
         # Explicitly extract relation ID to avoid URL-vs-ID mismatch

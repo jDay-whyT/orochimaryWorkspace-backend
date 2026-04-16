@@ -40,11 +40,13 @@ PLANNER_LOCATION_OPTIONS = ["home", "rent"]
 # Accounting content options
 ACCOUNTING_CONTENT_OPTIONS = [
     "basic",
-    "main",
+    "main pack",
     "new main",
     "twitter",
     "reddit",
     "fansly",
+    "snapchat",
+    "IG",
     "event",
     "ad request",
     "no content",
@@ -90,7 +92,9 @@ NLP_ACCOUNTING_CONTENT_TYPES = [
     "twitter",
     "reddit",
     "fansly",
+    "snapchat",
+    "IG",
+    "event",
     "ad request",
     "no content",
-    "event",
 ]
