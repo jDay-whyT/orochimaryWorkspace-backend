@@ -1001,14 +1001,10 @@ def nlp_files_content_type_keyboard(model_id: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Twitter", callback_data="nlp:fct:twitter"),
         ],
         [
-            InlineKeyboardButton(text="Fansly", callback_data="nlp:fct:fansly"),
-        ],
-        [
             InlineKeyboardButton(text="OF ▶", callback_data="nlp:fct:of"),
-            InlineKeyboardButton(text="Social ▶", callback_data="nlp:fct:social"),
+            InlineKeyboardButton(text="Extras ▶", callback_data="nlp:fct:extras"),
         ],
-        [InlineKeyboardButton(text="Request", callback_data="nlp:fct:request")],
-        [InlineKeyboardButton(text="← Back", callback_data="nlp:af:back")],
+        [InlineKeyboardButton(text="← Back", callback_data="nlp:fct:back")],
     ])
 
 
@@ -1023,13 +1019,15 @@ def nlp_files_of_type_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Basic", callback_data="nlp:fct:basic"),
             InlineKeyboardButton(text="Event", callback_data="nlp:fct:event"),
         ],
+        [InlineKeyboardButton(text="Request", callback_data="nlp:fct:request")],
         [InlineKeyboardButton(text="← Back", callback_data="nlp:fct:back")],
     ])
 
 
-def nlp_files_social_type_keyboard() -> InlineKeyboardMarkup:
-    """Level 2 Social submenu for adding files."""
+def nlp_files_extras_type_keyboard() -> InlineKeyboardMarkup:
+    """Level 2 Extras submenu for adding files."""
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Fansly", callback_data="nlp:fct:fansly")],
         [
             InlineKeyboardButton(text="Instagram", callback_data="nlp:fct:instagram"),
             InlineKeyboardButton(text="Snapchat", callback_data="nlp:fct:snapchat"),
