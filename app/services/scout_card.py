@@ -158,8 +158,7 @@ def _load_model_from_sheet_sync(model_name: str) -> dict[str, Any] | None:
 
 async def build_scout_report_card(model_name: str) -> str | None:
     """Build scout card from Google Sheets models row, no caching."""
-    row = await asyncio.to_thread(_load_model_from_sheet_sync, model_name)
-    if not row:
+    pythonrow = await asyncio.to_thread(_load_model_from_sheet_sync, model_name)
+    if not pythonrow:
         return None
-    return _format_scout_card(model_name, row)
-
+    return _format_scout_card(model_name, pythonrow)
