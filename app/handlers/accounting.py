@@ -304,23 +304,16 @@ async def _add_files_to_record(query: CallbackQuery, config: Config, memory_stat
         return
 
     chat_id, user_id = _state_ids_from_query(query)
-    data = memory_state.get(chat_id, user_id) or {}
-    model_name = data.get("model_name", "Unknown")
-
     memory_state.update(
         chat_id,
         user_id,
         step="select_content_type",
         files_count=count,
-        processing=False,
     )
 
     await query.message.edit_text(
-        f"💰 <b>{html.escape(model_name)}</b>\n\n"
-        f"Добавить: {count} файлов\n\n"
-        f"Выберите тип контента:",
+        "Выберите тип контента:",
         reply_markup=content_type_selection_keyboard(),
-        parse_mode="HTML",
     )
     await query.answer()
 
