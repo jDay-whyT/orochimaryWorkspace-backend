@@ -1519,7 +1519,6 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
                     raise
                 msg = None
             memory_state.clear(chat_id, user_id)
-            _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
     else:
         # Create shoot
         if not is_editor(user_id, config):
@@ -1635,7 +1634,6 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
             parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
     except Exception as e:
         LOGGER.exception("Failed to create shoot: %s", e)
         try:
@@ -1675,7 +1673,6 @@ async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state)
             reply_markup=nlp_action_complete_keyboard(model_id),
         )
         memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
     except Exception as e:
         LOGGER.exception("Failed to mark shoot as done: %s", e)
         await query.message.edit_text("❌ Ошибка.")
@@ -1707,7 +1704,6 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
             reply_markup=nlp_action_complete_keyboard(model_id),
         )
         memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
 
     elif action == "reschedule":
         shoot = await notion.get_shoot(shoot_id)
@@ -1752,7 +1748,6 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
                 reply_markup=nlp_action_complete_keyboard(model_id),
             )
             memory_state.clear(chat_id, user_id)
-            _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         else:
             await query.message.edit_text("Текст комментария не найден.")
             memory_state.clear(chat_id, user_id)
@@ -2021,9 +2016,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
                 reply_markup=nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )
-            msg = query.message
             memory_state.clear(chat_id, user_id)
-            _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
         except Exception as e:
             LOGGER.exception("Failed to create orders: %s", e)
@@ -2576,7 +2569,6 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
             parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id if query.message else None)
         LOGGER.info("Added files by type: page=%s model=%s type=%s count=%d", page_id, model_id, content_type, count)
     except Exception as e:
         LOGGER.exception("Failed to add files by type: %s", e)
@@ -2686,7 +2678,6 @@ async def _handle_shoot_content_done(query, parts, config, notion, memory_state,
                 parse_mode="HTML",
             )
             memory_state.clear(chat_id, user_id)
-            _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
         except Exception as e:
             LOGGER.exception("Failed to update shoot content: %s", e)
             await safe_edit_message(query, "❌ Ошибка при сохранении Content.")
@@ -2892,7 +2883,6 @@ async def _handle_accounting_content_save(query, parts, config, notion, memory_s
             parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
     except Exception as e:
         LOGGER.exception("Failed to save accounting content: %s", e)
         await safe_edit_message(query, "❌ Ошибка при сохранении Content.")
