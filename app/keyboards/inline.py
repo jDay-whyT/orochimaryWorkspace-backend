@@ -994,22 +994,47 @@ def nlp_files_qty_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
 
 
 def nlp_files_content_type_keyboard(model_id: str) -> InlineKeyboardMarkup:
-    """Single-select content type for adding files in NLP flow."""
+    """Level 1 content-type menu for adding files in NLP flow."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="Reddit", callback_data="nlp:fct:reddit"),
             InlineKeyboardButton(text="Twitter", callback_data="nlp:fct:twitter"),
         ],
         [
-            InlineKeyboardButton(text="OF", callback_data="nlp:fct:of"),
             InlineKeyboardButton(text="Fansly", callback_data="nlp:fct:fansly"),
+        ],
+        [
+            InlineKeyboardButton(text="OF ▶", callback_data="nlp:fct:of"),
+            InlineKeyboardButton(text="Social ▶", callback_data="nlp:fct:social"),
+        ],
+        [InlineKeyboardButton(text="Request", callback_data="nlp:fct:request")],
+        [InlineKeyboardButton(text="← Back", callback_data="nlp:af:back")],
+    ])
+
+
+def nlp_files_of_type_keyboard() -> InlineKeyboardMarkup:
+    """Level 2 OF submenu for adding files."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Main Pack", callback_data="nlp:fct:main_pack"),
+            InlineKeyboardButton(text="New Main", callback_data="nlp:fct:new_main"),
         ],
         [
             InlineKeyboardButton(text="Basic", callback_data="nlp:fct:basic"),
             InlineKeyboardButton(text="Event", callback_data="nlp:fct:event"),
         ],
-        [InlineKeyboardButton(text="Request", callback_data="nlp:fct:request")],
-        [InlineKeyboardButton(text="← Back", callback_data="nlp:af:back")],
+        [InlineKeyboardButton(text="← Back", callback_data="nlp:fct:back")],
+    ])
+
+
+def nlp_files_social_type_keyboard() -> InlineKeyboardMarkup:
+    """Level 2 Social submenu for adding files."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Instagram", callback_data="nlp:fct:instagram"),
+            InlineKeyboardButton(text="Snapchat", callback_data="nlp:fct:snapchat"),
+        ],
+        [InlineKeyboardButton(text="← Back", callback_data="nlp:fct:back")],
     ])
 
 

@@ -71,7 +71,7 @@ router = Router()
 # Prevents duplicate Notion pages from concurrent callbacks (double-click /
 # Telegram retry while the first Notion API call is still in-flight).
 # asyncio is single-threaded so set membership checks are effectively atomic.
-_oc_in_progress: set[tuple[int, int]] = set()
+_oc_in_progress: set[tuple[int, int] | tuple[int, str]] = set()
 
 # Deduplication for callback_query events: Telegram sometimes retries the same
 # button press with a new update_id. We silently drop identical (user_id,
@@ -202,10 +202,13 @@ _FLOW_STEP_RULES: dict[str, tuple[str, set[str] | None]] = {
 CONTENT_TYPE_FIELDS = {
     "reddit": "reddit_files",
     "twitter": "twitter_files",
-    "of": "of_files",
     "fansly": "fansly_files",
-    "basic": "basic_files",
-    "event": "event_files",
+    "main_pack": "of_files",
+    "new_main": "of_files",
+    "basic": "of_files",
+    "event": "of_files",
+    "instagram": "social_files",
+    "snapchat": "social_files",
     "request": "request_files",
 }
 
@@ -2513,20 +2516,10 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
         return
 
     content_type = parts[2]
-    field_name = CONTENT_TYPE_FIELDS.get(content_type)
-    if not field_name:
-        await query.answer("Неизвестный тип", show_alert=True)
-        return
-
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
     if not state:
         await _session_expired(query, memory_state)
-        return
-
-    if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
-        memory_state.clear(chat_id, user_id)
         return
 
     model_id = state.get("model_id")
@@ -2535,6 +2528,58 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
     if not model_id or count <= 0:
         await _session_expired(query, memory_state)
         return
+
+    from app.keyboards.inline import (
+        nlp_files_content_type_keyboard,
+        nlp_files_of_type_keyboard,
+        nlp_files_social_type_keyboard,
+    )
+
+    if content_type == "of":
+        await _clear_previous_screen_keyboard(query, memory_state)
+        await safe_edit_message(
+            query,
+            f"📁 <b>{html.escape(model_name)}</b> · {count} файлов\n\nВыберите OF тип контента:",
+            reply_markup=nlp_files_of_type_keyboard(),
+            parse_mode="HTML",
+        )
+        return
+
+    if content_type == "social":
+        await _clear_previous_screen_keyboard(query, memory_state)
+        await safe_edit_message(
+            query,
+            f"📁 <b>{html.escape(model_name)}</b> · {count} файлов\n\nВыберите Social тип контента:",
+            reply_markup=nlp_files_social_type_keyboard(),
+            parse_mode="HTML",
+        )
+        return
+
+    if content_type == "back":
+        await _clear_previous_screen_keyboard(query, memory_state)
+        await safe_edit_message(
+            query,
+            f"📁 <b>{html.escape(model_name)}</b> · {count} файлов\n\nВыберите тип контента:",
+            reply_markup=nlp_files_content_type_keyboard(model_id),
+            parse_mode="HTML",
+        )
+        return
+
+    field_name = CONTENT_TYPE_FIELDS.get(content_type)
+    if not field_name:
+        await query.answer("Неизвестный тип", show_alert=True)
+        return
+
+    if not is_editor(user_id, config):
+        await query.message.edit_text("❌ Нет прав.")
+        memory_state.clear(chat_id, user_id)
+        return
+
+    _fct_key = (user_id, "fct")
+    if _fct_key in _oc_in_progress:
+        await query.answer()
+        return
+    _oc_in_progress.add(_fct_key)
 
     try:
         yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
@@ -2561,7 +2606,13 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
         await _cleanup_prompt_message(query, memory_state)
 
         from app.keyboards.inline import nlp_action_complete_keyboard
-        display_type = content_type.upper() if content_type == "of" else content_type.title()
+        display_type_mapping = {
+            "main_pack": "Main Pack",
+            "new_main": "New Main",
+            "instagram": "Instagram",
+            "snapchat": "Snapchat",
+        }
+        display_type = display_type_mapping.get(content_type, content_type.replace("_", " ").title())
         await _safe_confirm(
             query,
             f"✅ +{count} → {display_type}\n<b>{html.escape(model_name)}</b>",
@@ -2574,6 +2625,8 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
         LOGGER.exception("Failed to add files by type: %s", e)
         await query.message.edit_text("❌ Не смог обновить Notion, попробуй позже.")
         memory_state.clear(chat_id, user_id)
+    finally:
+        _oc_in_progress.discard(_fct_key)
 
 
 # ============================================================================
