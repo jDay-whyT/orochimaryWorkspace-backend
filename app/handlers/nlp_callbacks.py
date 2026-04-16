@@ -2559,6 +2559,7 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
             current_value = int(getattr(record, field_name, 0) or 0)
             new_value = current_value + count
             await notion.update_accounting_files_by_type(record.page_id, field_name, new_value)
+            await notion.add_to_accounting_content(record.page_id, content_type)
             page_id = record.page_id
 
         accounting_cache.clear_cache(model_id, yyyy_mm)

@@ -1315,6 +1315,11 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
         step="awaiting_content_type",
         count=count,
     )
+
+    page_id = user_state.get("accounting_page_id")
+    content_type = user_state.get("content_type")
+    if page_id and content_type:
+        await notion.add_to_accounting_content(page_id, content_type)
     await _clear_previous_screen_keyboard(message, memory_state)
     await _cleanup_prompt_message(message, memory_state)
     from app.keyboards.inline import nlp_files_content_type_keyboard
