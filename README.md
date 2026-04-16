@@ -29,7 +29,9 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `DB_PLANNER` | ✅ | ID базы **Planner** (UUID) |
 | `DB_ACCOUNTING` | ✅ | ID базы **Accounting** (UUID) |
 | `ALLOWED_EDITORS` | ✅ | Список user_id с доступом к чтению/записи |
+| `REPORT_VIEWERS` | ⚠️ | Список user_id (через запятую) для scout read-only карточек |
 | `CRM_TOPIC_THREAD_ID` | ✅ | ID топика CRM в Telegram (целое число > 0) |
+| `SCOUTS_CHAT_ID` | ⚠️ | Telegram chat_id скаут-чата (для read-only scout режима) |
 | `TELEGRAM_WEBHOOK_SECRET` | ⚠️ | Секрет для проверки заголовка `X-Telegram-Bot-Api-Secret-Token` |
 | `TIMEZONE` | ⚠️ | Таймзона, по умолчанию `Europe/Brussels` |
 | `FILES_PER_MONTH` | ⚠️ | Лимит файлов в месяц, по умолчанию `200` |
@@ -70,7 +72,9 @@ DB_ORDERS=...
 DB_PLANNER=...
 DB_ACCOUNTING=...
 ALLOWED_EDITORS=123,456
+REPORT_VIEWERS=789,101112
 CRM_TOPIC_THREAD_ID=123
+SCOUTS_CHAT_ID=-1001234567890
 TIMEZONE=Europe/Brussels
 FILES_PER_MONTH=200
 INTERNAL_SECRET=...
@@ -93,7 +97,9 @@ export DB_ORDERS=...
 export DB_PLANNER=...
 export DB_ACCOUNTING=...
 export ALLOWED_EDITORS="123,456"
+export REPORT_VIEWERS="789,101112"
 export CRM_TOPIC_THREAD_ID=123
+export SCOUTS_CHAT_ID=-1001234567890
 export TIMEZONE="Europe/Brussels"
 export FILES_PER_MONTH=200
 export INTERNAL_SECRET=...
@@ -110,7 +116,9 @@ $env:DB_ORDERS="..."
 $env:DB_PLANNER="..."
 $env:DB_ACCOUNTING="..."
 $env:ALLOWED_EDITORS="123,456"
+$env:REPORT_VIEWERS="789,101112"
 $env:CRM_TOPIC_THREAD_ID="123"
+$env:SCOUTS_CHAT_ID="-1001234567890"
 $env:TIMEZONE="Europe/Brussels"
 $env:FILES_PER_MONTH="200"
 $env:INTERNAL_SECRET="..."
@@ -164,13 +172,41 @@ gcloud run services update orochimary-bot \
   --set-env-vars "TELEGRAM_WEBHOOK_SECRET=..." \
   --set-env-vars "NOTION_TOKEN=..." \
   --set-env-vars "ALLOWED_EDITORS=123,456" \
+  --set-env-vars "REPORT_VIEWERS=789,101112" \
   --set-env-vars "DB_MODELS=..." \
   --set-env-vars "DB_ORDERS=..." \
   --set-env-vars "DB_PLANNER=..." \
   --set-env-vars "DB_ACCOUNTING=..." \
   --set-env-vars "CRM_TOPIC_THREAD_ID=123" \
+  --set-env-vars "SCOUTS_CHAT_ID=-1001234567890" \
   --set-env-vars "TIMEZONE=Europe/Brussels" \
   --set-env-vars "FILES_PER_MONTH=200"
+```
+
+### Cloud Scheduler: ежедневный sync board (06:00 UTC)
+
+Создайте job, который раз в день вызывает внутренний endpoint:
+
+```bash
+gcloud scheduler jobs create http orochimary-daily-board-sync \
+  --location=europe-west1 \
+  --schedule="0 6 * * *" \
+  --time-zone="UTC" \
+  --uri="https://YOUR_CLOUD_RUN_URL/internal/update-board" \
+  --http-method=POST \
+  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
+```
+
+Если job уже существует, обновите её:
+
+```bash
+gcloud scheduler jobs update http orochimary-daily-board-sync \
+  --location=europe-west1 \
+  --schedule="0 6 * * *" \
+  --time-zone="UTC" \
+  --uri="https://YOUR_CLOUD_RUN_URL/internal/update-board" \
+  --http-method=POST \
+  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
 ```
 
 **Через Console:**

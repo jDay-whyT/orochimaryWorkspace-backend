@@ -23,7 +23,9 @@ class Config:
     
     # Access
     allowed_editors: set[int]
+    report_viewers: set[int]
     crm_topic_thread_id: int
+    scouts_chat_id: int
     
     timezone: ZoneInfo
     files_per_month: int
@@ -145,6 +147,11 @@ def load_config(validate: bool = True) -> Config:
         rent_topic_thread_id = 0
 
     apify_token = os.getenv("APIFY_TOKEN", "").strip()
+    report_viewers = _parse_user_ids(os.getenv("REPORT_VIEWERS", ""))
+    try:
+        scouts_chat_id = int(os.getenv("SCOUTS_CHAT_ID", "0"))
+    except ValueError:
+        scouts_chat_id = 0
 
     try:
         timezone = ZoneInfo(timezone_name)
@@ -161,7 +168,9 @@ def load_config(validate: bool = True) -> Config:
         db_planner=db_planner,
         db_accounting=db_accounting,
         allowed_editors=allowed_editors,
+        report_viewers=report_viewers,
         crm_topic_thread_id=crm_topic_thread_id,
+        scouts_chat_id=scouts_chat_id,
         timezone=timezone,
         files_per_month=files_per_month,
         managers_topic_thread_id=managers_topic_thread_id,
