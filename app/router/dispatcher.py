@@ -1308,39 +1308,27 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
 
     model_id = user_state.get("model_id", "")
     model_name = user_state.get("model_name", "")
-    yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
-
-    try:
-        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
-
-        if not record:
-            await notion.create_accounting_record(
-                config.db_accounting, model_id, model_name, count, yyyy_mm,
-            )
-            new_files = count
-            record_status = None
-        else:
-            new_files = record.files + count
-            await notion.update_accounting_files(record.page_id, new_files)
-            record_status = record.status
-
-        progress_line = format_accounting_progress(new_files, record_status)
-        await _clear_previous_screen_keyboard(message, memory_state)
-        await _cleanup_prompt_message(message, memory_state)
-        memory_state.clear(chat_id, user_id)
-
-        from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
-        await message.answer(
-            f"✅ +{count} файлов ({new_files} всего)\n\n"
-            f"<b>{html.escape(model_name)}</b>\n"
-            f"Файлов: {progress_line}",
-            reply_markup=_nlp_action_complete_keyboard(model_id),
-            parse_mode="HTML",
-        )
-    except Exception as e:
-        LOGGER.exception("Failed to add files: %s", e)
-        await message.answer("❌ Не смог обновить Notion, попробуй позже.")
-        memory_state.clear(chat_id, user_id)
+    memory_state.update(
+        chat_id,
+        user_id,
+        flow="nlp_files",
+        step="awaiting_content_type",
+        count=count,
+    )
+    await _clear_previous_screen_keyboard(message, memory_state)
+    await _cleanup_prompt_message(message, memory_state)
+    from app.keyboards.inline import nlp_files_content_type_keyboard
+    sent = await message.answer(
+        f"📁 <b>{html.escape(model_name)}</b> · {count} файлов\n\nВыберите тип контента:",
+        reply_markup=nlp_files_content_type_keyboard(model_id),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(
+        memory_state,
+        chat_id,
+        message.from_user.id,
+        sent.message_id if sent else None,
+    )
 
 
 async def _handle_accounting_comment_input(message, text, user_state, config, notion, memory_state):

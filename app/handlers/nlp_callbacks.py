@@ -13,6 +13,7 @@ Callback prefix mapping:
   ct  = comment_target  cmo = comment_order    df  = disambig_files
   do  = disambig_orders ro  = report_orders    ra  = report_accounting
   af  = add_files       acct = acc_content_toggle  accs = acc_content_save
+  fct = files_content_type
   om  = orders_menu     op   = orders_page         cp   = close_page
   fm  = files_menu      smn  = shoot_menu          bk   = back
 
@@ -93,7 +94,7 @@ STALE_MSG = "Сессия устарела, откройте модель зан
 # if state was lost (bot restart, 30-min TTL expiry) clicking a stale
 # disambiguation button should still open the model card, not error out.
 _NO_TOKEN_ACTIONS = {"x", "bk", "noop", "om", "op", "cp", "fm", "smn", "sctm",
-                     "more_actions", "done", "sm"}
+                     "more_actions", "done", "sm", "fct"}
 
 
 async def _safe_edit_reply_markup(bot, chat_id: int, message_id: int) -> None:
@@ -195,6 +196,17 @@ _FLOW_STEP_RULES: dict[str, tuple[str, set[str] | None]] = {
     "cp": ("nlp_close_picker", {"selecting"}),
     "op": ("nlp_orders_view", {"viewing"}),
     "act": ("nlp_actions", None),
+    "fct": ("nlp_files", {"awaiting_content_type"}),
+}
+
+CONTENT_TYPE_FIELDS = {
+    "reddit": "reddit_files",
+    "twitter": "twitter_files",
+    "of": "of_files",
+    "fansly": "fansly_files",
+    "basic": "basic_files",
+    "event": "event_files",
+    "request": "request_files",
 }
 
 
@@ -418,6 +430,8 @@ async def handle_nlp_callback(
         # ===== Add Files Callback =====
         elif action == "af":
             await _handle_add_files(query, parts, config, notion, memory_state, recent_models)
+        elif action == "fct":
+            await _handle_files_content_type(query, parts, config, notion, memory_state, recent_models)
 
         # ===== Shoot Content Types =====
         elif action == "sct":
@@ -2425,13 +2439,36 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
 
     value = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
+    model_id = state.get("model_id") if state else None
+    model_name = state.get("model_name", "") if state else ""
+    if not model_id:
+        await _session_expired(query, memory_state)
+        return
+
+    # Back from content type selection -> quick count buttons
+    if value == "back":
+        from app.keyboards.inline import nlp_files_qty_keyboard
+        k = generate_token()
+        memory_state.set(chat_id, user_id, {
+            "flow": "nlp_files",
+            "step": "awaiting_count",
+            "model_id": model_id,
+            "model_name": model_name,
+            "k": k,
+        })
+        await _clear_previous_screen_keyboard(query, memory_state)
+        msg = await query.message.edit_text(
+            f"📁 <b>{html.escape(model_name)}</b> · Сколько файлов?",
+            reply_markup=nlp_files_qty_keyboard(model_id, k),
+            parse_mode="HTML",
+        )
+        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+        return
 
     # Custom input: switch to awaiting_count step for free-text entry
     if value == "custom":
         k = generate_token()
-        state = memory_state.get(chat_id, user_id)
-        model_id = state.get("model_id", "") if state else ""
-        model_name = state.get("model_name", "") if state else ""
         memory_state.set(chat_id, user_id, {
             "flow": "nlp_files",
             "step": "awaiting_count",
@@ -2450,47 +2487,98 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
+    if value not in {"15", "30", "50", "20", "80"}:
+        await query.answer("Неизвестное значение", show_alert=True)
+        return
+
     count = int(value)
 
     if not is_editor(user_id, config):
         await query.message.edit_text("❌ Нет прав.")
         return
 
+    memory_state.update(
+        chat_id,
+        user_id,
+        flow="nlp_files",
+        step="awaiting_content_type",
+        count=count,
+    )
+    from app.keyboards.inline import nlp_files_content_type_keyboard
+    await _clear_previous_screen_keyboard(query, memory_state)
+    msg = await query.message.edit_text(
+        f"📁 <b>{html.escape(model_name)}</b> · {count} файлов\n\nВыберите тип контента:",
+        reply_markup=nlp_files_content_type_keyboard(model_id),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+
+
+async def _handle_files_content_type(query, parts, config, notion, memory_state, recent_models):
+    """Finalize add files after selecting content type. Callback: nlp:fct:{type}."""
+    if len(parts) < 3:
+        return
+
+    content_type = parts[2]
+    field_name = CONTENT_TYPE_FIELDS.get(content_type)
+    if not field_name:
+        await query.answer("Неизвестный тип", show_alert=True)
+        return
+
+    chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
-    model_id = state.get("model_id") if state else None
-    model_name = state.get("model_name", "") if state else ""
-    if not model_id:
+    if not state:
         await _session_expired(query, memory_state)
         return
 
-    content_type = "basic"  # Default для быстрого добавления
+    if not is_editor(user_id, config):
+        await query.message.edit_text("❌ Нет прав.")
+        memory_state.clear(chat_id, user_id)
+        return
+
+    model_id = state.get("model_id")
+    model_name = state.get("model_name", "")
+    count = int(state.get("count") or 0)
+    if not model_id or count <= 0:
+        await _session_expired(query, memory_state)
+        return
 
     try:
-        from app.services.accounting import AccountingService
-        now = datetime.now(tz=config.timezone)
-        yyyy_mm = now.strftime("%Y-%m")
+        yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
+        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+        if not record:
+            page_id = await notion.create_accounting_record(
+                config.db_accounting,
+                model_id,
+                model_name,
+                count,
+                yyyy_mm,
+                content_type=content_type,
+            )
+        else:
+            current_value = int(getattr(record, field_name, 0) or 0)
+            new_value = current_value + count
+            await notion.update_accounting_files_by_type(record.page_id, field_name, new_value)
+            page_id = record.page_id
 
-        svc = AccountingService(config)
-        result = await svc.add_files(model_id, model_name, count, content_type)
         accounting_cache.clear_cache(model_id, yyyy_mm)
-
         recent_models.add(user_id, model_id, model_name)
-
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
+
         from app.keyboards.inline import nlp_action_complete_keyboard
+        display_type = content_type.upper() if content_type == "of" else content_type.title()
         await _safe_confirm(
             query,
-            f"✅ +{count} файлов ({content_type})\n\n"
-            f"<b>{html.escape(model_name)}</b>\n"
-            f"{result['field_name']}: {result['files']}",
+            f"✅ +{count} → {display_type}\n<b>{html.escape(model_name)}</b>",
             reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
-        _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id)
+        _remember_screen_message(memory_state, chat_id, user_id, query.message.message_id if query.message else None)
+        LOGGER.info("Added files by type: page=%s model=%s type=%s count=%d", page_id, model_id, content_type, count)
     except Exception as e:
-        LOGGER.exception("Failed to add files: %s", e)
+        LOGGER.exception("Failed to add files by type: %s", e)
         await query.message.edit_text("❌ Не смог обновить Notion, попробуй позже.")
         memory_state.clear(chat_id, user_id)
 

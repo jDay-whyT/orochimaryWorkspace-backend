@@ -3,14 +3,16 @@
 CONTENT_TYPE_TO_FIELD = {
     "main pack": "of_files",
     "new main": "of_files",
-    "basic": "of_files",
-    "event": "of_files",
+    "of": "of_files",
+    "basic": "basic_files",
+    "event": "event_files",
     "reddit": "reddit_files",
     "twitter": "twitter_files",
     "fansly": "fansly_files",
     "snapchat": "social_files",
     "IG": "social_files",
     "ad request": "request_files",
+    "request": "request_files",
     "no content": None,
 }
 

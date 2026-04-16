@@ -993,6 +993,26 @@ def nlp_files_qty_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
     ])
 
 
+def nlp_files_content_type_keyboard(model_id: str) -> InlineKeyboardMarkup:
+    """Single-select content type for adding files in NLP flow."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Reddit", callback_data="nlp:fct:reddit"),
+            InlineKeyboardButton(text="Twitter", callback_data="nlp:fct:twitter"),
+        ],
+        [
+            InlineKeyboardButton(text="OF", callback_data="nlp:fct:of"),
+            InlineKeyboardButton(text="Fansly", callback_data="nlp:fct:fansly"),
+        ],
+        [
+            InlineKeyboardButton(text="Basic", callback_data="nlp:fct:basic"),
+            InlineKeyboardButton(text="Event", callback_data="nlp:fct:event"),
+        ],
+        [InlineKeyboardButton(text="Request", callback_data="nlp:fct:request")],
+        [InlineKeyboardButton(text="← Back", callback_data="nlp:af:back")],
+    ])
+
+
 # ==================== NLP Flow Control ====================
 
 def nlp_flow_waiting_keyboard() -> InlineKeyboardMarkup:
