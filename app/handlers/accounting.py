@@ -93,8 +93,24 @@ async def handle_accounting_callback(
             await _select_model(query, config, memory_state, recent_models, value)
         elif action == "files" and len(parts) >= 4:
             page_id = parts[2]
-            count = int(parts[3])
-            await _add_files_to_record(query, config, memory_state, page_id, count)
+            value = parts[3]
+
+            if value == "custom":
+                chat_id, user_id = _state_ids_from_query(query)
+                memory_state.update(
+                    chat_id,
+                    user_id,
+                    step="add_files_custom",
+                    model_id=page_id,
+                )
+
+                await query.message.edit_text(
+                    "💰 Введите количество файлов (0-700):",
+                    parse_mode="HTML",
+                )
+            else:
+                count = int(value)
+                await _add_files_to_record(query, config, memory_state, page_id, count)
         elif action == "content_type":
             await _process_content_type_selection(query, config, memory_state, value)
             return  # answer() already called inside
@@ -374,12 +390,12 @@ async def _process_custom_files(message: Message, config: Config, memory_state: 
 
     try:
         count = int(message.text.strip())
-        if count < 1 or count > 500:
+        if count < 0 or count > 700:
             raise ValueError
     except ValueError:
         if screen_chat_id and msg_id:
             await message.bot.edit_message_text(
-                "❌ Введите число от 1 до 500:",
+                "❌ Введите число от 0 до 700:",
                 chat_id=screen_chat_id, message_id=msg_id, parse_mode="HTML",
             )
         return
