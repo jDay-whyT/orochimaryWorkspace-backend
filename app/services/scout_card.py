@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 from datetime import datetime
@@ -136,7 +137,10 @@ def _load_model_from_sheet_sync(
     if not service_account_json or not spreadsheet_id:
         return None
 
-    sa_info = json.loads(service_account_json)
+    try:
+        sa_info = json.loads(service_account_json)
+    except (json.JSONDecodeError, ValueError):
+        sa_info = json.loads(base64.b64decode(service_account_json + "==").decode("utf-8"))
     creds = Credentials.from_service_account_info(
         sa_info,
         scopes=[
