@@ -145,7 +145,7 @@ def _format_monthly_files(accounting_row: dict[str, int] | None) -> str:
     for key, label in categories:
         value = accounting_row.get(key, 0)
         if value > 0:
-            parts.append(f"{label} {value}")
+            parts.append(f"<b>{label} {value}</b>")
     if not parts:
         return "📁 Контент за мес: —"
     return "📁 Контент за мес: " + " · ".join(parts)
@@ -199,10 +199,10 @@ def _format_scout_card(
         parts.append(f"🌐 {safe_language}")
     parts.extend([
         f"⚡ {safe_boost.replace(' | ', '  |  ')}",
-        f"📡 {safe_traffic}",
+        f"📡 Доп. трафик: {safe_traffic}",
         f"🏠 Аренда: {rent}",
         "",
-        html.escape(files_block),
+        files_block,
         html.escape(last_shoot_line),
         html.escape(next_shoot_line or "📅 Ближ. съёмка: не запланировано"),
         "",
