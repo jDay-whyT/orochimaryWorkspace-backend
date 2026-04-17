@@ -470,7 +470,7 @@ async def _execute_handler(
             await message.answer("Модель не найдена")
             return
 
-        await message.answer(card)
+        await message.answer(card, parse_mode="HTML")
         return
 
     # ===== SEARCH MODEL (priority 0) =====

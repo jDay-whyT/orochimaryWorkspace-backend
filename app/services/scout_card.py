@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import os
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -130,30 +131,33 @@ def _format_boost(anal: str | None, calls: str | None) -> str:
 
 
 def _format_monthly_files(accounting_row: dict[str, int] | None) -> str:
+    month = _MONTHS_RU[date.today().month]
     if not accounting_row:
-        return "📦 Файлы месяца: —"
-    total = accounting_row.get("of_files", 0)
-    parts = [f"OF: {total}"]
-    categories = {
-        "reddit_files": "Reddit",
-        "twitter_files": "Twitter",
-        "fansly_files": "Fansly",
-        "social_files": "Social",
-        "request_files": "Request",
-    }
-    for key, label in categories.items():
+        return f"📁 Нет файлов за {month}"
+    categories = [
+        ("of_files", "OF"),
+        ("reddit_files", "Reddit"),
+        ("twitter_files", "Twitter"),
+        ("fansly_files", "Fansly"),
+        ("social_files", "Social"),
+        ("request_files", "Request"),
+    ]
+    parts: list[str] = []
+    for key, label in categories:
         value = accounting_row.get(key, 0)
         if value > 0:
-            parts.append(f"{label}: {value}")
-    return "📦 Файлы месяца: " + " | ".join(parts)
+            parts.append(f"{label} {value}")
+    if not parts:
+        return f"📁 Нет файлов за {month}"
+    return "📁 " + " · ".join(parts)
 
 
-def _format_shoot_line(prefix: str, dt: str | None, content: list[str] | None) -> str:
+def _format_shoot_line(prefix: str, dt: str | None, content: list[str] | None, empty_text: str) -> str:
     day = _format_ru_day(dt)
     if day == "—":
-        return f"{prefix}: —"
+        return f"{prefix} {empty_text}"
     content_text = ", ".join(content or [])
-    return f"{prefix}: {day}" + (f" · {content_text}" if content_text else "")
+    return f"{prefix} {day}" + (f" · {content_text}" if content_text else "")
 
 
 def _format_scout_card(
@@ -166,38 +170,49 @@ def _format_scout_card(
     last_shoot_line: str,
     next_shoot_line: str | None,
 ) -> str:
-    status = model_row.get("status") or "—"
-    project = model_row.get("project") or "—"
-    scout = model_row.get("scout") or "—"
-    assist = model_row.get("assist") or "—"
-    language = model_row.get("language") or "—"
+    status = str(model_row.get("status") or "—").strip()
+    project = str(model_row.get("project") or "").strip()
+    scout = str(model_row.get("scout") or "").strip()
+    assist = str(model_row.get("assist") or "").strip()
+    language = str(model_row.get("language") or "").strip()
     boost = _format_boost(model_row.get("anal"), model_row.get("calls"))
     needs_rent = _normalize(model_row.get("needs_rent"))
     rent = "нужна" if needs_rent in {"true", "yes", "1", "нужна"} else "не нужна"
     files_block = _format_monthly_files(accounting_row)
-    orders_block = (
-        "📈 Ордера: —"
-        if (orders_done + orders_open) == 0
-        else f"📈 Ордера:\n   • Done: {orders_done} | Open: {orders_open}"
-    )
+    safe_model = html.escape(model_name.upper())
+    safe_status = html.escape(status)
+    safe_project = html.escape(project)
+    safe_scout = html.escape(scout)
+    safe_assist = html.escape(assist)
+    safe_language = html.escape(language)
+    safe_boost = html.escape(boost)
+    traffic_text = str(traffic or "").strip() or "Нет инфо в анкете"
+    safe_traffic = html.escape(traffic_text)
 
-    parts = [
-        f"📊 {model_name.upper()}",
-        f"├ Статус: {status} · {project}",
-        f"├ Скаут: {scout}",
-        f"├ Ассист: {assist}",
-        "│",
-        f"🌐 Язык: {language}",
-        f"💥 Буст: {boost}",
-        f"🔗 Трафик: {traffic}",
+    header = f"▸ <b>{safe_model}</b> · {safe_status}"
+    if project:
+        header += f" · <b>{safe_project}</b>"
+
+    parts = [header, ""]
+    if scout or assist:
+        parts.append(f"👤 {safe_scout or '—'} → {safe_assist or '—'}")
+    if language:
+        parts.append(f"🌐 {safe_language}")
+    parts.extend([
+        f"⚡ {safe_boost.replace(' | ', '  |  ')}",
+        f"📡 {safe_traffic}",
         f"🏠 Аренда: {rent}",
-        "│",
-        files_block,
-        last_shoot_line,
-    ]
-    if next_shoot_line:
-        parts.append(next_shoot_line)
-    parts.extend(["│", orders_block])
+        "",
+        html.escape(files_block),
+        html.escape(last_shoot_line),
+        html.escape(next_shoot_line or "📅 Съёмок не запланировано"),
+        "",
+    ])
+
+    if (orders_done + orders_open) == 0:
+        parts.append("📦 Заказов за 30 дней нет")
+    else:
+        parts.append(f"📦 Done: <b>{orders_done}</b>  |  Open: <b>{orders_open}</b>")
     return "\n".join(parts)
 
 
@@ -394,10 +409,13 @@ async def _fetch_shoots_lines(
             if next_planned is None or shoot_date < next_planned[0]:
                 next_planned = (shoot_date, shoot_date_raw, content)
 
-    last_line = _format_shoot_line("📅 Последняя съёмка", last_done[1] if last_done else None, last_done[2] if last_done else None)
-    next_line = None
-    if next_planned:
-        next_line = _format_shoot_line("📅 Следующая съёмка", next_planned[1], next_planned[2])
+    last_line = _format_shoot_line("🎬", last_done[1] if last_done else None, last_done[2] if last_done else None, "Съёмок не было")
+    next_line = _format_shoot_line(
+        "📅",
+        next_planned[1] if next_planned else None,
+        next_planned[2] if next_planned else None,
+        "Съёмок не запланировано",
+    )
 
     return last_line, next_line
 

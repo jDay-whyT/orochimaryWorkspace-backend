@@ -94,7 +94,7 @@ async def handle_nlp_message(
             if not card:
                 await message.answer("Модель не найдена")
                 return
-            await message.answer(card)
+            await message.answer(card, parse_mode="HTML")
             return
 
     # Import router
