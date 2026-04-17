@@ -90,7 +90,7 @@ async def handle_nlp_message(
             if not model:
                 await message.answer("Модель не найдена")
                 return
-            card = await build_scout_report_card(model["name"])
+            card = await build_scout_report_card(model["name"], notion)
             if not card:
                 await message.answer("Модель не найдена")
                 return
