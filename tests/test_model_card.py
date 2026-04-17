@@ -228,14 +228,16 @@ class TestBuildModelCardText:
             NotionOrder(page_id="o1", title="test", order_type="custom",
                        in_date="2026-02-01", status="Open"),
             NotionOrder(page_id="o2", title="test2", order_type="short",
-                       in_date="2026-02-03", status="Open"),
+                       in_date="2026-04-16", status="Open"),
         ]
         mock_notion.query_upcoming_shoots.return_value = [
             NotionPlanner(page_id="s1", title="test shoot",
-                         date="2026-02-15", status="planned"),
+                         date="2099-04-25", status="planned", content=["reddit", "twitter"]),
+            NotionPlanner(page_id="s2", title="done shoot",
+                         date="2026-04-08", status="done", content=["main pack"]),
         ]
         mock_notion.get_monthly_record.return_value = NotionAccounting(
-            page_id="a1", title="МЕЛИСА · accounting 2026-02", files=90,
+            page_id="a1", title="МЕЛИСА · accounting 2026-04", files=79, of_files=50, reddit_files=29,
         )
 
         from zoneinfo import ZoneInfo
@@ -251,12 +253,13 @@ class TestBuildModelCardText:
         )
 
         assert "📌" in text
-        assert "Мелиса" in text
-        assert "open 2" in text  # 2 orders
-        assert "15.02" in text  # next shoot date
-        assert "planned" in text
-        assert "90/200" in text  # files
-        assert "45%" in text  # 90/200 = 45%
+        assert "МЕЛИСА" in text
+        assert "📦 Заказы: 2 откр · 1 просрочены" in text
+        assert "📅 Съёмка: 25 апр · reddit, twitter" in text
+        assert "📅 Последняя: 8 апр · main pack" in text
+        assert "📁 Файлы (" in text
+        assert "79/200 (40%)" in text
+        assert "• OF: 50 | Reddit: 29" in text
         assert "Что делаем?" in text
 
     @pytest.mark.asyncio
@@ -283,12 +286,10 @@ class TestBuildModelCardText:
 
         assert "📌" in text
         assert "Мелиса" in text
-        # All data sections should have "—" fallback
-        assert "open —" in text
-        # Shoot line should be "—"
+        assert "📦 Заказы: —" in text
         lines = text.split("\n")
-        shoot_line = [l for l in lines if "Съёмка" in l][0]
-        assert "—" in shoot_line
+        assert not any("Съёмка" in l for l in lines)
+        assert not any("Последняя" in l for l in lines)
         # Files line should be "—"
         files_line = [l for l in lines if "Файлы" in l][0]
         assert "—" in files_line
@@ -315,9 +316,11 @@ class TestBuildModelCardText:
             "model-123", "Мелиса", mock_config, mock_notion,
         )
 
-        assert "open 0" in text
-        assert "нет" in text  # no shoots
-        assert "0/200" in text
+        assert "📦 Заказы: 0 откр" in text
+        assert "Съёмка" not in text
+        assert "Последняя" not in text
+        assert "📁 Файлы (" in text
+        assert ": —" in text
 
 
 # ============================================================================
