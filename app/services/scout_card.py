@@ -132,16 +132,7 @@ def _format_boost(anal: str | None, calls: str | None) -> str:
 def _format_monthly_files(accounting_row: dict[str, int] | None) -> str:
     if not accounting_row:
         return "📦 Файлы месяца: —"
-    categories = [
-        ("OF", accounting_row.get("of_files", 0)),
-        ("Reddit", accounting_row.get("reddit_files", 0)),
-        ("Twitter", accounting_row.get("twitter_files", 0)),
-        ("Fansly", accounting_row.get("fansly_files", 0)),
-    ]
-    lines = [f"   • {label}: {value}" for label, value in categories if value > 0]
-    if not lines:
-        return "📦 Файлы месяца: —"
-    return "📦 Файлы месяца:\n" + "\n".join(lines)
+    return f"📦 Файлы месяца: {accounting_row.get('of_files', 0)}"
 
 
 def _format_shoot_line(prefix: str, dt: str | None, content: list[str] | None) -> str:
@@ -274,7 +265,7 @@ async def _fetch_monthly_accounting(
             "filter": {
                 "and": [
                     {"property": "model", "relation": {"contains": model_page_id}},
-                    {"property": "Title", "title": {"contains": yyyy_mm}},
+                    {"property": "edit_day", "rich_text": {"contains": yyyy_mm}},
                 ]
             },
             "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
@@ -285,9 +276,6 @@ async def _fetch_monthly_accounting(
     props = items[0].get("properties", {})
     return {
         "of_files": _extract_number(props.get("of_files")),
-        "reddit_files": _extract_number(props.get("reddit_files")),
-        "twitter_files": _extract_number(props.get("twitter_files")),
-        "fansly_files": _extract_number(props.get("fansly_files")),
     }
 
 

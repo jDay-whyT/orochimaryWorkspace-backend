@@ -58,7 +58,7 @@ def test_format_scout_card_files_orders_and_shoots():
             "needs_rent": "TRUE",
         },
         traffic="reddit, twitter",
-        accounting_row={"of_files": 30, "reddit_files": 15, "twitter_files": 11, "fansly_files": 0},
+        accounting_row={"of_files": 30},
         orders_done=6,
         orders_open=2,
         last_shoot_line="📅 Последняя съёмка: 14 апр · reddit, main pack",
@@ -67,9 +67,9 @@ def test_format_scout_card_files_orders_and_shoots():
     assert "💥 Буст: Анал: plug | Колл: talking" in text
     assert "🔗 Трафик: reddit, twitter" in text
     assert "🏠 Аренда: нужна" in text
-    assert "• OF: 30" in text
-    assert "• Reddit: 15" in text
-    assert "• Twitter: 11" in text
+    assert "📦 Файлы месяца: 30" in text
+    assert "Reddit" not in text
+    assert "Twitter" not in text
     assert "Fansly" not in text
     assert "📅 Последняя съёмка: 14 апр · reddit, main pack" in text
     assert "📅 Следующая съёмка: 25 апр · twitter" in text
@@ -82,14 +82,14 @@ def test_format_scout_card_empty_orders_and_files():
         model_name="Курага",
         model_row={"status": "work"},
         traffic="—",
-        accounting_row={"of_files": 0, "reddit_files": 0, "twitter_files": 0, "fansly_files": 0},
+        accounting_row={"of_files": 0},
         orders_done=0,
         orders_open=0,
         last_shoot_line="📅 Последняя съёмка: —",
         next_shoot_line=None,
     )
     assert "🔗 Трафик: —" in text
-    assert "📦 Файлы месяца: —" in text
+    assert "📦 Файлы месяца: 0" in text
     assert "📈 Ордера: —" in text
     assert "📅 Следующая съёмка" not in text
 
@@ -150,3 +150,29 @@ def test_fetch_orders_stats_without_archives(monkeypatch):
     done, open_count = asyncio.run(scout_card._fetch_orders_stats(object(), "main-db", "model-id"))
     assert done == 0
     assert open_count == 1
+
+
+def test_fetch_monthly_accounting_filters_by_model_and_edit_day(monkeypatch):
+    captured_payload = {}
+
+    async def fake_query(_notion, _db_id, payload):
+        nonlocal captured_payload
+        captured_payload = payload
+        return [{"properties": {"of_files": {"number": 12}}}]
+
+    monkeypatch.setattr(scout_card, "_query_all_pages", fake_query)
+
+    result = asyncio.run(
+        scout_card._fetch_monthly_accounting(
+            notion=object(),
+            db_accounting="accounting-db",
+            model_page_id="model-page-id",
+            yyyy_mm="2026-04",
+        )
+    )
+
+    assert result == {"of_files": 12}
+    assert captured_payload["filter"]["and"] == [
+        {"property": "model", "relation": {"contains": "model-page-id"}},
+        {"property": "edit_day", "rich_text": {"contains": "2026-04"}},
+    ]
