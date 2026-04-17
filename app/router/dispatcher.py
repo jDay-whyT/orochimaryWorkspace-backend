@@ -465,7 +465,7 @@ async def _execute_handler(
             await message.answer("Модель не найдена")
             return
 
-        card = await build_scout_report_card(model_name)
+        card = await build_scout_report_card(model_name, notion)
         if card is None:
             await message.answer("Модель не найдена")
             return
