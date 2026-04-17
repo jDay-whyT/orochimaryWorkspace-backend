@@ -174,5 +174,5 @@ def test_fetch_monthly_accounting_filters_by_model_and_edit_day(monkeypatch):
     assert result == {"of_files": 12}
     assert captured_payload["filter"]["and"] == [
         {"property": "model", "relation": {"contains": "model-page-id"}},
-        {"property": "edit_day", "rich_text": {"contains": "2026-04"}},
+        {"property": "edit day", "rich_text": {"contains": "2026-04"}},
     ]

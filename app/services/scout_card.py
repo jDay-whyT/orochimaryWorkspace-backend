@@ -265,7 +265,7 @@ async def _fetch_monthly_accounting(
             "filter": {
                 "and": [
                     {"property": "model", "relation": {"contains": model_page_id}},
-                    {"property": "edit_day", "rich_text": {"contains": yyyy_mm}},
+                    {"property": "edit day", "rich_text": {"contains": yyyy_mm}},
                 ]
             },
             "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
