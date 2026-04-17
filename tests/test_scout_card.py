@@ -43,7 +43,7 @@ def test_topic_access_scouts_chat_allows_report_viewer():
     assert asyncio.run(filt(msg, config)) is True
 
 
-def test_format_scout_card_winrate_and_rent():
+def test_format_scout_card_files_and_orders():
     text = _format_scout_card(
         "Курага",
         {
@@ -54,18 +54,35 @@ def test_format_scout_card_winrate_and_rent():
             "language": "eng > b1, ru, ua",
             "anal": "plug,No",
             "calls": "talking, —",
-            "acc_content": "reddit, twitter",
             "needs_rent": "TRUE",
-            "total_files": "0",
-            "files_target": "200",
-            "files_pct": "0",
             "last_shoot_date": "2026-04-14",
-            "orders_total": "9",
-            "orders_done": "6",
-            "orders_open": "3",
         },
+        {"optional": "reddit, twitter"},
+        {"of_files": "30", "reddit_files": "15", "twitter_files": "11", "fansly_files": "0"},
+        6,
+        2,
     )
     assert "💥 Буст: plug | talking" in text
+    assert "🔗 Трафик: reddit, twitter" in text
     assert "🏠 Аренда: нужна" in text
+    assert "• OF: 30" in text
+    assert "• Reddit: 15" in text
+    assert "• Twitter: 11" in text
+    assert "Fansly" not in text
     assert "📅 Последняя съёмка: 14 апр" in text
-    assert "• Winrate: 66.7%" in text
+    assert "📈 Ордера (30д · custom/call):" in text
+    assert "• Done: 6 | Open: 2" in text
+
+
+def test_format_scout_card_empty_orders_and_files():
+    text = _format_scout_card(
+        "Курага",
+        {"status": "work"},
+        {},
+        {"of_files": "0", "reddit_files": "0", "twitter_files": "0", "fansly_files": "0"},
+        0,
+        0,
+    )
+    assert "🔗 Трафик: —" in text
+    assert "📦 Файлы месяца: —" in text
+    assert "📈 Ордера: —" in text
