@@ -209,9 +209,12 @@ def _format_scout_card(
     ])
 
     if (orders_done + orders_open) == 0:
-        parts.append("📦 Заказов за 30 дней нет")
+        parts.append("📈 Заказы: за 30 дней нет")
     else:
-        parts.append(f"📦 Done: <b>{orders_done}</b>  |  Open: <b>{orders_open}</b>")
+        parts.extend([
+            "📈 Заказы:",
+            f"   • Done: <b>{orders_done}</b> | Open: <b>{orders_open}</b>",
+        ])
     return "\n".join(parts)
 
 
