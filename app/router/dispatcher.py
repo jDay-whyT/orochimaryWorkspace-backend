@@ -465,12 +465,13 @@ async def _execute_handler(
             await message.answer("Модель не найдена")
             return
 
+        status_msg = await message.answer("⏳ Загружаю карточку...")
         card = await build_scout_report_card(model_name, notion)
         if card is None:
-            await message.answer("Модель не найдена")
+            await status_msg.edit_text("Модель не найдена")
             return
 
-        await message.answer(card, parse_mode="HTML")
+        await status_msg.edit_text(card, parse_mode="HTML")
         return
 
     # ===== SEARCH MODEL (priority 0) =====

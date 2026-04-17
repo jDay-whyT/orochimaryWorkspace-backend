@@ -90,11 +90,12 @@ async def handle_nlp_message(
             if not model:
                 await message.answer("Модель не найдена")
                 return
+            status_msg = await message.answer("⏳ Загружаю карточку...")
             card = await build_scout_report_card(model["name"], notion)
             if not card:
-                await message.answer("Модель не найдена")
+                await status_msg.edit_text("Модель не найдена")
                 return
-            await message.answer(card, parse_mode="HTML")
+            await status_msg.edit_text(card, parse_mode="HTML")
             return
 
     # Import router
