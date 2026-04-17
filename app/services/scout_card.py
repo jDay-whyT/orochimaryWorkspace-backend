@@ -134,12 +134,14 @@ def _format_monthly_files(accounting_row: dict[str, int] | None) -> str:
         return "📦 Файлы месяца: —"
     total = accounting_row.get("of_files", 0)
     parts = [f"OF: {total}"]
-    category_labels = {
+    categories = {
         "reddit_files": "Reddit",
         "twitter_files": "Twitter",
         "fansly_files": "Fansly",
+        "social_files": "Social",
+        "request_files": "Request",
     }
-    for key, label in category_labels.items():
+    for key, label in categories.items():
         value = accounting_row.get(key, 0)
         if value > 0:
             parts.append(f"{label}: {value}")
@@ -300,6 +302,8 @@ async def _fetch_monthly_accounting(
         "reddit_files": _extract_number(props.get("reddit_files")),
         "twitter_files": _extract_number(props.get("twitter_files")),
         "fansly_files": _extract_number(props.get("fansly_files")),
+        "social_files": _extract_number(props.get("social_files")),
+        "request_files": _extract_number(props.get("request_files")),
     }
 
 

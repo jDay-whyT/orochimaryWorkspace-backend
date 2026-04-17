@@ -197,6 +197,8 @@ async def _build_card_text_impl(
                 ("Reddit", int(getattr(record, "reddit_files", 0) or 0)),
                 ("Twitter", int(getattr(record, "twitter_files", 0) or 0)),
                 ("Fansly", int(getattr(record, "fansly_files", 0) or 0)),
+                ("Social", int(getattr(record, "social_files", 0) or 0)),
+                ("Request", int(getattr(record, "request_files", 0) or 0)),
             ]
             non_zero_parts = [f"{label}: {value}" for label, value in typed_counts if value > 0]
             if non_zero_parts:

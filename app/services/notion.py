@@ -62,6 +62,7 @@ class NotionAccounting:
     twitter_files: int = 0
     of_files: int = 0
     fansly_files: int = 0
+    social_files: int = 0
     basic_files: int = 0
     event_files: int = 0
     request_files: int = 0
@@ -1005,12 +1006,13 @@ def _parse_accounting(item: dict[str, Any]) -> NotionAccounting:
     twitter_files = int(_extract_number(item, "twitter_files") or 0)
     of_files = int(_extract_number(item, "of_files") or 0)
     fansly_files = int(_extract_number(item, "fansly_files") or 0)
+    social_files = int(_extract_number(item, "social_files") or 0)
     basic_files = int(_extract_number(item, "basic_files") or 0)
     event_files = int(_extract_number(item, "event_files") or 0)
     request_files = int(_extract_number(item, "request_files") or 0)
     total_by_types = (
         reddit_files + twitter_files + of_files + fansly_files
-        + basic_files + event_files + request_files
+        + social_files + basic_files + event_files + request_files
     )
     last_edited = item.get("last_edited_time")
     return NotionAccounting(
@@ -1022,6 +1024,7 @@ def _parse_accounting(item: dict[str, Any]) -> NotionAccounting:
         twitter_files=twitter_files,
         of_files=of_files,
         fansly_files=fansly_files,
+        social_files=social_files,
         basic_files=basic_files,
         event_files=event_files,
         request_files=request_files,
