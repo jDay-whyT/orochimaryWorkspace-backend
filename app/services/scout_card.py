@@ -131,9 +131,8 @@ def _format_boost(anal: str | None, calls: str | None) -> str:
 
 
 def _format_monthly_files(accounting_row: dict[str, int] | None) -> str:
-    month = _MONTHS_RU[date.today().month]
     if not accounting_row:
-        return f"📁 Нет файлов за {month}"
+        return "📁 Контент за мес: —"
     categories = [
         ("of_files", "OF"),
         ("reddit_files", "Reddit"),
@@ -148,16 +147,16 @@ def _format_monthly_files(accounting_row: dict[str, int] | None) -> str:
         if value > 0:
             parts.append(f"{label} {value}")
     if not parts:
-        return f"📁 Нет файлов за {month}"
-    return "📁 " + " · ".join(parts)
+        return "📁 Контент за мес: —"
+    return "📁 Контент за мес: " + " · ".join(parts)
 
 
 def _format_shoot_line(prefix: str, dt: str | None, content: list[str] | None, empty_text: str) -> str:
     day = _format_ru_day(dt)
     if day == "—":
-        return f"{prefix} {empty_text}"
+        return f"{prefix}: {empty_text}"
     content_text = ", ".join(content or [])
-    return f"{prefix} {day}" + (f" · {content_text}" if content_text else "")
+    return f"{prefix}: {day}" + (f" · {content_text}" if content_text else "")
 
 
 def _format_scout_card(
@@ -205,7 +204,7 @@ def _format_scout_card(
         "",
         html.escape(files_block),
         html.escape(last_shoot_line),
-        html.escape(next_shoot_line or "📅 Съёмок не запланировано"),
+        html.escape(next_shoot_line or "📅 Ближ. съёмка: не запланировано"),
         "",
     ])
 
@@ -409,12 +408,17 @@ async def _fetch_shoots_lines(
             if next_planned is None or shoot_date < next_planned[0]:
                 next_planned = (shoot_date, shoot_date_raw, content)
 
-    last_line = _format_shoot_line("🎬", last_done[1] if last_done else None, last_done[2] if last_done else None, "Съёмок не было")
+    last_line = _format_shoot_line(
+        "🎬 Снятый",
+        last_done[1] if last_done else None,
+        last_done[2] if last_done else None,
+        "не было",
+    )
     next_line = _format_shoot_line(
-        "📅",
+        "📅 Ближ. съёмка",
         next_planned[1] if next_planned else None,
         next_planned[2] if next_planned else None,
-        "Съёмок не запланировано",
+        "не запланировано",
     )
 
     return last_line, next_line

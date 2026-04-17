@@ -66,17 +66,16 @@ def test_format_scout_card_files_orders_and_shoots():
         },
         orders_done=6,
         orders_open=2,
-        last_shoot_line="📅 Последняя съёмка: 14 апр · reddit, main pack",
-        next_shoot_line="📅 Следующая съёмка: 25 апр · twitter",
+        last_shoot_line="🎬 Снятый: 14 апр · reddit, main pack",
+        next_shoot_line="📅 Ближ. съёмка: 25 апр · twitter",
     )
-    assert "💥 Буст: Анал: plug | Колл: talking" in text
-    assert "🔗 Трафик: reddit, twitter" in text
+    assert "⚡ Анал: plug  |  Колл: talking" in text
+    assert "📡 reddit, twitter" in text
     assert "🏠 Аренда: нужна" in text
-    assert "📦 Файлы месяца: OF: 30 | Reddit: 10 | Twitter: 5 | Fansly: 2" in text
-    assert "📅 Последняя съёмка: 14 апр · reddit, main pack" in text
-    assert "📅 Следующая съёмка: 25 апр · twitter" in text
-    assert "📈 Ордера:" in text
-    assert "• Done: 6 | Open: 2" in text
+    assert "📁 Контент за мес: OF 30 · Reddit 10 · Twitter 5 · Fansly 2" in text
+    assert "🎬 Снятый: 14 апр · reddit, main pack" in text
+    assert "📅 Ближ. съёмка: 25 апр · twitter" in text
+    assert "📦 Done: <b>6</b>  |  Open: <b>2</b>" in text
 
 
 def test_format_scout_card_empty_orders_and_files():
@@ -87,13 +86,13 @@ def test_format_scout_card_empty_orders_and_files():
         accounting_row={"of_files": 0, "reddit_files": 0, "twitter_files": 0, "fansly_files": 0},
         orders_done=0,
         orders_open=0,
-        last_shoot_line="📅 Последняя съёмка: —",
+        last_shoot_line="🎬 Снятый: не было",
         next_shoot_line=None,
     )
-    assert "🔗 Трафик: —" in text
-    assert "📦 Файлы месяца: OF: 0" in text
-    assert "📈 Ордера: —" in text
-    assert "📅 Следующая съёмка" not in text
+    assert "📡 —" in text
+    assert "📁 Контент за мес: —" in text
+    assert "📦 Заказов за 30 дней нет" in text
+    assert "📅 Ближ. съёмка: не запланировано" in text
 
 
 def test_format_boost_always_shows_both_labels():
@@ -190,7 +189,14 @@ def test_fetch_monthly_accounting_filters_by_model_and_edit_day(monkeypatch):
         )
     )
 
-    assert result == {"of_files": 12, "reddit_files": 4, "twitter_files": 3, "fansly_files": 2}
+    assert result == {
+        "of_files": 12,
+        "reddit_files": 4,
+        "twitter_files": 3,
+        "fansly_files": 2,
+        "social_files": 0,
+        "request_files": 0,
+    }
     assert captured_payload["filter"]["and"] == [
         {"property": "model", "relation": {"contains": "model-page-id"}},
         {
