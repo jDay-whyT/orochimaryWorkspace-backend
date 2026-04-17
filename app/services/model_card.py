@@ -1,22 +1,4 @@
-"""
-Model Card service — builds universal model card text and data.
-
-Card format:
-  📌 {MODEL}
-  📦 Заказы: open {N}
-  📅 Съёмка: {next_date} ({status}) или "нет"
-  📁 Файлы ({month}): {files}/200 ({pct}%) +{over}
-
-Data sources:
-  - Orders: Notion Orders DB (status=Open)
-  - Shoots: Notion Planner DB (upcoming scheduled)
-  - Files:  Notion Accounting DB (current month, one record per model)
-
-All Notion calls are wrapped in try/except — if Notion is unavailable
-the card still renders with "—" placeholders.
-
-In-memory TTL cache avoids repeated Notion queries within a short window.
-"""
+"""Model Card service — builds CRM model card text and data."""
 
 import asyncio
 import html
@@ -128,16 +110,22 @@ async def _build_card_text_impl(
     now = datetime.now(tz=config.timezone)
     today = now.date()
 
-    orders_line = "нет"
-    shoot_line = "нет"
-    files_line = "0"
+    orders_line = "—"
+    upcoming_shoot_line: str | None = None
+    last_shoot_line: str | None = None
+    files_line = "—"
+    files_breakdown_line: str | None = None
     has_error = False
     open_orders_count = -1
 
     yyyy_mm = now.strftime("%Y-%m")
     results = await asyncio.gather(
         notion.query_open_orders(config.db_orders, model_page_id=model_id),
-        notion.query_upcoming_shoots(config.db_planner, model_page_id=model_id),
+        notion.query_upcoming_shoots(
+            config.db_planner,
+            model_page_id=model_id,
+            statuses=["planned", "scheduled", "rescheduled", "done"],
+        ),
         notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm),
         return_exceptions=True,
     )
@@ -152,40 +140,42 @@ async def _build_card_text_impl(
     else:
         orders = orders_result
         open_orders_count = len(orders)
-        total = len(orders)
         overdue = sum(1 for order in orders if _calc_days_open(order.in_date, today) > 3)
-
-        if total == 0:
-            orders_line = "нет"
-        elif overdue == 0:
-            orders_line = f"{total} откр"
-        else:
-            orders_line = f"{total} откр · {overdue} >3д"
+        orders_line = f"{open_orders_count} откр"
+        if overdue > 0:
+            orders_line += f" · {overdue} просрочены"
 
     # Next shoot
     if isinstance(shoots_result, Exception):
         LOGGER.warning("model_card: failed to fetch shoots for %s", model_id)
-        shoot_line = "—"
         has_error = True
     else:
         shoots = shoots_result
         upcoming = []
+        done = []
         for shoot in shoots:
             if not shoot.date:
                 continue
-            if (shoot.status or "").lower() not in {"scheduled", "planned"}:
-                continue
             parsed = _parse_iso_date(shoot.date)
-            if parsed is None or parsed < today:
+            if parsed is None:
                 continue
-            upcoming.append((parsed, shoot))
+            status = (shoot.status or "").lower()
+            if status in {"scheduled", "planned"} and parsed >= today:
+                upcoming.append((parsed, shoot))
+            elif status == "done" and parsed <= today:
+                done.append((parsed, shoot))
         if upcoming:
             upcoming.sort(key=lambda pair: pair[0])
             _, nearest = upcoming[0]
             s_date = _format_date_card(nearest.date)
-            content = "/".join(nearest.content or []) or "—"
-            status = nearest.status or "planned"
-            shoot_line = f"{s_date} · {content} · {status}"
+            content = ", ".join(nearest.content or []) or "—"
+            upcoming_shoot_line = f"{s_date} · {content}"
+        if done:
+            done.sort(key=lambda pair: pair[0], reverse=True)
+            _, latest_done = done[0]
+            done_date = _format_date_card(latest_done.date)
+            content = ", ".join(latest_done.content or []) or "—"
+            last_shoot_line = f"{done_date} · {content}"
 
     # Files current month
     if isinstance(accounting_result, Exception):
@@ -198,26 +188,38 @@ async def _build_card_text_impl(
             total = int(getattr(record, "total", 0) or 0)
             if total == 0:
                 total = int(getattr(record, "files", 0) or 0)
+            target = int(getattr(config, "files_per_month", 200) or 200)
+            pct = int(round((total / target) * 100)) if target > 0 else 0
+            files_line = f"{total}/{target} ({pct}%)"
+
             typed_counts = [
-                ("reddit", int(getattr(record, "reddit_files", 0) or 0)),
-                ("twitter", int(getattr(record, "twitter_files", 0) or 0)),
-                ("of", int(getattr(record, "of_files", 0) or 0)),
-                ("fansly", int(getattr(record, "fansly_files", 0) or 0)),
-                ("social", int(getattr(record, "social_files", 0) or 0)),
-                ("req", int(getattr(record, "request_files", 0) or 0)),
+                ("OF", int(getattr(record, "of_files", 0) or 0)),
+                ("Reddit", int(getattr(record, "reddit_files", 0) or 0)),
+                ("Twitter", int(getattr(record, "twitter_files", 0) or 0)),
+                ("Fansly", int(getattr(record, "fansly_files", 0) or 0)),
             ]
-            non_zero_parts = [f"{label} {value}" for label, value in typed_counts if value > 0]
-            files_line = str(total) if not non_zero_parts else f"{total} · {', '.join(non_zero_parts)}"
+            non_zero_parts = [f"{label}: {value}" for label, value in typed_counts if value > 0]
+            if non_zero_parts:
+                files_breakdown_line = "   • " + " | ".join(non_zero_parts)
 
-    safe_name = html.escape(model_name)
+    safe_name = html.escape(model_name.upper())
+    month_label = _month_ru(now.month)
 
-    text = (
-        f"📌 <b>{safe_name}</b>\n"
-        f"\n"
-        f"📦 {orders_line}\n"
-        f"📅 {shoot_line}\n"
-        f"📁 {files_line}"
-    )
+    lines = [
+        f"📌 <b>{safe_name}</b>",
+        "",
+        f"📦 Заказы: {orders_line}",
+    ]
+    if upcoming_shoot_line is not None:
+        lines.append(f"📅 Съёмка: {upcoming_shoot_line}")
+    if last_shoot_line is not None:
+        lines.append(f"📅 Последняя: {last_shoot_line}")
+    lines.append(f"📁 Файлы ({month_label}): {files_line}")
+    if files_breakdown_line is not None:
+        lines.append(files_breakdown_line)
+    lines.extend(["", "Что делаем?"])
+
+    text = "\n".join(lines)
     return text, has_error, open_orders_count
 
 
