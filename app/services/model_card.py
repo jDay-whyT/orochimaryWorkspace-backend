@@ -114,7 +114,6 @@ async def _build_card_text_impl(
     upcoming_shoot_line: str | None = None
     last_shoot_line: str | None = None
     files_line = "—"
-    files_breakdown_line: str | None = None
     has_error = False
     open_orders_count = -1
 
@@ -185,13 +184,6 @@ async def _build_card_text_impl(
     else:
         record = accounting_result
         if record:
-            total = int(getattr(record, "total", 0) or 0)
-            if total == 0:
-                total = int(getattr(record, "files", 0) or 0)
-            target = int(getattr(config, "files_per_month", 200) or 200)
-            pct = int(round((total / target) * 100)) if target > 0 else 0
-            files_line = f"{total}/{target} ({pct}%)"
-
             typed_counts = [
                 ("OF", int(getattr(record, "of_files", 0) or 0)),
                 ("Reddit", int(getattr(record, "reddit_files", 0) or 0)),
@@ -202,7 +194,7 @@ async def _build_card_text_impl(
             ]
             non_zero_parts = [f"{label}: {value}" for label, value in typed_counts if value > 0]
             if non_zero_parts:
-                files_breakdown_line = "   • " + " | ".join(non_zero_parts)
+                files_line = " | ".join(non_zero_parts)
 
     safe_name = html.escape(model_name.upper())
     month_label = _month_ru(now.month)
@@ -217,8 +209,6 @@ async def _build_card_text_impl(
     if last_shoot_line is not None:
         lines.append(f"📅 Последняя: {last_shoot_line}")
     lines.append(f"📁 Файлы ({month_label}): {files_line}")
-    if files_breakdown_line is not None:
-        lines.append(files_breakdown_line)
     lines.extend(["", "Что делаем?"])
 
     text = "\n".join(lines)
