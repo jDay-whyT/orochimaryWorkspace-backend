@@ -405,6 +405,10 @@ async def _fetch_accounting_for_month(
             "status":    _extract_status(item, "status"),
             "content":   _extract_multi_select(item, "Content"),
             "files":     int(files_raw) if files_raw is not None else 0,
+            "of_files": int(_extract_number(item, "of_files") or 0),
+            "reddit_files": int(_extract_number(item, "reddit_files") or 0),
+            "twitter_files": int(_extract_number(item, "twitter_files") or 0),
+            "fansly_files": int(_extract_number(item, "fansly_files") or 0),
             "edited_at": last_edited[:10] if last_edited else "",
         })
     return records
@@ -771,7 +775,11 @@ _MODELS_HEADER = [
 _ORDERS_HEADER     = ["model", "type", "status", "date_in", "date_out", "days", "days_open", "count"]
 _DEBTS_HEADER      = ["model", "type", "status", "date_in", "date_out", "days", "days_open", "count"]
 _SHOOTS_HEADER     = ["model", "date", "status", "location", "content_types"]
-_ACCOUNTING_HEADER = ["model", "title", "status", "content", "files", "edited_at"]
+_ACCOUNTING_HEADER = [
+    "model", "title", "status", "content", "files",
+    "of_files", "reddit_files", "twitter_files", "fansly_files",
+    "edited_at",
+]
 _FORMS_HEADER      = ["model_name", "status", "lang", "anal", "calls", "optional"]
 
 
@@ -952,6 +960,10 @@ async def run_analytics_sync(
             a["status"]    or "",
             ", ".join(a.get("content") or []),
             a["files"],
+            a.get("of_files", 0),
+            a.get("reddit_files", 0),
+            a.get("twitter_files", 0),
+            a.get("fansly_files", 0),
             a["edited_at"] or "",
         ]
         for a in acc_cur_raw
