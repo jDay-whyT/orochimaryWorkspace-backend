@@ -110,9 +110,10 @@ async def _build_card_text_impl(
     now = datetime.now(tz=config.timezone)
     today = now.date()
 
+    orders_line = "—"
     upcoming_shoot_line: str | None = None
     last_shoot_line: str | None = None
-    files_line = ""
+    files_line = "—"
     has_error = False
     open_orders_count = -1
 
@@ -133,10 +134,15 @@ async def _build_card_text_impl(
     # Orders open count
     if isinstance(orders_result, Exception):
         LOGGER.warning("model_card: failed to fetch orders for %s", model_id)
+        orders_line = "—"
         has_error = True
     else:
         orders = orders_result
         open_orders_count = len(orders)
+        overdue = sum(1 for order in orders if _calc_days_open(order.in_date, today) > 3)
+        orders_line = f"{open_orders_count} откр"
+        if overdue > 0:
+            orders_line += f" · {overdue} просрочены"
 
     # Next shoot
     if isinstance(shoots_result, Exception):
@@ -186,45 +192,24 @@ async def _build_card_text_impl(
                 ("Social", int(getattr(record, "social_files", 0) or 0)),
                 ("Request", int(getattr(record, "request_files", 0) or 0)),
             ]
-            non_zero_parts = [f"{label} {value}" for label, value in typed_counts if value > 0]
+            non_zero_parts = [f"{label}: {value}" for label, value in typed_counts if value > 0]
             if non_zero_parts:
-                files_line = " · ".join(non_zero_parts)
+                files_line = " | ".join(non_zero_parts)
 
     safe_name = html.escape(model_name.upper())
     month_label = _month_ru(now.month)
-    status = "—"
-    project = ""
-    header = f"▸ <b>{safe_name}</b> · {html.escape(status)}"
-    if project.strip():
-        header += f" · <b>{html.escape(project.upper())}</b>"
-
-    anal_text = "No"
-    calls_text = "No"
-    traffic_text = "Нет инфо в анкете"
-    rent_text = "не нужна"
-    files_text = files_line if files_line else f"Нет файлов за {month_label}"
-    done_orders_count = 0
-    open_orders_text = str(max(open_orders_count, 0))
 
     lines = [
-        header,
+        f"📌 <b>{safe_name}</b>",
         "",
-        f"⚡ Анал: {html.escape(anal_text)}  |  Колл: {html.escape(calls_text)}",
-        f"📡 {html.escape(traffic_text)}",
-        f"🏠 Аренда: {html.escape(rent_text)}",
-        "",
-        f"📁 {html.escape(files_text)}",
+        f"📦 Заказы: {orders_line}",
     ]
-    if last_shoot_line is not None:
-        lines.append(f"🎬 {html.escape(last_shoot_line)}")
     if upcoming_shoot_line is not None:
-        lines.append(f"📅 {html.escape(upcoming_shoot_line)}")
-    lines.extend(
-        [
-            "",
-            f"📦 Done: <b>{done_orders_count}</b>  |  Open: <b>{open_orders_text}</b>",
-        ]
-    )
+        lines.append(f"📅 Съёмка: {upcoming_shoot_line}")
+    if last_shoot_line is not None:
+        lines.append(f"📅 Последняя: {last_shoot_line}")
+    lines.append(f"📁 Файлы ({month_label}): {files_line}")
+    lines.extend(["", "Что делаем?"])
 
     text = "\n".join(lines)
     return text, has_error, open_orders_count
