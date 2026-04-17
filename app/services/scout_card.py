@@ -7,7 +7,7 @@ import os
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from app.services.analytics import DB_FORMS_DEFAULT
+from app.services.analytics import ARCHIVE_ORDERS_DBS, DB_FORMS_DEFAULT
 from app.services.notion import NotionClient
 
 _DB_MODELS_DEFAULT = "1fc32bee-e7a0-809f-8bbe-000be8182d4d"
@@ -115,14 +115,18 @@ def _normalize(value: Any) -> str:
 
 
 def _format_boost(anal: str | None, calls: str | None) -> str:
-    items: list[str] = []
-    for raw in (anal, calls):
+    def _format_label(raw: str | None) -> str:
+        values: list[str] = []
         for chunk in str(raw or "").split(","):
             val = chunk.strip()
             if not val or val in {"No", "—"}:
                 continue
-            items.append(val)
-    return " | ".join(items) if items else "—"
+            values.append(val)
+        return ", ".join(values) if values else "No"
+
+    anal_text = _format_label(anal)
+    calls_text = _format_label(calls)
+    return f"Анал: {anal_text} | Колл: {calls_text}"
 
 
 def _format_monthly_files(accounting_row: dict[str, int] | None) -> str:
@@ -289,19 +293,28 @@ async def _fetch_monthly_accounting(
 
 async def _fetch_orders_stats(notion: NotionClient, db_orders: str, model_page_id: str) -> tuple[int, int]:
     cutoff = date.today() - timedelta(days=30)
-    items = await _query_all_pages(
-        notion,
-        db_orders,
-        {
-            "page_size": 100,
-            "filter": {
-                "and": [
-                    {"property": "model", "relation": {"contains": model_page_id}},
-                    {"property": "in", "date": {"on_or_after": cutoff.isoformat()}},
-                ]
-            },
+    query_payload = {
+        "page_size": 100,
+        "filter": {
+            "and": [
+                {"property": "model", "relation": {"contains": model_page_id}},
+                {"property": "in", "date": {"on_or_after": cutoff.isoformat()}},
+            ]
         },
-    )
+    }
+
+    items_by_db: list[list[dict[str, Any]]]
+    if ARCHIVE_ORDERS_DBS:
+        previous_month_index = date.today().month - 1
+        previous_month_archive_db = ARCHIVE_ORDERS_DBS[-1 if previous_month_index >= 1 else 0]
+        items_by_db = await asyncio.gather(
+            _query_all_pages(notion, db_orders, query_payload),
+            _query_all_pages(notion, previous_month_archive_db, query_payload),
+        )
+    else:
+        items_by_db = [await _query_all_pages(notion, db_orders, query_payload)]
+
+    items = [item for batch in items_by_db for item in batch]
 
     done = 0
     open_count = 0
