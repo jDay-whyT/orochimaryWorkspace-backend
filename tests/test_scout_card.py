@@ -2,7 +2,8 @@ import asyncio
 from types import SimpleNamespace
 
 from app.filters.topic_access import TopicAccessMessageFilter
-from app.services.scout_card import _format_scout_card
+from app.services import scout_card
+from app.services.scout_card import _format_boost, _format_scout_card
 
 
 def test_topic_access_private_only_editor_allowed():
@@ -63,7 +64,7 @@ def test_format_scout_card_files_orders_and_shoots():
         last_shoot_line="📅 Последняя съёмка: 14 апр · reddit, main pack",
         next_shoot_line="📅 Следующая съёмка: 25 апр · twitter",
     )
-    assert "💥 Буст: plug | talking" in text
+    assert "💥 Буст: Анал: plug | Колл: talking" in text
     assert "🔗 Трафик: reddit, twitter" in text
     assert "🏠 Аренда: нужна" in text
     assert "• OF: 30" in text
@@ -91,3 +92,61 @@ def test_format_scout_card_empty_orders_and_files():
     assert "📦 Файлы месяца: —" in text
     assert "📈 Ордера: —" in text
     assert "📅 Следующая съёмка" not in text
+
+
+def test_format_boost_always_shows_both_labels():
+    assert _format_boost("No, —", "") == "Анал: No | Колл: No"
+    assert _format_boost("plug", "sexual, No") == "Анал: plug | Колл: sexual"
+
+
+def test_fetch_orders_stats_merges_main_and_archive(monkeypatch):
+    async def fake_query(_notion, db_id, _payload):
+        if db_id == "main-db":
+            return [
+                {
+                    "properties": {
+                        "type": {"select": {"name": "custom"}},
+                        "status": {"select": {"name": "done"}},
+                        "count": {"number": 1},
+                    }
+                }
+            ]
+        if db_id == "archive-db":
+            return [
+                {
+                    "properties": {
+                        "type": {"select": {"name": "short"}},
+                        "status": {"select": {"name": "open"}},
+                        "count": {"number": 10},
+                    }
+                }
+            ]
+        return []
+
+    monkeypatch.setattr(scout_card, "_query_all_pages", fake_query)
+    monkeypatch.setattr(scout_card, "ARCHIVE_ORDERS_DBS", ["archive-db"])
+
+    done, open_count = asyncio.run(scout_card._fetch_orders_stats(object(), "main-db", "model-id"))
+    assert done == 1
+    assert open_count == 1
+
+
+def test_fetch_orders_stats_without_archives(monkeypatch):
+    async def fake_query(_notion, db_id, _payload):
+        assert db_id == "main-db"
+        return [
+            {
+                "properties": {
+                    "type": {"select": {"name": "call"}},
+                    "status": {"select": {"name": "open"}},
+                    "count": {"number": 3},
+                }
+            }
+        ]
+
+    monkeypatch.setattr(scout_card, "_query_all_pages", fake_query)
+    monkeypatch.setattr(scout_card, "ARCHIVE_ORDERS_DBS", [])
+
+    done, open_count = asyncio.run(scout_card._fetch_orders_stats(object(), "main-db", "model-id"))
+    assert done == 0
+    assert open_count == 1
