@@ -132,7 +132,18 @@ def _format_boost(anal: str | None, calls: str | None) -> str:
 def _format_monthly_files(accounting_row: dict[str, int] | None) -> str:
     if not accounting_row:
         return "📦 Файлы месяца: —"
-    return f"📦 Файлы месяца: {accounting_row.get('of_files', 0)}"
+    total = accounting_row.get("of_files", 0)
+    parts = [f"OF: {total}"]
+    category_labels = {
+        "reddit_files": "Reddit",
+        "twitter_files": "Twitter",
+        "fansly_files": "Fansly",
+    }
+    for key, label in category_labels.items():
+        value = accounting_row.get(key, 0)
+        if value > 0:
+            parts.append(f"{label}: {value}")
+    return "📦 Файлы месяца: " + " | ".join(parts)
 
 
 def _format_shoot_line(prefix: str, dt: str | None, content: list[str] | None) -> str:
@@ -255,8 +266,12 @@ async def _fetch_monthly_accounting(
     notion: NotionClient,
     db_accounting: str,
     model_page_id: str,
-    yyyy_mm: str,
 ) -> dict[str, int] | None:
+    today = date.today()
+    month_start = today.replace(day=1).isoformat()
+    next_month = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
+    month_end = (next_month - timedelta(days=1)).isoformat()
+
     items = await _query_all_pages(
         notion,
         db_accounting,
@@ -265,7 +280,13 @@ async def _fetch_monthly_accounting(
             "filter": {
                 "and": [
                     {"property": "model", "relation": {"contains": model_page_id}},
-                    {"property": "edit day", "rich_text": {"contains": yyyy_mm}},
+                    {
+                        "property": "edit day",
+                        "last_edited_time": {
+                            "on_or_after": month_start,
+                            "on_or_before": month_end,
+                        },
+                    },
                 ]
             },
             "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
@@ -276,6 +297,9 @@ async def _fetch_monthly_accounting(
     props = items[0].get("properties", {})
     return {
         "of_files": _extract_number(props.get("of_files")),
+        "reddit_files": _extract_number(props.get("reddit_files")),
+        "twitter_files": _extract_number(props.get("twitter_files")),
+        "fansly_files": _extract_number(props.get("fansly_files")),
     }
 
 
@@ -387,11 +411,9 @@ async def build_scout_report_card(model_name: str, notion: NotionClient) -> str 
         return None
 
     model_page_id = model_row["page_id"]
-    yyyy_mm = date.today().strftime("%Y-%m")
-
     traffic, accounting_row, orders_stats, shoots_lines = await asyncio.gather(
         _fetch_forms_traffic(notion, db_forms, model_page_id),
-        _fetch_monthly_accounting(notion, db_accounting, model_page_id, yyyy_mm),
+        _fetch_monthly_accounting(notion, db_accounting, model_page_id),
         _fetch_orders_stats(notion, db_orders, model_page_id),
         _fetch_shoots_lines(notion, db_planner, model_page_id),
     )
