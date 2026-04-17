@@ -258,8 +258,8 @@ class TestBuildModelCardText:
         assert "📅 Съёмка: 25 апр · reddit, twitter" in text
         assert "📅 Последняя: 8 апр · main pack" in text
         assert "📁 Файлы (" in text
-        assert "79/200 (40%)" in text
-        assert "• OF: 50 | Reddit: 29" in text
+        assert "OF: 50 | Reddit: 29" in text
+        assert "79/200 (40%)" not in text
         assert "Что делаем?" in text
 
     @pytest.mark.asyncio
