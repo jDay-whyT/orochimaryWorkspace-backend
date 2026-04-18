@@ -470,7 +470,10 @@ async def handle_nlp_callback(
         LOGGER.exception("Error in NLP callback: %s", e)
         await query.answer(f"Error: {str(e)[:100]}", show_alert=True)
 
-    await query.answer()
+    try:
+        await query.answer()
+    except TelegramBadRequest:
+        pass
 
 
 # ============================================================================
