@@ -28,6 +28,7 @@ flow and step match what the action expects. On mismatch the user sees
 import html
 import logging
 import time
+import dataclasses
 from datetime import date, datetime, timedelta
 
 from aiogram import F, Router
@@ -854,6 +855,7 @@ async def _show_orders_menu(
     model_name = state.get("model_name", "")
     orders = await orders_cache.get_cached_orders(notion, config, model_id)
     orders.sort(key=lambda o: o.in_date or "9999-99-99")
+    orders_data = [dataclasses.asdict(o) for o in orders]
     has_orders = bool(orders)
     can_edit = is_editor(user_id, config)
 
@@ -862,7 +864,7 @@ async def _show_orders_menu(
         "step": "menu",
         "model_id": model_id,
         "model_name": model_name,
-        "orders": orders,
+        "orders": orders_data,
         "page": 1,
     })
 
@@ -908,8 +910,9 @@ async def _show_orders_view(
     model_name = state.get("model_name", "")
     orders = state.get("orders")
     if orders is None:
-        orders = await orders_cache.get_cached_orders(notion, config, model_id)
-        orders.sort(key=lambda o: o.in_date or "9999-99-99")
+        orders_raw = await orders_cache.get_cached_orders(notion, config, model_id)
+        orders = [dataclasses.asdict(o) for o in orders_raw]
+        orders.sort(key=lambda o: o.get("in_date") or "9999-99-99")
 
     if not orders:
         await _show_orders_menu(query, config, notion, memory_state)
@@ -922,9 +925,10 @@ async def _show_orders_view(
 
     lines = []
     for order in page_orders:
-        days = _calc_days_open(order.in_date)
+        in_date = order.get("in_date")
+        days = _calc_days_open(in_date)
         lines.append(
-            f"• {order.order_type or '?'} · {_format_date_short(order.in_date)} ({days}d)"
+            f"• {order.get('order_type') or '?'} · {_format_date_short(in_date)} ({days}d)"
         )
 
     text = (
@@ -983,6 +987,7 @@ async def _show_close_picker(
 
     orders = await orders_cache.get_cached_orders(notion, config, model_id)
     orders.sort(key=lambda o: o.in_date or "9999-99-99")
+    orders_data = [dataclasses.asdict(o) for o in orders]
     if not orders:
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
@@ -1011,7 +1016,7 @@ async def _show_close_picker(
         "step": "selecting",
         "model_id": model_id,
         "model_name": model_name,
-        "orders": orders,
+        "orders": orders_data,
         "page": current_page,
     })
     await _clear_previous_screen_keyboard(query, memory_state)
