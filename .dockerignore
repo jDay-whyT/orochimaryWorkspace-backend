@@ -67,3 +67,9 @@ docs/
 .dockerignore
 Dockerfile*
 docker-compose*.yml
+
+tests/
+examples/
+pytest.ini
+requirements-dev.txt
+test_*.py
