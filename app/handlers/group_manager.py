@@ -12,12 +12,12 @@ LOGGER = logging.getLogger(__name__)
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
-TOPICS_TO_CREATE: tuple[tuple[str, str], ...] = (
-    ("OF", "5181620069708333851"),
-    ("Twitter", "5330337435500951363"),
-    ("Reddit", "5330321861949539755"),
-    ("Orders", "5364036341610858181"),
-    ("Description", "5334882760735598374"),
+TOPICS_TO_CREATE: tuple[str, ...] = (
+    "OF",
+    "Twitter",
+    "Reddit",
+    "Orders",
+    "Description",
 )
 
 
@@ -57,11 +57,10 @@ async def create_group_topics(message: Message, config: Config) -> None:
         return
 
     try:
-        for topic_name, custom_emoji_id in TOPICS_TO_CREATE:
+        for topic_name in TOPICS_TO_CREATE:
             await message.bot.create_forum_topic(
                 chat_id=message.chat.id,
                 name=topic_name,
-                icon_custom_emoji_id=custom_emoji_id,
             )
 
         await message.bot.send_message(chat_id=message.chat.id, text="✅ Готово")
