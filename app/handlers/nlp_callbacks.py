@@ -468,7 +468,12 @@ async def handle_nlp_callback(
 
     except Exception as e:
         LOGGER.exception("Error in NLP callback: %s", e)
-        await query.answer(f"Error: {str(e)[:100]}", show_alert=True)
+        try:
+            await query.answer(f"Error: {str(e)[:100]}", show_alert=True)
+        except TelegramBadRequest as answer_exc:
+            answer_error = str(answer_exc).lower()
+            if "query is too old" not in answer_error and "query id is invalid" not in answer_error:
+                raise
 
     try:
         await query.answer()
