@@ -8,7 +8,7 @@ import os
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from app.services.analytics import ARCHIVE_ORDERS_DBS, DB_FORMS_DEFAULT
+from app.utils.constants import ARCHIVE_ORDERS_DBS, DB_FORMS_DEFAULT
 from app.services.notion import NotionClient
 
 _DB_MODELS_DEFAULT = "1fc32bee-e7a0-809f-8bbe-000be8182d4d"
