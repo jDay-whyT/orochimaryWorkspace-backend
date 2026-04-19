@@ -1,9 +1,16 @@
 import asyncio
+import dataclasses
 import json
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from threading import Event, Thread
 from typing import Any
+
+
+def _default_serializer(obj: Any) -> Any:
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 @dataclass
@@ -104,7 +111,13 @@ class RedisMemoryState:
             }
 
         assert self.redis_client is not None
-        self._run(self.redis_client.set(redis_key, json.dumps(data), ex=self.ttl_seconds))
+        self._run(
+            self.redis_client.set(
+                redis_key,
+                json.dumps(data, default=_default_serializer),
+                ex=self.ttl_seconds,
+            )
+        )
 
     def update(
         self,
