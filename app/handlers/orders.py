@@ -440,14 +440,16 @@ async def _show_orders_for_model(
     model_title = data.get("model_title", "")
     page = data.get("page", 1)
     
-    # Fetch orders
-    orders = await orders_cache.get_cached_orders(notion, config, model_id)
-    
-    # Sort by in_date
-    orders.sort(key=lambda o: o.in_date or "9999-99-99")
-    
-    # Store in state
-    memory_state.update(chat_id, user_id, orders=[_order_to_dict(o) for o in orders])
+    # Fetch orders or reuse state snapshot (dicts from _order_to_dict)
+    state_orders = data.get("orders")
+    if isinstance(state_orders, list):
+        orders = state_orders
+        orders.sort(key=lambda o: o.get("in_date") or "9999-99-99")
+    else:
+        orders_from_cache = await orders_cache.get_cached_orders(notion, config, model_id)
+        orders_from_cache.sort(key=lambda o: o.in_date or "9999-99-99")
+        orders = [_order_to_dict(o) for o in orders_from_cache]
+        memory_state.update(chat_id, user_id, orders=orders)
     
     if not orders:
         await safe_edit_message(
@@ -470,11 +472,11 @@ async def _show_orders_for_model(
     today_date = today(config.timezone)
     orders_data = []
     for order in page_orders:
-        days = days_open(order.in_date, today_date)
+        days = days_open(order["in_date"], today_date)
         days_str = f" · {days}d" if days is not None else ""
-        label = f"{order.order_type or 'order'} · {format_date_short(order.in_date)}{days_str}"
+        label = f"{order['order_type'] or 'order'} · {format_date_short(order['in_date'])}{days_str}"
         orders_data.append({
-            "page_id": order.page_id,
+            "page_id": order["page_id"],
             "label": label,
         })
     
