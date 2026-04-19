@@ -10,6 +10,7 @@ from app.router.command_filters import normalize_text
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
+router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
 TOPICS_TO_CREATE: tuple[tuple[str, str], ...] = (
     ("OF", "5181620069708333851"),
