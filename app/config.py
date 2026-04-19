@@ -33,7 +33,6 @@ class Config:
     managers_chat_id: int = 0
     internal_secret: str = ""
     rent_topic_thread_id: int = 0
-    apify_token: str = ""
     redis_url: str | None = None
 
 
@@ -147,7 +146,6 @@ def load_config(validate: bool = True) -> Config:
     except ValueError:
         rent_topic_thread_id = 0
 
-    apify_token = os.getenv("APIFY_TOKEN", "").strip()
     redis_url = os.getenv("REDIS_URL", "").strip() or None
     report_viewers = _parse_user_ids(os.getenv("REPORT_VIEWERS", ""))
     try:
@@ -179,7 +177,6 @@ def load_config(validate: bool = True) -> Config:
         managers_chat_id=managers_chat_id,
         internal_secret=internal_secret,
         rent_topic_thread_id=rent_topic_thread_id,
-        apify_token=apify_token,
         redis_url=redis_url,
     )
     
