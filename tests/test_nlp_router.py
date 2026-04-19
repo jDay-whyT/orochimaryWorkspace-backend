@@ -9,6 +9,7 @@ fuzzy matching safety, state management, and intent priorities.
 
 import pytest
 from datetime import date, timedelta
+import time
 
 from app.router.intent_v2 import classify_intent_v2
 from app.router.entities_v2 import extract_entities_v2
@@ -20,6 +21,43 @@ from app.router.model_resolver import (
     FUZZY_MIN_QUERY_LENGTH,
 )
 from app.state.memory import MemoryState
+from app.state.redis_state import RedisMemoryState
+
+
+class FakeAsyncRedis:
+    """Tiny async Redis stub for state backend tests."""
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, float | None]] = {}
+
+    async def get(self, key: str) -> str | None:
+        entry = self._storage.get(key)
+        if not entry:
+            return None
+        value, expires_at = entry
+        if expires_at is not None and expires_at <= time.time():
+            self._storage.pop(key, None)
+            return None
+        return value
+
+    async def set(self, key: str, value: str, ex: int | None = None) -> bool:
+        expires_at = None if ex is None else time.time() + ex
+        self._storage[key] = (value, expires_at)
+        return True
+
+    async def delete(self, key: str) -> int:
+        return 1 if self._storage.pop(key, None) is not None else 0
+
+
+@pytest.fixture(params=["memory", "redis"])
+def state_backend(request):
+    if request.param == "memory":
+        return MemoryState(ttl_seconds=60)
+    return RedisMemoryState(
+        redis_url="redis://localhost:6379/0",
+        ttl_seconds=60,
+        redis_client=FakeAsyncRedis(),
+    )
 
 
 # ============================================================================
@@ -316,9 +354,9 @@ class TestFuzzyMatcherSafety:
 class TestStateManagement:
     """Tests for state TTL and fallback behavior."""
 
-    def test_state_set_and_get(self):
+    def test_state_set_and_get(self, state_backend):
         """State can be set and retrieved."""
-        state = MemoryState(ttl_seconds=60)
+        state = state_backend
         chat_id = 100
         user_id = 123
         state.set(chat_id, user_id, {"flow": "test", "step": "one"})
@@ -326,9 +364,9 @@ class TestStateManagement:
         assert result is not None
         assert result["flow"] == "test"
 
-    def test_state_clear(self):
+    def test_state_clear(self, state_backend):
         """State can be cleared."""
-        state = MemoryState(ttl_seconds=60)
+        state = state_backend
         chat_id = 100
         user_id = 123
         state.set(chat_id, user_id, {"flow": "test"})
@@ -337,18 +375,27 @@ class TestStateManagement:
 
     def test_state_expired_returns_none(self):
         """Expired state returns None (simulated with 0 TTL)."""
+        state = RedisMemoryState(
+            redis_url="redis://localhost:6379/0",
+            ttl_seconds=0,
+            redis_client=FakeAsyncRedis(),
+        )
+        chat_id = 100
+        user_id = 123
+        state.set(chat_id, user_id, {"flow": "test"})
+        time.sleep(0.01)
+        assert state.get(chat_id, user_id) is None
+
         state = MemoryState(ttl_seconds=0)
         chat_id = 100
         user_id = 123
         state.set(chat_id, user_id, {"flow": "test"})
-        # TTL=0 means immediately expired
-        import time
         time.sleep(0.01)
         assert state.get(chat_id, user_id) is None
 
-    def test_state_update_extends_ttl(self):
+    def test_state_update_extends_ttl(self, state_backend):
         """Update refreshes the TTL."""
-        state = MemoryState(ttl_seconds=60)
+        state = state_backend
         chat_id = 100
         user_id = 123
         state.set(chat_id, user_id, {"flow": "test", "step": "one"})
@@ -357,14 +404,14 @@ class TestStateManagement:
         assert result["step"] == "two"
         assert result["flow"] == "test"
 
-    def test_missing_state_returns_none(self):
+    def test_missing_state_returns_none(self, state_backend):
         """Non-existent state returns None (not crash)."""
-        state = MemoryState(ttl_seconds=60)
+        state = state_backend
         assert state.get(999, 999) is None
 
-    def test_state_set_preserves_prompt_message_id_when_omitted(self):
+    def test_state_set_preserves_prompt_message_id_when_omitted(self, state_backend):
         """prompt_message_id is retained when set() payload does not include it."""
-        state = MemoryState(ttl_seconds=60)
+        state = state_backend
         chat_id = 100
         user_id = 123
         state.set(chat_id, user_id, {"flow": "test", "prompt_message_id": 777})
@@ -375,9 +422,9 @@ class TestStateManagement:
         assert result is not None
         assert result["prompt_message_id"] == 777
 
-    def test_state_set_allows_explicit_prompt_message_id_override(self):
+    def test_state_set_allows_explicit_prompt_message_id_override(self, state_backend):
         """prompt_message_id can still be intentionally overwritten."""
-        state = MemoryState(ttl_seconds=60)
+        state = state_backend
         chat_id = 100
         user_id = 123
         state.set(chat_id, user_id, {"flow": "test", "prompt_message_id": 777})

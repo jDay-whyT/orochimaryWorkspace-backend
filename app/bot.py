@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from aiogram import Bot, Dispatcher
 
@@ -10,7 +11,7 @@ from app.state import MemoryState, RecentModels
 LOGGER = logging.getLogger(__name__)
 
 
-def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, MemoryState, RecentModels]:
+def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, Any, Any]:
     """Create bot, dispatcher and services."""
     bot = Bot(token=config.telegram_bot_token)
     dp = Dispatcher()
@@ -29,18 +30,25 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, Me
     dp.include_router(group_manager.router)
     # 2. Fallback router (NLP + /start) - handles all unmatched text messages
     dp.include_router(start.router)        # MUST BE LAST - catches all text via NLP
-    
+
     # Create services
     notion = NotionClient(config.notion_token)
-    memory_state = MemoryState()
-    recent_models = RecentModels()
-    
+    if config.redis_url:
+        from app.state.redis_recent import RedisRecentModels
+        from app.state.redis_state import RedisMemoryState
+
+        memory_state = RedisMemoryState(redis_url=config.redis_url)
+        recent_models = RedisRecentModels(redis_url=config.redis_url)
+    else:
+        memory_state = MemoryState()
+        recent_models = RecentModels()
+
     # Inject dependencies
     dp["config"] = config
     dp["notion"] = notion
     dp["memory_state"] = memory_state
     dp["recent_models"] = recent_models
-    
+
     router_names = [r.name or r.__class__.__name__ for r in dp.sub_routers]
     LOGGER.info("Bot dispatcher created, routers=%s", router_names)
 
