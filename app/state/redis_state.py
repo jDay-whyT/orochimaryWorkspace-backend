@@ -24,8 +24,6 @@ class RedisMemoryState:
             from redis.asyncio import Redis
 
             kwargs = dict(self.redis_kwargs)
-            if self.redis_url.startswith("rediss://"):
-                kwargs.setdefault("ssl", True)
             self.redis_client = Redis.from_url(self.redis_url, decode_responses=True, **kwargs)
 
         self._thread = Thread(target=self._run_loop, daemon=True)
