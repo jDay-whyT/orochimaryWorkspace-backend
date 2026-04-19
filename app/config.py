@@ -34,6 +34,7 @@ class Config:
     internal_secret: str = ""
     rent_topic_thread_id: int = 0
     apify_token: str = ""
+    redis_url: str | None = None
 
 
 def _parse_user_ids(value: str) -> set[int]:
@@ -147,6 +148,7 @@ def load_config(validate: bool = True) -> Config:
         rent_topic_thread_id = 0
 
     apify_token = os.getenv("APIFY_TOKEN", "").strip()
+    redis_url = os.getenv("REDIS_URL", "").strip() or None
     report_viewers = _parse_user_ids(os.getenv("REPORT_VIEWERS", ""))
     try:
         scouts_chat_id = int(os.getenv("SCOUTS_CHAT_ID", "0"))
@@ -178,6 +180,7 @@ def load_config(validate: bool = True) -> Config:
         internal_secret=internal_secret,
         rent_topic_thread_id=rent_topic_thread_id,
         apify_token=apify_token,
+        redis_url=redis_url,
     )
     
     if validate:
