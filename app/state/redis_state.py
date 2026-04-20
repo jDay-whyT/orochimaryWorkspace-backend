@@ -1,10 +1,13 @@
 import asyncio
 import dataclasses
 import json
+import logging
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from threading import Event, Thread
 from typing import Any
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _default_serializer(obj: Any) -> Any:
@@ -32,6 +35,7 @@ class RedisMemoryState:
 
             kwargs = dict(self.redis_kwargs)
             self.redis_client = Redis.from_url(self.redis_url, decode_responses=True, **kwargs)
+            LOGGER.info("RedisMemoryState initialized: url=%s ttl=%s", self.redis_url[:30], self.ttl_seconds)
 
         self._thread = Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -41,7 +45,10 @@ class RedisMemoryState:
         self._loop = loop
         self._ready.set()
         asyncio.set_event_loop(loop)
-        loop.run_forever()
+        try:
+            loop.run_forever()
+        except Exception as e:
+            LOGGER.error("Redis event loop crashed: %s", e)
 
     def _run(self, coro: Any) -> Any:
         self._ready.wait(timeout=1.0)
