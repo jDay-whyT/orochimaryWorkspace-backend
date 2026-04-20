@@ -582,14 +582,7 @@ class NotionClient:
         yyyy_mm: str,
         limit: int = 100,
     ) -> list[NotionAccounting]:
-        """Query accounting records for current month that contain reddit content."""
-        from app.utils.formatting import MONTHS_RU_LOWER
-
-        year, month_str = yyyy_mm.split("-")
-        month_idx = int(month_str) - 1
-        month_label = MONTHS_RU_LOWER[month_idx]
-        primary_label = f"{month_label} {year}"
-
+        """Query accounting records that contain reddit content."""
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
         sorts = [{"timestamp": "last_edited_time", "direction": "descending"}]
         payload = {
@@ -598,7 +591,6 @@ class NotionClient:
                 "and": [
                     {"property": "Content", "multi_select": {"contains": "reddit"}},
                     {"property": "status", "status": {"does_not_equal": "stop"}},
-                    {"property": "Title", "title": {"contains": primary_label}},
                 ],
             },
             "sorts": sorts,
