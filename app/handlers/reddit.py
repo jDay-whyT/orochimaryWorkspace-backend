@@ -9,14 +9,12 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from app.config import Config
-from app.filters.topic_access import TopicAccessMessageFilter
 from app.roles import is_authorized
 from app.services import NotionClient, NotionAccounting, NotionPlanner, NotionOrder
 from app.utils.formatting import today
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
-router.message.filter(TopicAccessMessageFilter())
 
 _MONTHS_RU_SHORT = [
     "янв", "фев", "мар", "апр", "май", "июн",
@@ -73,10 +71,6 @@ async def cmd_reddit(
     if not is_authorized(message.from_user.id, config):
         return
 
-    # CRM topic only (in addition to TopicAccessMessageFilter)
-    if message.chat.type not in {"group", "supergroup"} or message.message_thread_id != config.crm_topic_thread_id:
-        return
-
     yyyy_mm = today(config.timezone).strftime("%Y-%m")
 
     accounting_task = notion.query_reddit_accounting(config.db_accounting, yyyy_mm)
@@ -86,7 +80,15 @@ async def cmd_reddit(
 
     board = _build_reddit_board_rows(accounting, planner, orders, today(config.timezone))
     text = _format_reddit_board_text(board, config)
-    await message.answer(text, parse_mode="HTML")
+    if config.managers_chat_id:
+        await message.bot.send_message(
+            chat_id=config.managers_chat_id,
+            message_thread_id=config.managers_topic_thread_id,
+            text=text,
+            parse_mode="HTML",
+        )
+    else:
+        await message.answer(text, parse_mode="HTML")
 
 
 def _build_reddit_board_rows(
