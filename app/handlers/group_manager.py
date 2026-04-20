@@ -1,12 +1,10 @@
 import logging
-import re
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import Message
 
 from app.config import Config
-from app.router.command_filters import normalize_text
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -19,12 +17,6 @@ TOPICS_TO_CREATE: tuple[str, ...] = (
     "Orders",
     "Description",
 )
-
-
-def _is_parkour_trigger(text: str) -> bool:
-    normalized = normalize_text(text)
-    return bool(re.search(r"(?<!\w)паркур(?!\w)", normalized, re.IGNORECASE))
-
 
 async def _bot_can_manage_topics(message: Message) -> tuple[bool, str | None]:
     bot_member = await message.bot.get_chat_member(message.chat.id, message.bot.id)
@@ -40,15 +32,12 @@ async def _bot_can_manage_topics(message: Message) -> tuple[bool, str | None]:
     return True, None
 
 
-@router.message(F.text)
+@router.message(F.text.regexp(r"(?<!\w)паркур(?!\w)"))
 async def create_group_topics(message: Message, config: Config) -> None:
     if not message.from_user or message.from_user.id not in config.allowed_editors:
         return
 
     if message.chat.type not in {"group", "supergroup"}:
-        return
-
-    if not _is_parkour_trigger(message.text or ""):
         return
 
     can_manage, error_message = await _bot_can_manage_topics(message)
