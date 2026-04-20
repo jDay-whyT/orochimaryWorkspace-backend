@@ -898,7 +898,7 @@ async def create_order(
 
         try:
             # Create order(s)
-            if order_type in ("short", "ad request"):
+            if order_type in ("short", "verif reddit", "ad request"):
                 title = f"{order_type} × {qty} — {in_date_str}"
                 await notion.create_order(
                     config.db_orders,
@@ -1146,16 +1146,15 @@ async def handle_create_orders_nlp(
         await message.answer("❌ У вас нет прав на создание заказов.")
         return
 
-    # Extract count from entities
-    count = entities.numbers[0] if entities.numbers else 1
+    # Get order type (default to "custom" if not specified)
+    order_type = entities.order_type or "custom"
+    count = entities.numbers[0] if entities.numbers else (10 if order_type == "verif reddit" else 1)
 
     # Validate count
     if count < 1 or count > 200:
         await message.answer("❌ Количество должно быть положительным (1-200)")
         return
 
-    # Get order type (default to "custom" if not specified)
-    order_type = entities.order_type or "custom"
     type_label = get_order_type_display_name(order_type)
 
     # Store flow context in memory for callback handlers
