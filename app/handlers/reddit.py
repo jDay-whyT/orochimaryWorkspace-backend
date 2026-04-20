@@ -80,15 +80,7 @@ async def cmd_reddit(
 
     board = _build_reddit_board_rows(accounting, planner, orders, today(config.timezone))
     text = _format_reddit_board_text(board, config)
-    if config.managers_chat_id:
-        await message.bot.send_message(
-            chat_id=config.managers_chat_id,
-            message_thread_id=config.managers_topic_thread_id,
-            text=text,
-            parse_mode="HTML",
-        )
-    else:
-        await message.answer(text, parse_mode="HTML")
+    await message.answer(text, parse_mode="HTML")
 
 
 def _build_reddit_board_rows(
