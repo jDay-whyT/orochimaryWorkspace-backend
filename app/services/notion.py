@@ -273,6 +273,20 @@ class NotionClient:
             LOGGER.exception("Failed to get model %s", page_id)
             return None
 
+    async def get_model_titles_batch(self, model_ids: list[str]) -> dict[str, str]:
+        """Fetch model names by page IDs in parallel. Returns {model_id: title}."""
+        if not model_ids:
+            return {}
+        tasks = [self.get_model(mid) for mid in model_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        out: dict[str, str] = {}
+        for mid, result in zip(model_ids, results):
+            if isinstance(result, Exception):
+                LOGGER.warning("get_model_titles_batch: failed for %s: %s", mid, result)
+            elif result is not None:
+                out[mid] = result.title
+        return out
+
     async def _extract_model_title(self, page: dict[str, Any]) -> str | None:
         """
         Extract model title with fallback logic:
@@ -601,13 +615,26 @@ class NotionClient:
     async def query_reddit_shoots(
         self,
         database_id: str,
+        yyyy_mm: str,
         limit: int = 100,
     ) -> list[NotionPlanner]:
-        """Query planner records where content contains reddit."""
+        """Query planner records where content contains reddit for the given month."""
+        import calendar as _calendar
+        year, month = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
+        first_day = date(year, month, 1).isoformat()
+        last_day_num = _calendar.monthrange(year, month)[1]
+        last_day = date(year, month, last_day_num).isoformat()
+
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
         payload = {
             "page_size": limit,
-            "filter": {"property": "content", "multi_select": {"contains": "reddit"}},
+            "filter": {
+                "and": [
+                    {"property": "content", "multi_select": {"contains": "reddit"}},
+                    {"property": "date", "date": {"on_or_after": first_day}},
+                    {"property": "date", "date": {"on_or_before": last_day}},
+                ],
+            },
             "sorts": [{"property": "date", "direction": "descending"}],
         }
         data = await self._request("POST", url, json=payload)
