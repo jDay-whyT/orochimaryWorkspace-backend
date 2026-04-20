@@ -1,24 +1,27 @@
 # OROCHIMARY Telegram Bot
 
-Telegram-бот на **aiogram v3**, который управляет Notion-базами **Models / Orders / Planner / Accounting** и работает через **webhook**. Запускается в **Google Cloud Run**, где сервис **stateless**, поэтому все настройки приходят из **ENV** и критичны правильный webhook и переменные окружения.
+Telegram-бот на **aiogram v3**, который управляет Notion-базами **Models / Orders / Planner / Accounting** и работает через **webhook**. Запускается в **Google Cloud Run** (stateless), все настройки приходят из ENV.
 
 ## Кратко о проекте
 
-- Бот для управления Notion-базами: **Models**, **Orders**, **Planner**, **Accounting**.
-- Основные флоу: **Orders** (CRUD заказов), **Planner** (планирование), **Accounting** (учёт), **Summary** (сводка по модели).
-- Cloud Run stateless: без корректных ENV и webhook бот не отвечает.
+- Бот для управления Notion-базами: **Models**, **Orders**, **Planner**, **Accounting**
+- NLP-роутер: распознаёт намерения из свободного текста без команд
+- Основные флоу: **Orders**, **Planner**, **Accounting**, **Summary**, **Reddit**
+- State: Redis (primary) / in-memory fallback
+- Cloud Run stateless: без корректных ENV и webhook бот не отвечает
 
 ## Требования
 
 - Python **3.12+**
 - **aiogram v3**
-- **Notion integration token** + **database IDs**
+- **Notion integration token** + database IDs
 - **Telegram bot token**
 - **GCP project** + **Cloud Run**
+- **Redis** (опционально, рекомендуется)
 
 ## ENV переменные
 
-> Формат списка `ALLOWED_EDITORS`: `"123,456"` (через запятую, без пробелов или с ними — ок).
+> `ALLOWED_EDITORS` и `REPORT_VIEWERS` — через запятую: `"123,456"`
 
 | Переменная | Обязательно | Описание |
 |---|---|---|
@@ -28,130 +31,137 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `DB_ORDERS` | ✅ | ID базы **Orders** (UUID) |
 | `DB_PLANNER` | ✅ | ID базы **Planner** (UUID) |
 | `DB_ACCOUNTING` | ✅ | ID базы **Accounting** (UUID) |
-| `ALLOWED_EDITORS` | ✅ | Список user_id с доступом к чтению/записи |
-| `REPORT_VIEWERS` | ⚠️ | Список user_id (через запятую) для scout read-only карточек |
-| `CRM_TOPIC_THREAD_ID` | ✅ | ID топика CRM в Telegram (целое число > 0) |
-| `SCOUTS_CHAT_ID` | ⚠️ | Telegram chat_id скаут-чата (для read-only scout режима) |
-| `TELEGRAM_WEBHOOK_SECRET` | ⚠️ | Секрет для проверки заголовка `X-Telegram-Bot-Api-Secret-Token` |
+| `ALLOWED_EDITORS` | ✅ | user_id с доступом к чтению/записи |
+| `CRM_TOPIC_THREAD_ID` | ✅ | ID топика CRM в Telegram |
+| `REPORT_VIEWERS` | ⚠️ | user_id для scout read-only карточек |
+| `SCOUTS_CHAT_ID` | ⚠️ | chat_id скаут-чата |
+| `TELEGRAM_WEBHOOK_SECRET` | ⚠️ | Секрет для X-Telegram-Bot-Api-Secret-Token |
 | `TIMEZONE` | ⚠️ | Таймзона, по умолчанию `Europe/Brussels` |
 | `FILES_PER_MONTH` | ⚠️ | Лимит файлов в месяц, по умолчанию `200` |
-| `INTERNAL_SECRET` | ⚠️ | Секрет для вызова `POST /internal/update-board` |
-| `MANAGERS_CHAT_ID` | ⚠️ | Telegram chat_id для менеджеров |
-| `MANAGERS_TOPIC_THREAD_ID` | ⚠️ | Telegram topic_thread_id для менеджеров |
+| `INTERNAL_SECRET` | ⚠️ | Секрет для `POST /internal/update-board` |
+| `MANAGERS_CHAT_ID` | ⚠️ | chat_id для менеджеров |
+| `MANAGERS_TOPIC_THREAD_ID` | ⚠️ | topic_thread_id для менеджеров |
+| `REDIS_URL` | ⚠️ | Redis URL, например `redis://localhost:6379/0` |
+| `BOARD_MESSAGE_ID` | ⚠️ | message_id борда съёмок для редактирования |
 
-> Бот валидирует конфиг при старте: если обязательные переменные не заданы, процесс завершится с ошибкой.
+## Структура проекта
+app/
+├── bot.py                   # Dispatcher setup, роутеры
+├── config.py                # Конфиг из ENV
+├── roles.py                 # Role-based access control
+├── server.py                # aiohttp webhook server
+├── filters/
+│   ├── flow.py              # FlowFilter
+│   └── topic_access.py      # TopicAccessMessageFilter
+├── handlers/
+│   ├── start.py             # /start, NLP fallback
+│   ├── orders.py            # Orders CRUD
+│   ├── planner.py           # Planner flow
+│   ├── accounting.py        # Accounting flow
+│   ├── summary.py           # Summary cards
+│   ├── reports.py           # Report cards
+│   ├── reddit.py            # /reddit борд
+│   ├── notifications.py     # /shoots борд
+│   ├── nlp_callbacks.py     # inline keyboard callbacks
+│   └── group_manager.py     # group triggers
+├── router/
+│   ├── dispatcher.py        # NLP routing pipeline
+│   ├── intent_v2.py         # Intent classification
+│   ├── entities_v2.py       # Entity extraction
+│   ├── command_filters.py   # Intent + order type mapping
+│   ├── model_resolver.py    # Fuzzy model matching
+│   └── prefilter.py         # Pre-filter (gibberish, length)
+├── services/
+│   ├── notion.py            # Notion API client
+│   ├── model_card.py        # CRM карточка модели
+│   ├── scout_card.py        # Скаут карточка
+│   └── accounting.py        # Accounting service
+├── state/
+│   ├── memory.py            # In-memory state (fallback)
+│   ├── recent.py            # Recent models (in-memory)
+│   ├── redis_state.py       # Redis-backed state (primary)
+│   └── redis_recent.py      # Redis recent models
+└── utils/
+├── constants.py         # Константы (ORDER_TYPES и др.)
+├── formatting.py        # Форматирование дат, текста
+├── accounting.py        # Прогресс файлов
+├── content_mapping.py   # content type → DB field
+└── patterns.py          # Regex паттерны
 
-### Авторизация по user_id
+## NLP команды
 
-- Пользователи из `ALLOWED_EDITORS` имеют доступ к чтению и записи.
-- Остальные пользователи могут читать, но не видят кнопки записи и получают ответ “нет доступа” при попытке записи.
-- Узнать свой `user_id` можно:
-  - Через бота **@userinfobot**.
-  - Либо попросить администратора посмотреть лог входящего апдейта.
+| Фраза | Что делает |
+|---|---|
+| `стейдж` | CRM карточка модели |
+| `скаут стейдж` | Скаут карточка |
+| `три кастома стейдж` | Создать 3 заказа custom |
+| `вериф реддит стейдж` | Заказ верификации (10 шт по умолчанию) |
+| `стейдж 30 файлов` | Добавить 30 файлов в учёт месяца |
+| `коммент реддит стейдж` | Обновить Reddit комментарий |
+| `шут стейдж` | Создать съёмку в планере |
+| `репорт стейдж` | Отчёт за месяц |
+| `/reddit` | Reddit борд по всем моделям |
+| `/shoots` | Борд съёмок на 7 дней |
+
+## Типы заказов (Orders)
+
+| Тип | Описание |
+|---|---|
+| `custom` | Кастом (создаётся по одному) |
+| `short` | Шорт (count в одну запись) |
+| `verif reddit` | Верификация Reddit (default 10 шт) |
+| `call` | Колл |
+| `ad request` | Ad Request |
+
+## Reddit борд (`/reddit`)
+
+Показывает карточки по всем Reddit-моделям:
+📌 Sukuna
+📅 Прошлая съёмка: 01 апр · done
+📅 Следующая: 28 апр · scheduled
+📁 Reddit файлов (апр): 87
+📋 Вериф: open · 10 шт · 15 апр
+💬 комментарий менеджера
+
+Источники: Accounting (фильтр `Content=reddit`) + Planner (новые модели → 🆕) + Orders (открытые `verif reddit`).
+
+## Карточка модели (CRM)
+📌 СТЕЙДЖ
+📦 Заказы: 2 откр · 1 просрочены
+📅 Съёмка: 25 апр · reddit, twitter
+📁 Файлы (апр): 120/200 (60%)
+Что делаем?
+[📦 Заказы] [📅 Съёмка] [📁 Файлы]
+
+## Accounting
+
+- 1 запись на модель в месяц
+- Title: `"{MODEL_NAME} {месяц_ru} {год}"` — например `"КЛЕЩ февраль 2026"`
+- Поля по типам: `of_files`, `reddit_files`, `twitter_files`, `fansly_files`, `social_files`, `request_files`
+- Лимит: `FILES_PER_MONTH` (default 200)
 
 ## Локальный запуск
-
-### Установка
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-### ENV через .env
-
-Создайте файл `.env` и заполните значениями:
-
-```env
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_WEBHOOK_SECRET=...
-NOTION_TOKEN=...
-DB_MODELS=...
-DB_ORDERS=...
-DB_PLANNER=...
-DB_ACCOUNTING=...
-ALLOWED_EDITORS=123,456
-REPORT_VIEWERS=789,101112
-CRM_TOPIC_THREAD_ID=123
-SCOUTS_CHAT_ID=-1001234567890
-TIMEZONE=Europe/Brussels
-FILES_PER_MONTH=200
-INTERNAL_SECRET=...
-```
-
-Затем экспортируйте:
-
-```bash
 export $(cat .env | xargs)
-```
-
-### ENV через export (Linux/macOS)
-
-```bash
-export TELEGRAM_BOT_TOKEN=...
-export TELEGRAM_WEBHOOK_SECRET=...
-export NOTION_TOKEN=...
-export DB_MODELS=...
-export DB_ORDERS=...
-export DB_PLANNER=...
-export DB_ACCOUNTING=...
-export ALLOWED_EDITORS="123,456"
-export REPORT_VIEWERS="789,101112"
-export CRM_TOPIC_THREAD_ID=123
-export SCOUTS_CHAT_ID=-1001234567890
-export TIMEZONE="Europe/Brussels"
-export FILES_PER_MONTH=200
-export INTERNAL_SECRET=...
-```
-
-### ENV через PowerShell
-
-```powershell
-$env:TELEGRAM_BOT_TOKEN="..."
-$env:TELEGRAM_WEBHOOK_SECRET="..."
-$env:NOTION_TOKEN="..."
-$env:DB_MODELS="..."
-$env:DB_ORDERS="..."
-$env:DB_PLANNER="..."
-$env:DB_ACCOUNTING="..."
-$env:ALLOWED_EDITORS="123,456"
-$env:REPORT_VIEWERS="789,101112"
-$env:CRM_TOPIC_THREAD_ID="123"
-$env:SCOUTS_CHAT_ID="-1001234567890"
-$env:TIMEZONE="Europe/Brussels"
-$env:FILES_PER_MONTH="200"
-$env:INTERNAL_SECRET="..."
-```
-
-### Запуск
-
-```bash
 python -m app.server
 ```
 
-### Проверка
-
+Проверка:
 ```bash
 curl http://localhost:8080/healthz
-curl http://localhost:8080/
 ```
 
-В Telegram отправьте `/start` вашему боту.
-
 ## Деплой в Cloud Run
-
-### Build & Push
 
 ```bash
 docker build -t orochimary-bot .
 docker tag orochimary-bot gcr.io/YOUR_PROJECT/orochimary-bot:latest
 docker push gcr.io/YOUR_PROJECT/orochimary-bot:latest
-```
 
-### Deploy
-
-```bash
 gcloud run deploy orochimary-bot \
   --image gcr.io/YOUR_PROJECT/orochimary-bot:latest \
   --region europe-west1 \
@@ -159,61 +169,7 @@ gcloud run deploy orochimary-bot \
   --allow-unauthenticated
 ```
 
-> Если хотите ограничить доступ, уберите `--allow-unauthenticated` и настройте IAM.
-
-### Задать ENV в Cloud Run
-
-**Через gcloud:**
-
-```bash
-gcloud run services update orochimary-bot \
-  --region europe-west1 \
-  --set-env-vars "TELEGRAM_BOT_TOKEN=..." \
-  --set-env-vars "TELEGRAM_WEBHOOK_SECRET=..." \
-  --set-env-vars "NOTION_TOKEN=..." \
-  --set-env-vars "ALLOWED_EDITORS=123,456" \
-  --set-env-vars "REPORT_VIEWERS=789,101112" \
-  --set-env-vars "DB_MODELS=..." \
-  --set-env-vars "DB_ORDERS=..." \
-  --set-env-vars "DB_PLANNER=..." \
-  --set-env-vars "DB_ACCOUNTING=..." \
-  --set-env-vars "CRM_TOPIC_THREAD_ID=123" \
-  --set-env-vars "SCOUTS_CHAT_ID=-1001234567890" \
-  --set-env-vars "TIMEZONE=Europe/Brussels" \
-  --set-env-vars "FILES_PER_MONTH=200"
-```
-
-### Cloud Scheduler: ежедневный sync board (06:00 UTC)
-
-Создайте job, который раз в день вызывает внутренний endpoint:
-
-```bash
-gcloud scheduler jobs create http orochimary-daily-board-sync \
-  --location=europe-west1 \
-  --schedule="0 6 * * *" \
-  --time-zone="UTC" \
-  --uri="https://YOUR_CLOUD_RUN_URL/internal/update-board" \
-  --http-method=POST \
-  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
-```
-
-Если job уже существует, обновите её:
-
-```bash
-gcloud scheduler jobs update http orochimary-daily-board-sync \
-  --location=europe-west1 \
-  --schedule="0 6 * * *" \
-  --time-zone="UTC" \
-  --uri="https://YOUR_CLOUD_RUN_URL/internal/update-board" \
-  --http-method=POST \
-  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
-```
-
-**Через Console:**
-
-Cloud Run → Service → Edit & Deploy New Revision → **Variables & Secrets**.
-
-### Настройка Webhook
+### Webhook
 
 ```bash
 curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
@@ -221,154 +177,32 @@ curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
   -d "{\"url\":\"https://YOUR_DOMAIN/tg/webhook\",\"secret_token\":\"$TELEGRAM_WEBHOOK_SECRET\"}"
 ```
 
-### Проверка
+### Cloud Scheduler (борд съёмок, 06:00 UTC)
 
 ```bash
-curl https://YOUR_DOMAIN/healthz
-curl https://YOUR_DOMAIN/
-
-curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
+gcloud scheduler jobs create http orochimary-daily-board-sync \
+  --location=europe-west1 \
+  --schedule="0 6 * * *" \
+  --uri="https://YOUR_CLOUD_RUN_URL/internal/update-board" \
+  --http-method=POST \
+  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
 ```
 
-### Доступные endpoints
+## Endpoints
 
-- `GET /` — короткая инфо-страница
-- `GET /healthz` — healthcheck
-- `POST /tg/webhook` — Telegram webhook
-- `POST /internal/update-board` — внутреннее обновление доски (по `X-Internal-Secret`)
+| Endpoint | Описание |
+|---|---|
+| `GET /` | Info |
+| `GET /healthz` | Healthcheck |
+| `POST /tg/webhook` | Telegram webhook |
+| `POST /internal/update-board` | Обновление борда съёмок |
 
 ## Troubleshooting
 
-### “Бот молчит”
+**Бот молчит** — проверь `ALLOWED_EDITORS`, webhook, логи Cloud Run.
 
-1) **Проверь доступ**: `ALLOWED_EDITORS`.
-2) **Проверь webhook**: `/tg/webhook` доступен и Telegram действительно шлёт апдейты.
-3) **Проверь логи Cloud Run**: должны быть строки вида `Webhook request received` и `Update handled`.
-4) **Проверь fallback-хендлер**: в idle режиме должен отвечать.
+**401/403 Notion** — проверь `NOTION_TOKEN` и доступ интеграции ко всем базам.
 
-### “Update handled, но нет ответа”
+**Redis недоступен** — бот упадёт на старте если `REDIS_URL` задан но Redis не отвечает. Убери `REDIS_URL` для fallback на in-memory.
 
-Частая ошибка — обработчики вида `@router.message(F.text)` без ограничений по FlowFilter.
-Такие хендлеры **глотают все тексты** и не дают другим флоу обработать сообщение.
-Используйте ограничения по состояниям/флоу и более узкие фильтры.
-
-### “401/403 в Notion”
-
-- Проверь `NOTION_TOKEN`.
-- Проверь, что интеграция имеет доступ ко всем четырём базам.
-
-### “Timeouts”
-
-- Увеличь timeout или уменьши concurrency в Cloud Run.
-- Проверь, нет ли долгих операций в обработчиках.
-
-## Структура проекта
-
-```
-app/
-├── bot.py                 # Dispatcher setup
-├── config.py              # Конфиг из ENV
-├── roles.py               # Role-based access control
-├── server.py              # aiohttp webhook server
-├── filters/
-│   └── flow.py            # Flow фильтры
-├── handlers/
-│   ├── start.py           # /start и меню
-│   ├── orders.py          # Orders CRUD
-│   ├── planner.py         # Planner flow
-│   ├── accounting.py      # Accounting flow
-│   └── summary.py         # Summary cards
-├── services/
-│   └── notion.py          # Notion API client
-├── state/
-│   ├── memory.py          # User state storage
-│   └── recent.py          # Recent models
-└── utils/
-    ├── constants.py       # Константы
-    └── formatting.py      # Форматирование
-```
-
-## Примеры фраз (NLP)
-
-| Фраза | Что делает |
-|---|---|
-| `мелиса` | Открыть карточку модели (CRM) |
-| `три кастома мелиса` | Создать 3 заказа типа «custom» |
-| `мелиса 30 файлов` | Добавить 30 файлов в учёт |
-| `мелиса файлы` | Показать статистику файлов |
-| `репорт мелиса` | Отчёт за месяц |
-| `сводка` | Меню сводки |
-| `заказы` | Меню заказов |
-| `планировщик` | Меню планировщика |
-| `аккаунт` | Меню учёта файлов |
-
-### Карточка модели (CRM)
-
-При вводе имени модели бот показывает карточку и **модульные действия**:
-
-```
-📌 Мелиса
-📦 Заказы: open 3
-📅 Съёмка: 14.02 (scheduled)
-📁 Файлы (фев): 120/200 (60%)
-
-Что делаем?
-[📦 Заказы] [📅 Съёмка] [📁 Файлы]
-[Готово]
-```
-
-Детальные действия (`➕ Заказ`, `✅ Закрыть`, `📄 Просмотр`, `💬 Коммент` и т.д.) открываются уже внутри выбранного модуля.
-
-### Accounting (1 запись/месяц)
-
-- Лимит: `FILES_MONTH_LIMIT = 200`
-- Title: `"{MODEL_NAME} · accounting {YYYY-MM}"`
-- Кнопки: `+15 / +30 / +50 / Ввод`
-- Ручной ввод: 1–500
-- Отображение: `X/200 (Y%) +over`
-
-### Planner (контент + статус)
-
-- При создании съёмки: выбор контента (Twitter/Reddit/Main/SFC/Posting/Fansly)
-- Автостатус: `scheduled` (дата + контент), `planned` (без одного из них)
-- Для существующей ближайшей съёмки: `✅ Done / ↩️ Перенос / 💬 Коммент`
-
-## Технический ресерч (2026-04-16)
-
-Проверили import-граф, регистрацию роутеров и фактическое использование модулей. Ниже — кандидаты в legacy/неиспользуемый код, который остался от старых флоу.
-
-### Кандидаты в legacy
-
-1. **Старый NLP v1** (вероятно оставлен только для совместимости):
-   - `app/router/intent.py`
-   - `app/router/entities.py`
-
-   Эти функции не используются в рабочем роутинге и не вызываются в тестах напрямую; рабочий путь идёт через `intent_v2.py` и `entities_v2.py`.
-
-2. **Утилиты старого NLP-слоя**:
-   - `app/utils/nlp.py`
-
-   На момент аудита не найдено импортов/вызовов из прод-кода.
-
-3. **Неиспользуемые topic-фильтры для rent-потока**:
-   - `RentTopicFilter`
-   - `RentTopicCallbackFilter`
-   в `app/filters/topic_access.py`.
-
-   Классы присутствуют, но не подключены ни в один router.
-
-### Что важно: не удалять вслепую
-
-Перед очисткой legacy-блоков стоит проверить:
-- не используются ли эти объекты внешними интеграциями/скриптами вне репозитория;
-- не завязаны ли на них обратная совместимость и сторонние импорты (`from app.router import ...`).
-
-Рекомендуемый безопасный порядок:
-1) сначала пометить как `@deprecated` + добавить логирование обращения;
-2) убрать реэкспорт из публичных `__init__`;
-3) удалить только после 1-2 релизов без обращений.
-
-## Безопасность
-
-- **Не коммитьте** токены и секреты.
-- По желанию используйте **Secret Manager** + привязку переменных в Cloud Run.
+**Timeouts** — увеличь timeout или уменьши concurrency в Cloud Run.
