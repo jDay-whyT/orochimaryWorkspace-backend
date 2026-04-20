@@ -7,13 +7,11 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from app.config import Config
-from app.filters.topic_access import ManagersTopicFilter
 from app.services import NotionClient
 from app.utils.formatting import MONTHS_SHORT, parse_date, today
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
-router.message.filter(ManagersTopicFilter())
 
 SHOOTS_DAYS = 7
 
