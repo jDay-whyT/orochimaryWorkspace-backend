@@ -74,11 +74,18 @@ async def cmd_reddit(
     yyyy_mm = today(config.timezone).strftime("%Y-%m")
 
     accounting_task = notion.query_reddit_accounting(config.db_accounting, yyyy_mm)
-    planner_task = notion.query_reddit_shoots(config.db_planner)
+    planner_task = notion.query_reddit_shoots(config.db_planner, yyyy_mm)
     orders_task = notion.query_verif_reddit_orders(config.db_orders)
     accounting, planner, orders = await asyncio.gather(accounting_task, planner_task, orders_task)
 
-    board = _build_reddit_board_rows(accounting, planner, orders, today(config.timezone))
+    all_model_ids = list({
+        _mid(r.model_id)
+        for r in (*accounting, *planner, *orders)
+        if r.model_id
+    })
+    model_names = await notion.get_model_titles_batch(all_model_ids)
+
+    board = _build_reddit_board_rows(accounting, planner, orders, today(config.timezone), model_names)
     text = _format_reddit_board_text(board, config)
     await message.answer(text, parse_mode="HTML")
 
@@ -88,6 +95,7 @@ def _build_reddit_board_rows(
     planner: list[NotionPlanner],
     orders: list[NotionOrder],
     today_date: date,
+    model_names: dict[str, str],
 ) -> list[RedditBoardRow]:
     rows: dict[str, RedditBoardRow] = {}
 
@@ -97,7 +105,7 @@ def _build_reddit_board_rows(
             continue
         rows[model_id] = RedditBoardRow(
             model_id=model_id,
-            model_name=_fmt_model_name(acc),
+            model_name=model_names.get(model_id) or _fmt_model_name(acc),
             is_new=False,
             reddit_files=acc.reddit_files,
             comm_reddit=acc.comm_reddit,
@@ -115,7 +123,7 @@ def _build_reddit_board_rows(
         if row is None:
             row = RedditBoardRow(
                 model_id=model_id,
-                model_name=_fmt_model_name(model_shoots[0]),
+                model_name=model_names.get(model_id) or model_id,
                 is_new=True,
             )
             rows[model_id] = row
@@ -145,7 +153,7 @@ def _build_reddit_board_rows(
         if row is None:
             row = RedditBoardRow(
                 model_id=model_id,
-                model_name=_fmt_model_name(order),
+                model_name=model_names.get(model_id) or _fmt_model_name(order),
                 is_new=True,
             )
             rows[model_id] = row
