@@ -67,6 +67,7 @@ class NotionAccounting:
     event_files: int = 0
     request_files: int = 0
     comment: str | None = None
+    comm_reddit: str | None = None
     status: str | None = None
     last_edited: str | None = None
     content: list[str] | None = None
@@ -575,6 +576,71 @@ class NotionClient:
             LOGGER.debug("query_monthly_records: found via fallback2 ('%s')", yyyy_mm)
         return results_fb2
 
+    async def query_reddit_accounting(
+        self,
+        database_id: str,
+        yyyy_mm: str,
+        limit: int = 100,
+    ) -> list[NotionAccounting]:
+        """Query accounting records for current month that contain reddit content."""
+        from app.utils.formatting import MONTHS_RU_LOWER
+
+        year, month_str = yyyy_mm.split("-")
+        month_idx = int(month_str) - 1
+        month_label = MONTHS_RU_LOWER[month_idx]
+        primary_label = f"{month_label} {year}"
+
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        sorts = [{"timestamp": "last_edited_time", "direction": "descending"}]
+        payload = {
+            "page_size": limit,
+            "filter": {
+                "and": [
+                    {"property": "Content", "multi_select": {"contains": "reddit"}},
+                    {"property": "status", "status": {"does_not_equal": "stop"}},
+                    {"property": "Title", "title": {"contains": primary_label}},
+                ],
+            },
+            "sorts": sorts,
+        }
+        data = await self._request("POST", url, json=payload)
+        return [_parse_accounting(item) for item in data.get("results", [])]
+
+    async def query_reddit_shoots(
+        self,
+        database_id: str,
+        limit: int = 100,
+    ) -> list[NotionPlanner]:
+        """Query planner records where content contains reddit."""
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        payload = {
+            "page_size": limit,
+            "filter": {"property": "content", "multi_select": {"contains": "reddit"}},
+            "sorts": [{"property": "date", "direction": "descending"}],
+        }
+        data = await self._request("POST", url, json=payload)
+        return [_parse_planner(item) for item in data.get("results", [])]
+
+    async def query_verif_reddit_orders(
+        self,
+        database_id: str,
+        limit: int = 100,
+    ) -> list[NotionOrder]:
+        """Query open orders with type = verif reddit."""
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        payload = {
+            "page_size": limit,
+            "filter": {
+                "and": [
+                    {"property": "type", "select": {"equals": "verif reddit"}},
+                    {"property": "status", "select": {"equals": "Open"}},
+                ],
+            },
+            "sorts": [{"property": "in", "direction": "descending"}],
+        }
+        data = await self._request("POST", url, json=payload)
+        return [_parse_order(item) for item in data.get("results", [])]
+
     async def get_monthly_record(
         self,
         database_id: str,
@@ -714,6 +780,21 @@ class NotionClient:
         LOGGER.info("update_accounting_comment: page_id=%s comment_len=%d", page_id, len(comment))
         await self._request("PATCH", url, json=payload)
         LOGGER.info("update_accounting_comment completed: page_id=%s", page_id)
+
+    async def update_reddit_comment(self, page_id: str, comment: str) -> None:
+        """Update accounting comm_reddit."""
+        if len(comment) > 2000:
+            LOGGER.warning("Reddit comment truncated: page_id=%s len=%d", page_id, len(comment))
+            comment = comment[:2000]
+        payload = {
+            "properties": {
+                "comm_reddit": {"rich_text": [{"text": {"content": comment}}]},
+            }
+        }
+        url = f"https://api.notion.com/v1/pages/{page_id}"
+        LOGGER.info("update_reddit_comment: page_id=%s comment_len=%d", page_id, len(comment))
+        await self._request("PATCH", url, json=payload)
+        LOGGER.info("update_reddit_comment completed: page_id=%s", page_id)
 
     async def update_accounting_content(
         self,
@@ -1031,6 +1112,7 @@ def _parse_accounting(item: dict[str, Any]) -> NotionAccounting:
         event_files=event_files,
         request_files=request_files,
         comment=_extract_rich_text(item, "Comment"),
+        comm_reddit=_extract_rich_text(item, "comm_reddit"),
         status=_extract_status(item, "status"),
         last_edited=last_edited,
         content=_extract_multi_select(item, "Content"),

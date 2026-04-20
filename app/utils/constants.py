@@ -1,5 +1,5 @@
 # Order types
-ORDER_TYPES = ["short", "ad request", "call", "custom"]
+ORDER_TYPES = ["short", "verif reddit", "ad request", "call", "custom"]
 
 # Order statuses
 ORDER_STATUS_OPEN = "Open"

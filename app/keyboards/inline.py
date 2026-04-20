@@ -508,6 +508,7 @@ def summary_card_keyboard(model_id: str) -> InlineKeyboardMarkup:
 ORDER_TYPE_CB_MAP = {
     "custom": "custom",
     "short": "short",
+    "verif_reddit": "verif reddit",
     "call": "call",
     "ad_request": "ad request",
 }
@@ -517,6 +518,8 @@ ORDER_TYPE_CB_REVERSE = {v: k for k, v in ORDER_TYPE_CB_MAP.items()}
 ORDER_TYPE_DISPLAY = {
     "custom": "Кастом",
     "short": "Шорт",
+    "verif_reddit": "verif reddit",
+    "verif reddit": "verif reddit",
     "call": "Колл",
     "ad_request": "Ad Request",
     "ad request": "Ad Request",
@@ -678,7 +681,10 @@ def nlp_order_type_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Шорт", callback_data=f"nlp:ot:short{s}"),
         ],
         [
+            InlineKeyboardButton(text="verif reddit", callback_data=f"nlp:ot:verif_reddit{s}"),
             InlineKeyboardButton(text="Колл", callback_data=f"nlp:ot:call{s}"),
+        ],
+        [
             InlineKeyboardButton(text="Ad Request", callback_data=f"nlp:ot:ad_request{s}"),
         ],
         [nlp_back_button(model_id)],

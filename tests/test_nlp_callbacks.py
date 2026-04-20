@@ -102,14 +102,15 @@ class TestOrderTypeMapping:
         assert ORDER_TYPE_CB_REVERSE["ad request"] == "ad_request"
 
     def test_all_types_mapped(self):
-        """All four order types are in the callback map."""
-        expected = {"custom", "short", "call", "ad_request"}
+        """All order types are in the callback map."""
+        expected = {"custom", "short", "verif_reddit", "call", "ad_request"}
         assert set(ORDER_TYPE_CB_MAP.keys()) == expected
 
     def test_display_names(self):
         """Display names are correct for callback values."""
         assert ORDER_TYPE_DISPLAY["custom"] == "Кастом"
         assert ORDER_TYPE_DISPLAY["short"] == "Шорт"
+        assert ORDER_TYPE_DISPLAY["verif reddit"] == "verif reddit"
         assert ORDER_TYPE_DISPLAY["call"] == "Колл"
         assert ORDER_TYPE_DISPLAY["ad_request"] == "Ad Request"
 

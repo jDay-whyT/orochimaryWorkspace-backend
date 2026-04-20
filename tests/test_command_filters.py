@@ -378,6 +378,7 @@ class TestUtilityFunctions:
         """Test order type display name."""
         assert get_order_type_display_name("custom") == "Кастом"
         assert get_order_type_display_name("short") == "Шорт"
+        assert get_order_type_display_name("verif reddit") == "verif reddit"
         assert get_order_type_display_name("call") == "Колл"
         assert get_order_type_display_name("ad request") == "Ad Request"
 

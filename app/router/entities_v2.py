@@ -245,7 +245,9 @@ def extract_entities_v2(text: str) -> EntitiesV2:
     LOGGER.debug("Extracted numbers: %s", entities.numbers)
 
     # Step 2: Extract order type
-    if "ad request" in text_normalized or "ад реквест" in text_normalized:
+    if "verif reddit" in text_normalized or "вериф реддит" in text_normalized:
+        entities.order_type = "verif reddit"
+    elif "ad request" in text_normalized or "ад реквест" in text_normalized:
         entities.order_type = "ad request"
     else:
         for word in words:
@@ -402,6 +404,7 @@ def get_order_type_display_name(order_type: Optional[str]) -> str:
     display_names = {
         "custom": "Кастом",
         "short": "Шорт",
+        "verif reddit": "verif reddit",
         "call": "Колл",
         "ad request": "Ad Request",
         "ad_request": "Ad Request",

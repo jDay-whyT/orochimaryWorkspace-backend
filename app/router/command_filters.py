@@ -52,6 +52,7 @@ class CommandIntent(Enum):
 
     # Comment (priority 55)
     ADD_COMMENT = "add_comment"
+    REDDIT_COMMENT = "reddit_comment"
 
     # Model actions (priority 50)
     GET_REPORT = "get_report"
@@ -238,6 +239,8 @@ COMMAND_FILTERS = [
             # Колл
             "колл", "колла", "коллов", "коллик",
             "call", "calls",
+            # Verif reddit
+            "вериф", "реддит", "verif", "reddit",
         ],
         multi_word_phrases=[
             "ad request", "ad requests",
@@ -251,6 +254,10 @@ COMMAND_FILTERS = [
             re.compile(r'\bshort[s]?\b', re.IGNORECASE),
             re.compile(r'\bколл?[а-я]*\b', re.IGNORECASE),
             re.compile(r'\bcall[s]?\b', re.IGNORECASE),
+            re.compile(r'\bвериф\b', re.IGNORECASE),
+            re.compile(r'\bverif\b', re.IGNORECASE),
+            re.compile(r'\bреддит\b', re.IGNORECASE),
+            re.compile(r'\breddit\b', re.IGNORECASE),
             re.compile(r'\b(ad\s*request|ад\s*реквест)[а-я]*\b', re.IGNORECASE),
         ],
         exclude_with=[
@@ -449,6 +456,7 @@ IGNORE_KEYWORDS = {
     # Ключевые слова команд
     "кастом", "кастома", "кастомов", "custom", "customs",
     "шорт", "шорта", "шортов", "шортс", "short", "shorts",
+    "вериф", "верифреддит", "вериф-реддит", "verif", "reddit", "реддит",
     "колл", "колла", "коллов", "call", "calls",
     "ад", "ad", "реквест", "request",
 
@@ -563,6 +571,12 @@ ORDER_TYPE_MAP = {
     "шортс": "short",
     "short": "short",
     "shorts": "short",
+    "вериф": "verif reddit",
+    "верифреддит": "verif reddit",
+    "вериф-реддит": "verif reddit",
+    "verif": "verif reddit",
+    "reddit": "verif reddit",
+    "verif reddit": "verif reddit",
 
     # Call
     "колл": "call",

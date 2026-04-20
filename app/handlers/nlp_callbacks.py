@@ -694,6 +694,30 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             memory_state=memory_state,
         )
 
+    elif intent == CommandIntent.REDDIT_COMMENT:
+        now = datetime.now(tz=config.timezone)
+        yyyy_mm = now.strftime("%Y-%m")
+        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+        existing = (record.comm_reddit if record else None) or "пусто"
+        memory_state.set(chat_id, user_id, {
+            "flow": "reddit_comment",
+            "step": "reddit_comment_input",
+            "model_id": model_id,
+            "model_name": model_data.title,
+        })
+        msg = await query.message.edit_text(
+            f"💬 Reddit комментарий — {html.escape(model_data.title)}\n"
+            f"Текущий: \"{html.escape(existing)}\"\n\n"
+            "Введи новый комментарий:",
+            parse_mode="HTML",
+        )
+        _remember_screen_message(
+            memory_state,
+            chat_id,
+            user_id,
+            msg.message_id if msg else query.message.message_id,
+        )
+
     else:
         # Default: show universal model card with live data
         from app.keyboards.inline import model_card_keyboard
@@ -1994,7 +2018,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
             return
 
         try:
-            if order_type in ("short", "ad request"):
+            if order_type in ("short", "verif reddit", "ad request"):
                 title = f"{model_name} | {order_type} × {count}"
                 await notion.create_order(
                     database_id=config.db_orders,
