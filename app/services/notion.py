@@ -160,7 +160,7 @@ class NotionClient:
                         await asyncio.sleep(backoff)
                         continue
 
-                    LOGGER.error("Notion API error %s %s: %s", response.status, url, short_payload)
+                    LOGGER.error("Notion API error %s %s body=%s", response.status, url, short_payload)
                     raise RuntimeError(f"Notion API error {response.status}")
 
             except aiohttp.ClientError:
@@ -711,7 +711,9 @@ class NotionClient:
             }
         }
         url = f"https://api.notion.com/v1/pages/{page_id}"
+        LOGGER.info("update_accounting_comment: page_id=%s comment_len=%d", page_id, len(comment))
         await self._request("PATCH", url, json=payload)
+        LOGGER.info("update_accounting_comment completed: page_id=%s", page_id)
 
     async def update_accounting_content(
         self,
