@@ -604,7 +604,7 @@ class NotionClient:
             "filter": {
                 "and": [
                     {"property": "Content", "multi_select": {"contains": "reddit"}},
-                    {"property": "status", "status": {"does_not_equal": "stop"}},
+                    {"property": "status", "status": {"equals": "work"}},
                 ],
             },
             "sorts": sorts,
