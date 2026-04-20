@@ -707,7 +707,7 @@ class NotionClient:
             comment = comment[:2000]
         payload = {
             "properties": {
-                "Comment": {"rich_text": [{"text": {"content": comment}}]},
+                "comments": {"rich_text": [{"text": {"content": comment}}]},
             }
         }
         url = f"https://api.notion.com/v1/pages/{page_id}"
