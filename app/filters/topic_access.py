@@ -15,18 +15,34 @@ class TopicAccessMessageFilter(BaseFilter):
 
     async def __call__(self, message: Message, config: Config) -> bool:
         if not message.from_user:
+            LOGGER.info("TopicAccessFilter: no from_user")
             return False
         user_id = message.from_user.id
+        LOGGER.info(
+            "TopicAccessFilter: chat_type=%s thread_id=%s user=%s crm_thread=%s",
+            message.chat.type,
+            message.message_thread_id,
+            user_id,
+            config.crm_topic_thread_id,
+        )
 
         if message.chat.type == "private":
-            return user_id in config.allowed_editors
+            result = user_id in config.allowed_editors
+            LOGGER.info("TopicAccessFilter: private chat result=%s", result)
+            return result
         if message.chat.type not in {"group", "supergroup"}:
+            LOGGER.info("TopicAccessFilter: unsupported chat type")
             return False
         if config.scouts_chat_id and message.chat.id == config.scouts_chat_id:
-            return user_id in (config.allowed_editors | config.report_viewers)
+            result = user_id in (config.allowed_editors | config.report_viewers)
+            LOGGER.info("TopicAccessFilter: scouts chat result=%s", result)
+            return result
         if message.message_thread_id != config.crm_topic_thread_id:
+            LOGGER.info("TopicAccessFilter: wrong thread")
             return False
-        return user_id in config.allowed_editors
+        result = user_id in config.allowed_editors
+        LOGGER.info("TopicAccessFilter: crm topic result=%s", result)
+        return result
 
 
 class ManagersTopicFilter(BaseFilter):
