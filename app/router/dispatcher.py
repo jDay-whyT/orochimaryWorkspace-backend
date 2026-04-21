@@ -1672,7 +1672,10 @@ async def _handle_custom_order_count_input(message, text, user_state, config, no
 
 
 async def _handle_received_input(message, text, user_state, config, notion, memory_state):
-    """Handle free-text received count input for nlp_received flow."""
+    """Handle free-text received count input for nlp_received flow.
+
+    Adds the entered number to current_received.  Auto-closes when total >= count.
+    """
     from app.roles import is_editor
     chat_id, user_id = message.chat.id, message.from_user.id
 
@@ -1681,29 +1684,44 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
         return
 
     try:
-        received = int(text.strip())
-        if received < 0:
+        added = int(text.strip())
+        if added <= 0:
             raise ValueError
     except ValueError:
-        await message.answer("❌ Введи целое число")
+        await message.answer("❌ Введи целое число больше 0")
         return
 
     order_id = user_state.get("order_id", "")
-    count = user_state.get("count", 0)
+    count = int(user_state.get("count") or 0)
+    current_received = int(user_state.get("current_received") or 0)
     model_name = user_state.get("model_name", "")
     model_id = user_state.get("model_id", "")
 
-    await notion.update_order_received(order_id, received)
-    orders_cache.clear_cache(model_id)
-    memory_state.clear(chat_id, user_id)
+    new_received = current_received + added
 
     from app.keyboards.inline import nlp_action_complete_keyboard
-    await message.answer(
-        f"✅ Получено обновлено — <b>{html.escape(model_name)}</b>\n"
-        f"📥 {received}/{count}",
-        reply_markup=nlp_action_complete_keyboard(model_id),
-        parse_mode="HTML",
-    )
+
+    if new_received >= count:
+        today_date = datetime.now(tz=config.timezone).date()
+        await notion.close_order_with_received(order_id, today_date, new_received)
+        orders_cache.clear_cache(model_id)
+        memory_state.clear(chat_id, user_id)
+        await message.answer(
+            f"✅ Заказ закрыт — <b>{html.escape(model_name)}</b>\n"
+            f"📥 {new_received}/{count} · все получено",
+            reply_markup=nlp_action_complete_keyboard(model_id),
+            parse_mode="HTML",
+        )
+    else:
+        await notion.update_order_received(order_id, new_received)
+        orders_cache.clear_cache(model_id)
+        memory_state.clear(chat_id, user_id)
+        await message.answer(
+            f"📥 Обновлено — <b>{html.escape(model_name)}</b>\n"
+            f"Получено: {new_received}/{count}",
+            reply_markup=nlp_action_complete_keyboard(model_id),
+            parse_mode="HTML",
+        )
 
 
 # ============================================================================
