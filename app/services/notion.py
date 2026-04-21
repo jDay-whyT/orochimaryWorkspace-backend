@@ -274,18 +274,6 @@ class NotionClient:
             LOGGER.exception("Failed to get model %s", page_id)
             return None
 
-    async def get_model_titles_batch(self, model_ids: list[str]) -> dict[str, str]:
-        if not model_ids:
-            return {}
-        tasks = [self.get_model(mid) for mid in model_ids]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        out: dict[str, str] = {}
-        for mid, result in zip(model_ids, results):
-            if isinstance(result, Exception) or result is None:
-                continue
-            out[mid] = result.title
-        return out
-
     async def _extract_model_title(self, page: dict[str, Any]) -> str | None:
         """
         Extract model title with fallback logic:
