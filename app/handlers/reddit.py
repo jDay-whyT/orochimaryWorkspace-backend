@@ -1,6 +1,7 @@
 import asyncio
 import html
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date
 
@@ -57,8 +58,18 @@ def _format_shoot(date_str: str | None, status: str | None) -> str:
     return f"{_format_day_mon(date_str)} · {status_text}"
 
 
-def _fmt_model_name(record: NotionAccounting | NotionPlanner | NotionOrder) -> str:
-    return record.model_title or record.title or "?"
+_MONTHS_STRIP = (
+    "январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь|"
+    "января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря"
+)
+
+
+def _extract_model_name_from_title(title: str) -> str:
+    """Strip month suffix from accounting title. 'АКАЦИЯ апрель 2026' → 'АКАЦИЯ'"""
+    cleaned = re.sub(
+        rf'\s+({_MONTHS_STRIP})(\s+\d{{4}})?\s*$', '', title, flags=re.IGNORECASE
+    ).strip()
+    return cleaned or title
 
 
 @router.message(Command("reddit"))
@@ -77,15 +88,7 @@ async def cmd_reddit(
     orders_task = notion.query_verif_reddit_orders(config.db_orders)
     accounting, planner, orders = await asyncio.gather(accounting_task, planner_task, orders_task)
 
-    all_model_ids = list({
-        r.model_id
-        for r in (*accounting, *planner, *orders)
-        if r.model_id
-    })
-    model_names_raw = await notion.get_model_titles_batch(all_model_ids)
-    model_names = {k.replace("-", ""): v for k, v in model_names_raw.items()}
-
-    board = _build_reddit_board_rows(accounting, planner, orders, today(config.timezone), model_names)
+    board = _build_reddit_board_rows(accounting, planner, orders, today(config.timezone))
     text = _format_reddit_board_text(board, config)
     await message.answer(text, parse_mode="HTML")
 
@@ -95,7 +98,6 @@ def _build_reddit_board_rows(
     planner: list[NotionPlanner],
     orders: list[NotionOrder],
     today_date: date,
-    model_names: dict[str, str],
 ) -> list[RedditBoardRow]:
     rows: dict[str, RedditBoardRow] = {}
 
@@ -103,9 +105,10 @@ def _build_reddit_board_rows(
         model_id = _mid(acc.model_id)
         if not model_id:
             continue
+        model_name = _extract_model_name_from_title(acc.title) if acc.title else acc.model_id or "?"
         rows[model_id] = RedditBoardRow(
             model_id=model_id,
-            model_name=model_names.get(model_id) or _fmt_model_name(acc),
+            model_name=model_name,
             reddit_files=acc.reddit_files,
             comm_reddit=acc.comm_reddit,
         )
