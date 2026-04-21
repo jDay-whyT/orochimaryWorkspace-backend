@@ -26,7 +26,6 @@ _MONTHS_RU_SHORT = [
 class RedditBoardRow:
     model_id: str
     model_name: str
-    is_new: bool = False
     reddit_files: int | None = None
     comm_reddit: str | None = None
     last_shoot_date: str | None = None
@@ -79,11 +78,12 @@ async def cmd_reddit(
     accounting, planner, orders = await asyncio.gather(accounting_task, planner_task, orders_task)
 
     all_model_ids = list({
-        _mid(r.model_id)
+        r.model_id
         for r in (*accounting, *planner, *orders)
         if r.model_id
     })
-    model_names = await notion.get_model_titles_batch(all_model_ids)
+    model_names_raw = await notion.get_model_titles_batch(all_model_ids)
+    model_names = {k.replace("-", ""): v for k, v in model_names_raw.items()}
 
     board = _build_reddit_board_rows(accounting, planner, orders, today(config.timezone), model_names)
     text = _format_reddit_board_text(board, config)
@@ -106,7 +106,6 @@ def _build_reddit_board_rows(
         rows[model_id] = RedditBoardRow(
             model_id=model_id,
             model_name=model_names.get(model_id) or _fmt_model_name(acc),
-            is_new=False,
             reddit_files=acc.reddit_files,
             comm_reddit=acc.comm_reddit,
         )
@@ -114,19 +113,12 @@ def _build_reddit_board_rows(
     planner_by_model: dict[str, list[NotionPlanner]] = {}
     for shoot in planner:
         model_id = _mid(shoot.model_id)
-        if not model_id:
-            continue
+        if not model_id or model_id not in rows:
+            continue  # skip — not in Accounting
         planner_by_model.setdefault(model_id, []).append(shoot)
 
     for model_id, model_shoots in planner_by_model.items():
-        row = rows.get(model_id)
-        if row is None:
-            row = RedditBoardRow(
-                model_id=model_id,
-                model_name=model_names.get(model_id) or model_id,
-                is_new=True,
-            )
-            rows[model_id] = row
+        row = rows[model_id]
 
         done_shoots = [s for s in model_shoots if s.status == "done" and s.date]
         if done_shoots:
@@ -139,29 +131,20 @@ def _build_reddit_board_rows(
             if s.status in {"planned", "scheduled", "rescheduled"} and s.date
         ]
         if next_shoots:
-            future_shoots = [s for s in next_shoots if (s.date or "") >= today_date.isoformat()]
-            pool = future_shoots or next_shoots
+            future = [s for s in next_shoots if (s.date or "") >= today_date.isoformat()]
+            pool = future or next_shoots
             pool.sort(key=lambda s: s.date or "")
             row.next_shoot_date = pool[0].date
             row.next_shoot_status = pool[0].status
 
     for order in orders:
         model_id = _mid(order.model_id)
-        if not model_id:
-            continue
-        row = rows.get(model_id)
-        if row is None:
-            row = RedditBoardRow(
-                model_id=model_id,
-                model_name=model_names.get(model_id) or _fmt_model_name(order),
-                is_new=True,
-            )
-            rows[model_id] = row
-
-        if row.verif_count is not None:
-            continue
-        row.verif_count = order.count
-        row.verif_date = order.in_date
+        if not model_id or model_id not in rows:
+            continue  # skip — not in Accounting
+        row = rows[model_id]
+        if row.verif_count is None:
+            row.verif_count = order.count
+            row.verif_date = order.in_date
 
     return sorted(rows.values(), key=lambda x: x.model_name.lower())
 
@@ -175,8 +158,7 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
 
     cards: list[str] = []
     for row in rows:
-        new_badge = " 🆕" if row.is_new else ""
-        model_line = f"📌 <b>{html.escape(row.model_name)}</b>{new_badge}"
+        model_line = f"📌 <b>{html.escape(row.model_name)}</b>"
         last_line = f"📅 Прошлая съёмка: {_format_shoot(row.last_shoot_date, row.last_shoot_status)}"
         next_line = f"📅 Следующая: {_format_shoot(row.next_shoot_date, row.next_shoot_status)}"
         files_line = f"📁 Reddit файлов ({month_label}): {row.reddit_files if row.reddit_files is not None else '—'}"
