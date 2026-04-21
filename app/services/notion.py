@@ -408,6 +408,17 @@ class NotionClient:
         payload = {"properties": {"received": {"number": received}}}
         await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json=payload)
 
+    async def close_order_with_received(self, page_id: str, out_date: date, received: int) -> None:
+        """Close order and set received count atomically."""
+        payload = {
+            "properties": {
+                "received": {"number": received},
+                "out": {"date": {"start": out_date.isoformat()}},
+                "status": {"select": {"name": "Done"}},
+            }
+        }
+        await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json=payload)
+
     async def update_order_comment(self, page_id: str, comment: str) -> None:
         """Update order comment."""
         # Notion rich_text content limit is 2000 chars; truncate as safety net.

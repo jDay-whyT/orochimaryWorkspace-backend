@@ -16,7 +16,7 @@ Callback prefix mapping:
   fct = files_content_type
   om  = orders_menu     op   = orders_page         cp   = close_page
   fm  = files_menu      smn  = shoot_menu          bk   = back
-  pr  = plus_received
+  pr  = plus_received   pra  = partial_received_action
 
 Anti-stale token: last segment of callback_data (6-char base36 string).
 Verified against memory_state["k"] to reject presses on outdated keyboards.
@@ -194,7 +194,7 @@ _FLOW_STEP_RULES: dict[str, tuple[str, set[str] | None]] = {
     "scm": ("nlp_actions", None),
     "acct": ("nlp_acc_content", {"selecting"}),
     "accs": ("nlp_acc_content", {"selecting"}),
-    "cd": ("nlp_close", {"awaiting_date", "awaiting_custom_date"}),
+    "cd": ("nlp_close", {"awaiting_date", "awaiting_custom_date", "short_options"}),
     "cp": ("nlp_close_picker", {"selecting"}),
     "op": ("nlp_orders_view", {"viewing"}),
     "act": ("nlp_actions", None),
@@ -461,6 +461,8 @@ async def handle_nlp_callback(
         # ===== Received Tracking =====
         elif action == "pr":
             await _handle_plus_received(query, parts, config, notion, memory_state)
+        elif action == "pra":
+            await _handle_partial_received(query, parts, config, memory_state)
 
         # ===== Post-action completion buttons =====
         elif action == "more_actions":
@@ -2113,31 +2115,88 @@ async def _handle_close_order_select(query, parts, config, memory_state):
         return
 
     order_id = parts[2]
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id) or {}
+
+    # Look up order data from cached orders list in state
+    orders = state.get("orders", [])
+    order = next((o for o in orders if o.get("page_id") == order_id), None)
+    order_type = order.get("order_type", "") if order else ""
+    count = int(order.get("count") or 0) if order else 0
+    received = int(order.get("received") or 0) if order else 0
+    model_id = state.get("model_id", "")
+    model_name = state.get("model_name", "")
+
+    # For short/verif reddit orders — show the partial-or-full options screen
+    if order_type in ("short", "verif reddit"):
+        await _show_short_close_options(
+            query, order_id, order_type, count, received, model_id, model_name, memory_state
+        )
+        return
 
     # Store order_id in memory for the date step
     from app.keyboards.inline import nlp_close_order_date_keyboard
-    chat_id, user_id = _state_ids_from_query(query)
-    state = memory_state.get(chat_id, user_id) or {}
     k = generate_token()
     memory_state.set(chat_id, user_id, {
         "flow": "nlp_close",
         "step": "awaiting_date",
         "order_id": order_id,
-        "model_id": state.get("model_id"),
-        "model_name": state.get("model_name"),
+        "model_id": model_id,
+        "model_name": model_name,
         "k": k,
     })
     await _clear_previous_screen_keyboard(query, memory_state)
     msg = await query.message.edit_text(
         "Дата закрытия:",
-        reply_markup=nlp_close_order_date_keyboard(state.get("model_id", ""), k),
+        reply_markup=nlp_close_order_date_keyboard(model_id, k),
         parse_mode="HTML",
     )
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
+async def _show_short_close_options(
+    query, order_id, order_type, count, received, model_id, model_name, memory_state
+):
+    """Show partial-or-full close screen for short / verif reddit orders."""
+    chat_id, user_id = _state_ids_from_query(query)
+    recv = received or 0
+    count = count or 0
+
+    # flow=nlp_close so that the cd rule allows step=short_options
+    memory_state.set(chat_id, user_id, {
+        "flow": "nlp_close",
+        "step": "short_options",
+        "order_id": order_id,
+        "order_type": order_type,
+        "count": count,
+        "current_received": recv,
+        "model_id": model_id,
+        "model_name": model_name,
+    })
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Внести часть", callback_data=f"nlp:pra:{order_id}")],
+        [InlineKeyboardButton(text="✅ Закрыть полностью", callback_data=f"nlp:cd:{order_id}")],
+        [nlp_back_button(model_id)],
+    ])
+    await _clear_previous_screen_keyboard(query, memory_state)
+    msg = await query.message.edit_text(
+        f"📦 <b>{html.escape(model_name)}</b> · {order_type} × {count}\n"
+        f"📥 Получено: {recv}/{count}\n\n"
+        f"Что делаем?",
+        reply_markup=kb,
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+    await query.answer()
+
+
 async def _handle_close_date(query, parts, config, notion, memory_state):
-    """Handle close date selection. Callback: nlp:cd:{choice}[:{k}]"""
+    """Handle close date selection. Callback: nlp:cd:{choice}[:{k}]
+
+    Also handles navigation from short_options step (cd:{order_id}) — shows the
+    date picker for a full close without touching the received field.
+    """
     await query.answer()
     if len(parts) < 3:
         return
@@ -2149,8 +2208,31 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         await query.message.edit_text("❌ Нет прав.")
         return
 
-    # Get order_id from memory
     state = memory_state.get(chat_id, user_id)
+
+    # When called from short_options, parts[2] is order_id — navigate to date picker
+    if state and state.get("step") == "short_options":
+        order_id_for_close = date_choice  # date_choice actually holds the order_id here
+        k = generate_token()
+        from app.keyboards.inline import nlp_close_order_date_keyboard
+        memory_state.set(chat_id, user_id, {
+            "flow": "nlp_close",
+            "step": "awaiting_date",
+            "order_id": order_id_for_close,
+            "model_id": state.get("model_id"),
+            "model_name": state.get("model_name"),
+            "k": k,
+        })
+        await _clear_previous_screen_keyboard(query, memory_state)
+        msg = await query.message.edit_text(
+            "Дата закрытия:",
+            reply_markup=nlp_close_order_date_keyboard(state.get("model_id", ""), k),
+            parse_mode="HTML",
+        )
+        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+        return
+
+    # Get order_id from memory
     order_id = state.get("order_id") if state else None
     if not order_id:
         await _session_expired(query, memory_state)
@@ -3094,6 +3176,47 @@ async def _handle_plus_received(query, parts, config, notion, memory_state):
         f"📥 <b>{html.escape(model_name)}</b> · {order_type} × {count}\n"
         f"Получено сейчас: {received}/{count}\n\n"
         f"Введи сколько получено всего:",
+        reply_markup=nlp_back_keyboard(model_id),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+    await query.answer()
+
+
+async def _handle_partial_received(query, parts, config, memory_state):
+    """Enter partial-received mode from short_options screen. Callback: nlp:pra:{order_id}"""
+    if len(parts) < 3:
+        return
+    order_id = parts[2]
+    chat_id, user_id = _state_ids_from_query(query)
+
+    if not is_editor(user_id, config):
+        await query.answer("❌ Нет доступа.", show_alert=True)
+        return
+
+    state = memory_state.get(chat_id, user_id)
+    model_id = state.get("model_id", "") if state else ""
+    model_name = state.get("model_name", "") if state else ""
+    count = int(state.get("count") or 0) if state else 0
+    current_received = int(state.get("current_received") or 0) if state else 0
+    order_type = state.get("order_type", "") if state else ""
+
+    memory_state.set(chat_id, user_id, {
+        "flow": "nlp_received",
+        "step": "awaiting_received",
+        "order_id": order_id,
+        "order_type": order_type,
+        "count": count,
+        "current_received": current_received,
+        "model_id": model_id,
+        "model_name": model_name,
+    })
+
+    from app.keyboards.inline import nlp_back_keyboard
+    msg = await query.message.edit_text(
+        f"📥 <b>{html.escape(model_name)}</b> · {order_type} × {count}\n"
+        f"Получено сейчас: {current_received}/{count}\n\n"
+        f"Введи сколько получено (добавится к текущему):",
         reply_markup=nlp_back_keyboard(model_id),
         parse_mode="HTML",
     )
