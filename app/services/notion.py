@@ -274,17 +274,15 @@ class NotionClient:
             return None
 
     async def get_model_titles_batch(self, model_ids: list[str]) -> dict[str, str]:
-        """Fetch model names by page IDs in parallel. Returns {model_id: title}."""
         if not model_ids:
             return {}
         tasks = [self.get_model(mid) for mid in model_ids]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         out: dict[str, str] = {}
         for mid, result in zip(model_ids, results):
-            if isinstance(result, Exception):
-                LOGGER.warning("get_model_titles_batch: failed for %s: %s", mid, result)
-            elif result is not None:
-                out[mid] = result.title
+            if isinstance(result, Exception) or result is None:
+                continue
+            out[mid] = result.title
         return out
 
     async def _extract_model_title(self, page: dict[str, Any]) -> str | None:
