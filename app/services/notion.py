@@ -34,6 +34,7 @@ class NotionOrder:
     count: int | None = None
     comments: str | None = None
     from_project: str | None = None
+    received: int | None = None
 
 
 @dataclass
@@ -401,6 +402,11 @@ class NotionClient:
         }
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
+
+    async def update_order_received(self, page_id: str, received: int) -> None:
+        """Update received count for an order."""
+        payload = {"properties": {"received": {"number": received}}}
+        await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json=payload)
 
     async def update_order_comment(self, page_id: str, comment: str) -> None:
         """Update order comment."""
@@ -1071,6 +1077,7 @@ def _extract_relation_id(page: dict[str, Any], property_name: str) -> str | None
 def _parse_order(item: dict[str, Any]) -> NotionOrder:
     """Parse order from Notion API response."""
     count = _extract_number(item, "count")
+    received_val = _extract_number(item, "received")
     return NotionOrder(
         page_id=item["id"],
         title=_extract_any_title(item) or "(no title)",
@@ -1082,6 +1089,7 @@ def _parse_order(item: dict[str, Any]) -> NotionOrder:
         count=int(count) if count is not None else None,
         comments=_extract_rich_text(item, "comments"),
         from_project=_extract_select(item, "from"),
+        received=int(received_val) if received_val is not None else None,
     )
 
 
