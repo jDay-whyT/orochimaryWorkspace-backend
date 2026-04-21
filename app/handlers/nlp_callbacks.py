@@ -16,6 +16,7 @@ Callback prefix mapping:
   fct = files_content_type
   om  = orders_menu     op   = orders_page         cp   = close_page
   fm  = files_menu      smn  = shoot_menu          bk   = back
+  pr  = plus_received
 
 Anti-stale token: last segment of callback_data (6-char base36 string).
 Verified against memory_state["k"] to reject presses on outdated keyboards.
@@ -33,7 +34,7 @@ from datetime import date, datetime, timedelta
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import Config
 from app.filters.topic_access import TopicAccessCallbackFilter
@@ -456,6 +457,10 @@ async def handle_nlp_callback(
             await _handle_shoot_reschedule_cb(query, parts, config, notion, memory_state)
         elif action == "scm":
             await _handle_shoot_comment_cb(query, parts, config, notion, memory_state)
+
+        # ===== Received Tracking =====
+        elif action == "pr":
+            await _handle_plus_received(query, parts, config, notion, memory_state)
 
         # ===== Post-action completion buttons =====
         elif action == "more_actions":
@@ -949,10 +954,21 @@ async def _show_orders_view(
 
     lines = []
     for order in page_orders:
+        order_type = order.get("order_type") or "?"
         in_date = order.get("in_date")
         days = _calc_days_open(in_date)
+        count = order.get("count")
+        received = order.get("received")
+
+        if order_type in ("short", "verif reddit") and count:
+            recv_str = received if received is not None else 0
+            progress = f" · 📥 {recv_str}/{int(count)}"
+        else:
+            progress = ""
+
         lines.append(
-            f"• {order.get('order_type') or '?'} · {_format_date_short(in_date)} ({days}d)"
+            f"• {order_type} × {int(count) if count else '?'}{progress}"
+            f" · {_format_date_short(in_date) if in_date else '—'} · {days}д"
         )
 
     text = (
@@ -961,7 +977,27 @@ async def _show_orders_view(
         + f"\n\nСтраница {page}/{total_pages}"
     )
 
-    from app.keyboards.inline import nlp_orders_view_keyboard
+    # Build keyboard: per-order received buttons + pagination + back
+    kb_rows: list[list[InlineKeyboardButton]] = []
+    for order in page_orders:
+        order_type = order.get("order_type") or ""
+        page_id = order.get("page_id", "")
+        if order_type in ("short", "verif reddit") and page_id:
+            kb_rows.append([
+                InlineKeyboardButton(text="📥 +получено", callback_data=f"nlp:pr:{page_id}"),
+            ])
+    if total_pages > 1:
+        pagination: list[InlineKeyboardButton] = []
+        if page > 1:
+            pagination.append(InlineKeyboardButton(text="⬅️", callback_data=f"nlp:op:{page - 1}"))
+        if page < total_pages:
+            pagination.append(InlineKeyboardButton(text="➡️", callback_data=f"nlp:op:{page + 1}"))
+        if pagination:
+            kb_rows.append(pagination)
+    from app.keyboards.inline import nlp_back_button
+    kb_rows.append([nlp_back_button(model_id)])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
     memory_state.set(chat_id, user_id, {
         "flow": "nlp_orders_view",
         "step": "viewing",
@@ -974,7 +1010,7 @@ async def _show_orders_view(
     try:
         msg = await query.message.edit_text(
             text,
-            reply_markup=nlp_orders_view_keyboard(page, total_pages, model_id),
+            reply_markup=keyboard,
             parse_mode="HTML",
         )
     except TelegramBadRequest as e:
@@ -3019,6 +3055,50 @@ async def _show_report(query, model_id, model_name, config, notion, memory_state
         parse_mode="HTML",
     )
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+
+
+async def _handle_plus_received(query, parts, config, notion, memory_state):
+    """Handle +received button. Callback: nlp:pr:{order_id}[:{k}]"""
+    if len(parts) < 3:
+        return
+    order_id = parts[2]
+    chat_id, user_id = _state_ids_from_query(query)
+
+    if not is_editor(user_id, config):
+        await query.answer("❌ Нет доступа.", show_alert=True)
+        return
+
+    state = memory_state.get(chat_id, user_id)
+    model_id = state.get("model_id", "") if state else ""
+    model_name = state.get("model_name", "") if state else ""
+
+    orders = state.get("orders", []) if state else []
+    order = next((o for o in orders if o.get("page_id") == order_id), None)
+    count = int(order.get("count") or 0) if order else 0
+    received = int(order.get("received") or 0) if order else 0
+    order_type = order.get("order_type", "") if order else ""
+
+    memory_state.set(chat_id, user_id, {
+        "flow": "nlp_received",
+        "step": "awaiting_received",
+        "order_id": order_id,
+        "order_type": order_type,
+        "count": count,
+        "current_received": received,
+        "model_id": model_id,
+        "model_name": model_name,
+    })
+
+    from app.keyboards.inline import nlp_back_keyboard
+    msg = await query.message.edit_text(
+        f"📥 <b>{html.escape(model_name)}</b> · {order_type} × {count}\n"
+        f"Получено сейчас: {received}/{count}\n\n"
+        f"Введи сколько получено всего:",
+        reply_markup=nlp_back_keyboard(model_id),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+    await query.answer()
 
 
 def _calc_days_open(in_date_str: str | None) -> int:

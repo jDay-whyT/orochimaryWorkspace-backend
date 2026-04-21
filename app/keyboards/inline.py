@@ -619,6 +619,25 @@ def nlp_orders_view_keyboard(page: int, total_pages: int, model_id: str) -> Inli
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def nlp_order_view_keyboard(
+    order_id: str,
+    order_type: str,
+    model_id: str,
+    k: str = "",
+) -> InlineKeyboardMarkup:
+    """Per-order action keyboard in orders view.  pr = plus received."""
+    s = f":{k}" if k else ""
+    rows: list[list[InlineKeyboardButton]] = []
+    if order_type in ("short", "verif reddit"):
+        rows.append([
+            InlineKeyboardButton(text="📥 +получено", callback_data=f"nlp:pr:{order_id}{s}"),
+        ])
+    rows.append([
+        InlineKeyboardButton(text="⬅ Назад", callback_data=f"nlp:bk:{model_id}"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def nlp_files_menu_keyboard(can_edit: bool, model_id: str, k: str = "") -> InlineKeyboardMarkup:
     """Files (accounting) module menu for a model."""
     s = f":{k}" if k else ""

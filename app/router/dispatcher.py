@@ -21,6 +21,7 @@ from aiogram.types import Message
 
 from app.config import Config
 from app.services import NotionClient
+from app.services import orders as orders_cache
 from app.state import MemoryState, RecentModels, generate_token
 
 from app.router.prefilter import prefilter_message
@@ -1670,6 +1671,41 @@ async def _handle_custom_order_count_input(message, text, user_state, config, no
     _remember_screen_message(memory_state, chat_id, user_id, sent.message_id if sent else None)
 
 
+async def _handle_received_input(message, text, user_state, config, notion, memory_state):
+    """Handle free-text received count input for nlp_received flow."""
+    from app.roles import is_editor
+    chat_id, user_id = message.chat.id, message.from_user.id
+
+    if not is_editor(user_id, config):
+        memory_state.clear(chat_id, user_id)
+        return
+
+    try:
+        received = int(text.strip())
+        if received < 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Введи целое число")
+        return
+
+    order_id = user_state.get("order_id", "")
+    count = user_state.get("count", 0)
+    model_name = user_state.get("model_name", "")
+    model_id = user_state.get("model_id", "")
+
+    await notion.update_order_received(order_id, received)
+    orders_cache.clear_cache(model_id)
+    memory_state.clear(chat_id, user_id)
+
+    from app.keyboards.inline import nlp_action_complete_keyboard
+    await message.answer(
+        f"✅ Получено обновлено — <b>{html.escape(model_name)}</b>\n"
+        f"📥 {received}/{count}",
+        reply_markup=nlp_action_complete_keyboard(model_id),
+        parse_mode="HTML",
+    )
+
+
 # ============================================================================
 #               NLP TEXT STEP HANDLER MAP
 # ============================================================================
@@ -1689,6 +1725,7 @@ _NLP_TEXT_HANDLERS: dict[tuple[str | None, str], object] = {
     (None, "awaiting_shoot_comment"): _handle_shoot_comment_input,
     ("nlp_accounting_comment", "awaiting_accounting_comment"): _handle_accounting_comment_input,
     ("nlp_order", "awaiting_custom_count"): _handle_custom_order_count_input,
+    ("nlp_received", "awaiting_received"): _handle_received_input,
 }
 
 
