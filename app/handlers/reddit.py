@@ -169,8 +169,8 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
         if verif_line:
             stats_line += f" · {verif_line}"
 
-        last_line = f"прошлая: {_format_shoot(row.last_shoot_date, row.last_shoot_status)}"
-        next_line = f"следующая: {_format_shoot(row.next_shoot_date, row.next_shoot_status)}"
+        last_line = f"<b>снятый:</b> {_format_shoot(row.last_shoot_date, row.last_shoot_status)}"
+        next_line = f"<b>следующая:</b> {_format_shoot(row.next_shoot_date, row.next_shoot_status)}"
         comment_line = f"💬 {html.escape(row.comm_reddit)}" if row.comm_reddit else "💬 —"
 
         cards.append("\n".join([model_line, stats_line, last_line, next_line, comment_line]))
