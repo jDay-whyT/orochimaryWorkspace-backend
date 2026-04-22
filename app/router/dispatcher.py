@@ -1555,6 +1555,7 @@ async def _handle_reddit_comment_flow(
                 pass
             await _clear_previous_screen_keyboard(message, memory_state)
             await _cleanup_prompt_message(message, memory_state)
+            from app.keyboards.inline import nlp_action_complete_keyboard
             await message.answer(
                 f"✅ Комментарий обновлён — <b>{html.escape(model_name)}</b>\n"
                 f"💬 {html.escape(comment_text)}",
@@ -1596,8 +1597,8 @@ async def _start_reddit_comment_input(
         "step": "reddit_comment_input",
         "model_id": model_id,
         "model_name": model_name,
+        "prompt_message_id": msg.message_id if msg else None,
     })
-    memory_state.update(chat_id, user_id, prompt_message_id=msg.message_id if msg else None)
 
 
 def _parse_files_count(text: str) -> int | None:
@@ -1727,12 +1728,12 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
         today_date = datetime.now(tz=config.timezone).date()
         await notion.close_order_with_received(order_id, today_date, new_received)
         orders_cache.clear_cache(model_id)
-        await _clear_previous_screen_keyboard(message, memory_state)
-        await _cleanup_prompt_message(message, memory_state)
         try:
             await message.delete()
         except Exception:
             pass
+        await _clear_previous_screen_keyboard(message, memory_state)
+        await _cleanup_prompt_message(message, memory_state)
         memory_state.clear(chat_id, user_id)
         await message.answer(
             f"✅ Заказ закрыт — <b>{html.escape(model_name)}</b>\n"
@@ -1743,12 +1744,12 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
     else:
         await notion.update_order_received(order_id, new_received)
         orders_cache.clear_cache(model_id)
-        await _clear_previous_screen_keyboard(message, memory_state)
-        await _cleanup_prompt_message(message, memory_state)
         try:
             await message.delete()
         except Exception:
             pass
+        await _clear_previous_screen_keyboard(message, memory_state)
+        await _cleanup_prompt_message(message, memory_state)
         memory_state.clear(chat_id, user_id)
         await message.answer(
             f"📥 Обновлено — <b>{html.escape(model_name)}</b>\n"
