@@ -646,16 +646,24 @@ class NotionClient:
     async def query_verif_reddit_orders(
         self,
         database_id: str,
+        yyyy_mm: str,
         limit: int = 100,
     ) -> list[NotionOrder]:
-        """Query open orders with type = verif reddit."""
+        """Query all verif reddit orders for given month."""
+        import calendar as _calendar
+        year, month = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
+        first_day = date(year, month, 1).isoformat()
+        last_day_num = _calendar.monthrange(year, month)[1]
+        last_day = date(year, month, last_day_num).isoformat()
+
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
         payload = {
             "page_size": limit,
             "filter": {
                 "and": [
                     {"property": "type", "select": {"equals": "verif reddit"}},
-                    {"property": "status", "select": {"equals": "Open"}},
+                    {"property": "in", "date": {"on_or_after": first_day}},
+                    {"property": "in", "date": {"on_or_before": last_day}},
                 ],
             },
             "sorts": [{"property": "in", "direction": "descending"}],

@@ -33,8 +33,8 @@ class RedditBoardRow:
     last_shoot_status: str | None = None
     next_shoot_date: str | None = None
     next_shoot_status: str | None = None
-    verif_count: int | None = None
-    verif_date: str | None = None
+    verif_requested: int = 0
+    verif_received: int = 0
 
 
 def _mid(value: str | None) -> str:
@@ -85,7 +85,7 @@ async def cmd_reddit(
 
     accounting_task = notion.query_reddit_accounting(config.db_accounting, yyyy_mm)
     planner_task = notion.query_reddit_shoots(config.db_planner, yyyy_mm)
-    orders_task = notion.query_verif_reddit_orders(config.db_orders)
+    orders_task = notion.query_verif_reddit_orders(config.db_orders, yyyy_mm)
     accounting, planner, orders = await asyncio.gather(accounting_task, planner_task, orders_task)
 
     board = _build_reddit_board_rows(accounting, planner, orders, today(config.timezone))
@@ -143,11 +143,10 @@ def _build_reddit_board_rows(
     for order in orders:
         model_id = _mid(order.model_id)
         if not model_id or model_id not in rows:
-            continue  # skip — not in Accounting
+            continue
         row = rows[model_id]
-        if row.verif_count is None:
-            row.verif_count = order.count
-            row.verif_date = order.in_date
+        row.verif_requested += int(order.count or 0)
+        row.verif_received += int(order.received or 0)
 
     return sorted(rows.values(), key=lambda x: x.model_name.lower())
 
@@ -156,22 +155,24 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
     if not rows:
         return "📭 Reddit board пуст"
 
-    now = today(config.timezone)
-    month_label = _MONTHS_RU_SHORT[now.month - 1]
-
     cards: list[str] = []
     for row in rows:
         model_line = f"📌 <b>{html.escape(row.model_name)}</b>"
-        last_line = f"📅 Прошлая съёмка: {_format_shoot(row.last_shoot_date, row.last_shoot_status)}"
-        next_line = f"📅 Следующая: {_format_shoot(row.next_shoot_date, row.next_shoot_status)}"
-        files_line = f"📁 Reddit файлов ({month_label}): {row.reddit_files if row.reddit_files is not None else '—'}"
+        files_line = f"reddit: {row.reddit_files if row.reddit_files is not None else '—'}"
+        verif_line = (
+            f"вериф: {row.verif_received}/{row.verif_requested}"
+            if row.verif_requested > 0
+            else None
+        )
 
-        if row.verif_count is None or not row.verif_date:
-            verif_line = "📋 Вериф: —"
-        else:
-            verif_line = f"📋 Вериф: open · {row.verif_count} шт · {_format_day_mon(row.verif_date)}"
+        stats_line = files_line
+        if verif_line:
+            stats_line += f" · {verif_line}"
 
-        comment_line = f"💬 {html.escape(row.comm_reddit) if row.comm_reddit else '—'}"
-        cards.append("\n".join([model_line, last_line, next_line, files_line, verif_line, comment_line]))
+        last_line = f"прошлая: {_format_shoot(row.last_shoot_date, row.last_shoot_status)}"
+        next_line = f"следующая: {_format_shoot(row.next_shoot_date, row.next_shoot_status)}"
+        comment_line = f"💬 {html.escape(row.comm_reddit)}" if row.comm_reddit else "💬 —"
+
+        cards.append("\n".join([model_line, stats_line, last_line, next_line, comment_line]))
 
     return "\n\n".join(cards)
