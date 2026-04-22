@@ -1471,7 +1471,11 @@ async def _handle_reddit_comment_flow(
     memory_state: MemoryState,
     recent_models: RecentModels,
 ) -> None:
-    from app.keyboards.inline import nlp_confirm_model_keyboard, nlp_model_selection_keyboard
+    from app.keyboards.inline import (
+        nlp_action_complete_keyboard,
+        nlp_confirm_model_keyboard,
+        nlp_model_selection_keyboard,
+    )
 
     chat_id = message.chat.id
     user_id = message.from_user.id
@@ -1539,7 +1543,18 @@ async def _handle_reddit_comment_flow(
             return
         try:
             await notion.update_reddit_comment(record.page_id, comment_text)
-            await message.answer(f"✅ Комментарий обновлён — {html.escape(model_name)}", parse_mode="HTML")
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            await _clear_previous_screen_keyboard(message, memory_state)
+            await _cleanup_prompt_message(message, memory_state)
+            await message.answer(
+                f"✅ Комментарий обновлён — <b>{html.escape(model_name)}</b>\n"
+                f"💬 {html.escape(comment_text)}",
+                reply_markup=nlp_action_complete_keyboard(model_id),
+                parse_mode="HTML",
+            )
         except Exception:
             LOGGER.exception("Failed to update reddit comment")
             await message.answer("❌ Ошибка при сохранении комментария.")
@@ -1564,7 +1579,7 @@ async def _start_reddit_comment_input(
     record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
     existing = (record.comm_reddit if record else None) or "пусто"
 
-    await message.answer(
+    msg = await message.answer(
         f"💬 Reddit комментарий — {html.escape(model_name)}\n"
         f"Текущий: \"{html.escape(existing)}\"\n\n"
         "Введи новый комментарий:",
@@ -1576,6 +1591,7 @@ async def _start_reddit_comment_input(
         "model_id": model_id,
         "model_name": model_name,
     })
+    memory_state.update(chat_id, user_id, prompt_message_id=msg.message_id if msg else None)
 
 
 def _parse_files_count(text: str) -> int | None:
