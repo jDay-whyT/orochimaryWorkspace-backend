@@ -1537,6 +1537,12 @@ async def _handle_reddit_comment_flow(
         comment_text = text.strip()
         yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
         record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+        LOGGER.info(
+            "reddit_comment: model_id=%s yyyy_mm=%s record=%s",
+            model_id,
+            yyyy_mm,
+            record.page_id if record else None,
+        )
         if not record:
             await message.answer(f"❌ Нет записи в Accounting за текущий месяц для {html.escape(model_name)}", parse_mode="HTML")
             memory_state.clear(chat_id, user_id)
