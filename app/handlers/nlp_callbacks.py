@@ -2158,6 +2158,8 @@ async def _show_short_close_options(
     query, order_id, order_type, count, received, model_id, model_name, memory_state
 ):
     """Show partial-or-full close screen for short / verif reddit orders."""
+    from app.keyboards.inline import nlp_back_button, InlineKeyboardMarkup, InlineKeyboardButton
+
     chat_id, user_id = _state_ids_from_query(query)
     recv = received or 0
     count = count or 0
