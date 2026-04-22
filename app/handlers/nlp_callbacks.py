@@ -2162,6 +2162,7 @@ async def _show_short_close_options(
         reply_markup=kb,
         parse_mode="HTML",
     )
+    memory_state.update(chat_id, user_id, screen_message_id=msg.message_id if msg else query.message.message_id)
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
     await query.answer()
 
@@ -3151,6 +3152,7 @@ async def _handle_partial_received(query, parts, config, memory_state):
         reply_markup=nlp_back_keyboard(model_id),
         parse_mode="HTML",
     )
+    memory_state.update(chat_id, user_id, prompt_message_id=msg.message_id if msg else None)
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
     await query.answer()
 

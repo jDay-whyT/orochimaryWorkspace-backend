@@ -1705,6 +1705,12 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
         today_date = datetime.now(tz=config.timezone).date()
         await notion.close_order_with_received(order_id, today_date, new_received)
         orders_cache.clear_cache(model_id)
+        await _clear_previous_screen_keyboard(message, memory_state)
+        await _cleanup_prompt_message(message, memory_state)
+        try:
+            await message.delete()
+        except Exception:
+            pass
         memory_state.clear(chat_id, user_id)
         await message.answer(
             f"✅ Заказ закрыт — <b>{html.escape(model_name)}</b>\n"
@@ -1715,6 +1721,12 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
     else:
         await notion.update_order_received(order_id, new_received)
         orders_cache.clear_cache(model_id)
+        await _clear_previous_screen_keyboard(message, memory_state)
+        await _cleanup_prompt_message(message, memory_state)
+        try:
+            await message.delete()
+        except Exception:
+            pass
         memory_state.clear(chat_id, user_id)
         await message.answer(
             f"📥 Обновлено — <b>{html.escape(model_name)}</b>\n"
