@@ -31,6 +31,9 @@ class Config:
     files_per_month: int
     managers_topic_thread_id: int = 0
     managers_chat_id: int = 0
+    board_message_id: int | None = None
+    reddit_board_message_id: int | None = None
+    reddit_board_topic_thread_id: int | None = None
     internal_secret: str = ""
     rent_topic_thread_id: int = 0
     redis_url: str | None = None
@@ -139,6 +142,21 @@ def load_config(validate: bool = True) -> Config:
     except ValueError:
         managers_chat_id = 0
 
+    try:
+        board_message_id = int(os.getenv("BOARD_MESSAGE_ID", "0")) or None
+    except ValueError:
+        board_message_id = None
+
+    try:
+        reddit_board_message_id = int(os.getenv("REDDIT_BOARD_MESSAGE_ID", "0")) or None
+    except ValueError:
+        reddit_board_message_id = None
+
+    try:
+        reddit_board_topic_thread_id = int(os.getenv("REDDIT_BOARD_TOPIC_THREAD_ID", "0")) or None
+    except ValueError:
+        reddit_board_topic_thread_id = None
+
     internal_secret = os.getenv("INTERNAL_SECRET", "").strip()
 
     try:
@@ -175,6 +193,9 @@ def load_config(validate: bool = True) -> Config:
         files_per_month=files_per_month,
         managers_topic_thread_id=managers_topic_thread_id,
         managers_chat_id=managers_chat_id,
+        board_message_id=board_message_id,
+        reddit_board_message_id=reddit_board_message_id,
+        reddit_board_topic_thread_id=reddit_board_topic_thread_id,
         internal_secret=internal_secret,
         rent_topic_thread_id=rent_topic_thread_id,
         redis_url=redis_url,

@@ -118,6 +118,8 @@ jobs:
             TIMEZONE=${{ vars.TIMEZONE }}
             FILES_TARGET_WORK=${{ vars.FILES_TARGET_WORK }}
             FILES_TARGET_NEW=${{ vars.FILES_TARGET_NEW }}
+            REDDIT_BOARD_MESSAGE_ID=${{ vars.REDDIT_BOARD_MESSAGE_ID }}
+            REDDIT_BOARD_TOPIC_THREAD_ID=${{ vars.REDDIT_BOARD_TOPIC_THREAD_ID }}
             
 
       
