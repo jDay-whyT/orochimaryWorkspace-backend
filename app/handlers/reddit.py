@@ -173,6 +173,8 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
 
         if row.next_shoot_date and row.next_shoot_status:
             lines.append(f"  └ {row.next_shoot_status}")
+        else:
+            lines.append("  └ not scheduled")
 
         if row.last_shoot_date:
             lines.append(f"  | last: <b>{_format_day_mon(row.last_shoot_date)}</b>")
