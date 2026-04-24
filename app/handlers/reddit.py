@@ -28,7 +28,7 @@ class RedditBoardRow:
     model_id: str
     model_name: str
     reddit_files: int | None = None
-    comm_reddit: str | None = None
+    comment: str | None = None
     last_shoot_date: str | None = None
     last_shoot_status: str | None = None
     next_shoot_date: str | None = None
@@ -110,7 +110,7 @@ def _build_reddit_board_rows(
             model_id=model_id,
             model_name=model_name,
             reddit_files=acc.reddit_files,
-            comm_reddit=acc.comm_reddit,
+            comment=acc.comment,
         )
 
     planner_by_model: dict[str, list[NotionPlanner]] = {}
@@ -186,8 +186,8 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
             stats = f"  ▸ reddit: <b>{files_str}</b>"
         lines.append(stats)
 
-        if row.comm_reddit:
-            lines.append(f"  💬 {html.escape(row.comm_reddit)}")
+        if row.comment:
+            lines.append(f"  💬 {html.escape(row.comment)}")
 
         cards.append("\n".join(lines))
 
