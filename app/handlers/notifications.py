@@ -1,5 +1,4 @@
 import logging
-import os
 from datetime import date, timedelta
 
 from aiogram import Router
@@ -65,7 +64,7 @@ async def update_board(bot, config: Config, notion: NotionClient) -> None:
 
     text = _format_board(shoots)
 
-    message_id = int(os.getenv("BOARD_MESSAGE_ID", "0")) or None
+    message_id = config.board_message_id
     chat_id = config.managers_chat_id
 
     if message_id and chat_id:

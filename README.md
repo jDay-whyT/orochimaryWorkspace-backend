@@ -43,6 +43,8 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `MANAGERS_TOPIC_THREAD_ID` | ⚠️ | topic_thread_id для менеджеров |
 | `REDIS_URL` | ⚠️ | Redis URL, например `redis://localhost:6379/0` |
 | `BOARD_MESSAGE_ID` | ⚠️ | message_id борда съёмок для редактирования |
+| `REDDIT_BOARD_MESSAGE_ID` | ⚠️ | message_id Reddit-борда для редактирования |
+| `REDDIT_BOARD_TOPIC_THREAD_ID` | ⚠️ | topic_thread_id для Reddit-борда |
 
 ## Структура проекта
 app/
@@ -188,6 +190,18 @@ gcloud scheduler jobs create http orochimary-daily-board-sync \
   --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
 ```
 
+### Cloud Scheduler (Reddit-борд, каждые 3 часа)
+
+```bash
+gcloud scheduler jobs create http orochimary-reddit-board-sync \
+  --location=europe-west1 \
+  --schedule="0 */3 * * *" \
+  --time-zone="UTC" \
+  --uri="https://YOUR_CLOUD_RUN_URL/internal/update-reddit-board" \
+  --http-method=POST \
+  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
+```
+
 ## Endpoints
 
 | Endpoint | Описание |
@@ -196,6 +210,7 @@ gcloud scheduler jobs create http orochimary-daily-board-sync \
 | `GET /healthz` | Healthcheck |
 | `POST /tg/webhook` | Telegram webhook |
 | `POST /internal/update-board` | Обновление борда съёмок |
+| `POST /internal/update-reddit-board` | Обновление Reddit-борда |
 
 ## Troubleshooting
 

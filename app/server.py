@@ -9,6 +9,7 @@ from aiogram.webhook.aiohttp_server import setup_application
 from app.bot import create_dispatcher
 from app.config import load_config
 from app.handlers.notifications import update_board
+from app.handlers.reddit import update_reddit_board
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,6 +63,15 @@ async def create_app() -> web.Application:
             return web.json_response({"ok": False}, status=403)
         await update_board(request.app["bot"], request.app["config"], request.app["notion"])
         return web.json_response({"ok": True})
+
+    async def internal_update_reddit_board(request: web.Request) -> web.Response:
+        secret = config.internal_secret
+        if secret and request.headers.get("X-Internal-Secret") != secret:
+            return web.Response(status=403, text="forbidden")
+        bot = request.app["bot"]
+        notion = request.app["notion"]
+        await update_reddit_board(bot, config, notion)
+        return web.Response(status=200, text="ok")
 
     async def telegram_webhook(request: web.Request) -> web.Response:
         # Validate secret first (before parsing body, to fail fast on bad actors).
@@ -118,8 +128,9 @@ async def create_app() -> web.Application:
     app.router.add_get("/healthz", healthcheck)
     app.router.add_post("/tg/webhook", telegram_webhook)
     app.router.add_post("/internal/update-board", internal_update_board)
+    app.router.add_post("/internal/update-reddit-board", internal_update_reddit_board)
 
-    LOGGER.info("HTTP endpoints registered: GET /, GET /healthz, POST /tg/webhook, POST /internal/update-board")
+    LOGGER.info("HTTP endpoints registered: GET /, GET /healthz, POST /tg/webhook, POST /internal/update-board, POST /internal/update-reddit-board")
     return app
 
 

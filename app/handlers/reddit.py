@@ -72,6 +72,50 @@ def _extract_model_name_from_title(title: str) -> str:
     return cleaned or title
 
 
+async def update_reddit_board(bot, config: Config, notion: NotionClient) -> None:
+    """Fetch Reddit board data and post/edit the board message."""
+    yyyy_mm = today(config.timezone).strftime("%Y-%m")
+
+    accounting, planner, orders = await asyncio.gather(
+        notion.query_reddit_accounting(config.db_accounting, yyyy_mm),
+        notion.query_reddit_shoots(config.db_planner, yyyy_mm),
+        notion.query_verif_reddit_orders(config.db_orders, yyyy_mm),
+    )
+
+    board = _build_reddit_board_rows(accounting, planner, orders, today(config.timezone))
+    text = _format_reddit_board_text(board, config)
+
+    message_id = config.reddit_board_message_id
+    chat_id = config.managers_chat_id
+
+    if message_id and chat_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                parse_mode="HTML",
+            )
+            return
+        except Exception as e:
+            if "message is not modified" in str(e).lower():
+                return
+            LOGGER.warning("Failed to edit reddit board message: %s", e)
+
+    if chat_id:
+        sent = await bot.send_message(
+            chat_id=chat_id,
+            message_thread_id=config.reddit_board_topic_thread_id,
+            text=text,
+            parse_mode="HTML",
+        )
+        LOGGER.info(
+            "New reddit board message sent: message_id=%s — add REDDIT_BOARD_MESSAGE_ID=%s to env",
+            sent.message_id,
+            sent.message_id,
+        )
+
+
 @router.message(Command("reddit"))
 async def cmd_reddit(
     message: Message,
@@ -80,17 +124,7 @@ async def cmd_reddit(
 ) -> None:
     if not is_authorized(message.from_user.id, config):
         return
-
-    yyyy_mm = today(config.timezone).strftime("%Y-%m")
-
-    accounting_task = notion.query_reddit_accounting(config.db_accounting, yyyy_mm)
-    planner_task = notion.query_reddit_shoots(config.db_planner, yyyy_mm)
-    orders_task = notion.query_verif_reddit_orders(config.db_orders, yyyy_mm)
-    accounting, planner, orders = await asyncio.gather(accounting_task, planner_task, orders_task)
-
-    board = _build_reddit_board_rows(accounting, planner, orders, today(config.timezone))
-    text = _format_reddit_board_text(board, config)
-    await message.answer(text, parse_mode="HTML")
+    await update_reddit_board(message.bot, config, notion)
 
 
 def _build_reddit_board_rows(
