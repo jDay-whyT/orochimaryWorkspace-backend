@@ -157,22 +157,32 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
 
     cards: list[str] = []
     for row in rows:
-        model_line = f"📌 <b>{html.escape(row.model_name)}</b>"
-        files_line = f"reddit: <b>{row.reddit_files if row.reddit_files is not None else '—'}<b>"
-        verif_line = (
-            f"вериф: <b>{row.verif_received}/{row.verif_requested}<b>"
-            if row.verif_requested > 0
-            else None
-        )
+        if row.next_shoot_date:
+            d = date.fromisoformat(row.next_shoot_date[:10])
+            day_names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+            day_name = day_names[d.weekday()]
+            header = f"{html.escape(row.model_name)}  {_format_day_mon(row.next_shoot_date)} ({day_name})"
+        else:
+            header = html.escape(row.model_name)
 
-        stats_line = files_line
-        if verif_line:
-            stats_line += f" · {verif_line}"
+        lines = [f"<b>{header}</b>"]
 
-        last_line = f"<b>снятый:</b> {_format_shoot(row.last_shoot_date, row.last_shoot_status)}"
-        next_line = f"<b>следующая:</b> {_format_shoot(row.next_shoot_date, row.next_shoot_status)}"
-        comment_line = f"💬 {html.escape(row.comm_reddit)}" if row.comm_reddit else "💬 —"
+        if row.next_shoot_date and row.next_shoot_status:
+            lines.append(f"  └ {row.next_shoot_status}")
 
-        cards.append("\n".join([model_line, stats_line, last_line, next_line, comment_line]))
+        if row.last_shoot_date:
+            lines.append(f"  | last: {_format_day_mon(row.last_shoot_date)}")
 
-    return "\n\n".join(cards)
+        files_str = str(row.reddit_files) if row.reddit_files is not None else "—"
+        if row.verif_requested > 0:
+            stats = f"  ▸ reddit: {files_str} | вериф: {row.verif_received}/{row.verif_requested}"
+        else:
+            stats = f"  ▸ reddit: {files_str}"
+        lines.append(stats)
+
+        if row.comm_reddit:
+            lines.append(f"  💬 {html.escape(row.comm_reddit)}")
+
+        cards.append("\n".join(lines))
+
+    return "\n\n".join(cards) if cards else "📭 Reddit board пуст"
