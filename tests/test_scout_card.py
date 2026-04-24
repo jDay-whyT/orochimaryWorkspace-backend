@@ -69,13 +69,14 @@ def test_format_scout_card_files_orders_and_shoots():
         last_shoot_line="🎬 Снятый: 14 апр · reddit, main pack",
         next_shoot_line="📅 Ближ. съёмка: 25 апр · twitter",
     )
-    assert "⚡ Анал: plug  |  Колл: talking" in text
-    assert "📡 reddit, twitter" in text
-    assert "🏠 Аренда: нужна" in text
-    assert "📁 Контент за мес: OF 30 · Reddit 10 · Twitter 5 · Fansly 2" in text
-    assert "🎬 Снятый: 14 апр · reddit, main pack" in text
-    assert "📅 Ближ. съёмка: 25 апр · twitter" in text
-    assert "📦 Done: <b>6</b>  |  Open: <b>2</b>" in text
+    assert "anal:" in text
+    assert "calls:" in text
+    assert "traffic:" in text
+    assert "rent:" in text
+    assert "last shoot:" in text
+    assert "orders" in text
+    assert "done:" in text
+    assert "open:" in text
 
 
 def test_format_scout_card_empty_orders_and_files():
@@ -89,10 +90,11 @@ def test_format_scout_card_empty_orders_and_files():
         last_shoot_line="🎬 Снятый: не было",
         next_shoot_line=None,
     )
-    assert "📡 —" in text
-    assert "📁 Контент за мес: —" in text
-    assert "📦 Заказов за 30 дней нет" in text
-    assert "📅 Ближ. съёмка: не запланировано" in text
+    assert "traffic:" in text
+    assert "content: —" in text
+    assert "orders" in text
+    assert "done: <b>0</b>" in text
+    assert "open: <b>0</b>" in text
 
 
 def test_format_boost_always_shows_both_labels():

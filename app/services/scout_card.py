@@ -169,6 +169,8 @@ def _format_scout_card(
     last_shoot_line: str,
     next_shoot_line: str | None,
 ) -> str:
+    import re as _re
+
     status = str(model_row.get("status") or "—").strip()
     project = str(model_row.get("project") or "").strip()
     scout = str(model_row.get("scout") or "").strip()
@@ -176,46 +178,75 @@ def _format_scout_card(
     language = str(model_row.get("language") or "").strip()
     boost = _format_boost(model_row.get("anal"), model_row.get("calls"))
     needs_rent = _normalize(model_row.get("needs_rent"))
-    rent = "нужна" if needs_rent in {"true", "yes", "1", "нужна"} else "не нужна"
-    files_block = _format_monthly_files(accounting_row)
-    safe_model = html.escape(model_name.upper())
-    safe_status = html.escape(status)
-    safe_project = html.escape(project)
-    safe_scout = html.escape(scout)
-    safe_assist = html.escape(assist)
-    safe_language = html.escape(language)
-    safe_boost = html.escape(boost)
-    traffic_text = str(traffic or "").strip() or "Нет инфо в анкете"
-    safe_traffic = html.escape(traffic_text)
+    rent = "yes" if needs_rent in {"true", "yes", "1", "нужна"} else "no"
+    traffic_text = str(traffic or "").strip() or "—"
 
-    header = f"▸ <b>{safe_model}</b> · {safe_status}"
+    safe = html.escape
+
+    # Header — model bold, project bold
+    header = f"<b>{safe(model_name.upper())}</b>  {safe(status)}"
     if project:
-        header += f" · <b>{safe_project}</b>"
+        header += f" · <b>{safe(project)}</b>"
 
-    parts = [header, ""]
+    lines = [header]
+
+    # Scout → Assist
     if scout or assist:
-        parts.append(f"👤 {safe_scout or '—'} → {safe_assist or '—'}")
-    if language:
-        parts.append(f"🌐 {safe_language}")
-    parts.extend([
-        f"⚡ {safe_boost.replace(' | ', '  |  ')}",
-        f"📡 Доп. трафик: {safe_traffic}",
-        f"🏠 Аренда: {rent}",
-        "",
-        files_block,
-        html.escape(last_shoot_line),
-        html.escape(next_shoot_line or "📅 Ближ. съёмка: не запланировано"),
-        "",
-    ])
+        lines.append(f"  └ {safe(scout or '—')} → {safe(assist or '—')}")
 
-    if (orders_done + orders_open) == 0:
-        parts.append("📈 Заказы: за 30 дней нет")
+    lines.append("")
+
+    # Info block
+    if language:
+        lines.append(f"  | {safe(language)}")
+
+    # Boost: replace Ru labels with En
+    boost_en = boost.replace("Анал:", "anal:").replace("Колл:", "calls:")
+    if boost_en:
+        lines.append(f"  | {safe(boost_en)}")
+
+    lines.append(f"  | traffic: {safe(traffic_text)}  |  rent: {rent}")
+
+    lines.append("")
+
+    # Content block — bold numbers
+    files_block = _format_monthly_files(accounting_row)
+    files_text = files_block.replace("📁 Контент за мес: ", "").replace("📁 Контент за мес:", "").strip()
+    files_text_escaped = safe(files_text)
+    files_text_bold = _re.sub(r'\b(\d+)\b', r'<b>\1</b>', files_text_escaped)
+    lines.append(f"  ▸ content: {files_text_bold}")
+
+    # Shoots — bold dates
+    def _strip_prefix(line: str) -> str:
+        for prefix in ["🎬 Снятый: ", "📅 Ближ. съёмка: ", "снятый: ", "след. съёмка: "]:
+            if line.startswith(prefix):
+                return line[len(prefix):]
+        return line
+
+    last_data = _strip_prefix(last_shoot_line)
+    # Bold the date part (first token before ' · ')
+    if " · " in last_data:
+        date_part, rest = last_data.split(" · ", 1)
+        lines.append(f"  ▸ last shoot: <b>{safe(date_part)}</b> · {safe(rest)}")
     else:
-        parts.extend([
-            "📈 Заказы:",
-            f"   • Done: <b>{orders_done}</b> | Open: <b>{orders_open}</b>",
-        ])
-    return "\n".join(parts)
+        lines.append(f"  ▸ last shoot: {safe(last_data)}")
+
+    if next_shoot_line:
+        next_data = _strip_prefix(next_shoot_line)
+        if next_data and next_data not in {"не запланировано", "не было"}:
+            if " · " in next_data:
+                date_part, rest = next_data.split(" · ", 1)
+                lines.append(f"  ▸ next shoot: <b>{safe(date_part)}</b> · {safe(rest)}")
+            else:
+                lines.append(f"  ▸ next shoot: <b>{safe(next_data)}</b>")
+
+    lines.append("")
+
+    # Orders — bold label and numbers
+    lines.append(f"  <b>orders</b>")
+    lines.append(f"  | done: <b>{orders_done}</b>  |  open: <b>{orders_open}</b>")
+
+    return "\n".join(lines)
 
 
 async def _query_all_pages(
