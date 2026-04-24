@@ -1143,7 +1143,7 @@ def _parse_accounting(item: dict[str, Any]) -> NotionAccounting:
         basic_files=basic_files,
         event_files=event_files,
         request_files=request_files,
-        comment=_extract_rich_text(item, "Comment"),
+        comment=_extract_rich_text(item, "comments"),
         comm_reddit=_extract_rich_text(item, "comm_reddit"),
         status=_extract_status(item, "status"),
         last_edited=last_edited,
