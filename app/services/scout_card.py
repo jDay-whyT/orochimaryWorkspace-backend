@@ -184,7 +184,7 @@ def _format_scout_card(
     safe = html.escape
 
     # Header — model bold, project bold
-    header = f"<b>{safe(model_name.upper())}</b>  {safe(status)}"
+    header = f"<b>{safe(model_name.upper())}</b> · {safe(status)}"
     if project:
         header += f" · <b>{safe(project)}</b>"
 
@@ -205,15 +205,17 @@ def _format_scout_card(
     if boost_en:
         lines.append(f"  | {safe(boost_en)}")
 
-    lines.append(f"  | traffic: {safe(traffic_text)}  |  rent: {rent}")
+    traffic_parts = [f"<b>{safe(t.strip())}</b>" for t in traffic_text.split(",") if t.strip()]
+    traffic_bold = ", ".join(traffic_parts) if traffic_parts else "—"
+    lines.append(f"  | traffic: {traffic_bold}")
+    lines.append(f"  | rent: {rent}")
 
     lines.append("")
 
     # Content block — bold numbers
     files_block = _format_monthly_files(accounting_row)
     files_text = files_block.replace("📁 Контент за мес: ", "").replace("📁 Контент за мес:", "").strip()
-    files_text_escaped = safe(files_text)
-    files_text_bold = _re.sub(r'\b(\d+)\b', r'<b>\1</b>', files_text_escaped)
+    files_text_bold = _re.sub(r'\b(\d+)\b', r'<b>\1</b>', files_text)
     lines.append(f"  ▸ content: {files_text_bold}")
 
     # Shoots — bold dates
