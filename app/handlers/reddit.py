@@ -158,9 +158,9 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
     cards: list[str] = []
     for row in rows:
         model_line = f"📌 <b>{html.escape(row.model_name)}</b>"
-        files_line = f"reddit: {row.reddit_files if row.reddit_files is not None else '—'}"
+        files_line = f"reddit: <b>{row.reddit_files if row.reddit_files is not None else '—'}<b>"
         verif_line = (
-            f"вериф: {row.verif_received}/{row.verif_requested}"
+            f"вериф: <b>{row.verif_received}/{row.verif_requested}<b>"
             if row.verif_requested > 0
             else None
         )
