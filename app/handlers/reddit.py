@@ -191,4 +191,4 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
 
         cards.append("\n".join(lines))
 
-    return header_line + "\n\n".join(cards)
+    return header_line + "\n" + "\n\n".join(cards)

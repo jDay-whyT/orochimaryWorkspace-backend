@@ -2195,6 +2195,8 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
             "flow": "nlp_close",
             "step": "awaiting_date",
             "order_id": order_id_for_close,
+            "order_type": state.get("order_type"),
+            "count": state.get("count"),
             "model_id": state.get("model_id"),
             "model_name": state.get("model_name"),
             "k": k,
@@ -2235,7 +2237,12 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
 
     model_id_for_kb = state.get("model_id", "") if state else ""
     try:
-        await notion.close_order(order_id, out_date)
+        order_type = state.get("order_type") if state else None
+        count = state.get("count") if state else None
+        if order_type in ("short", "verif reddit") and count:
+            await notion.close_order_with_received(order_id, out_date, int(count))
+        else:
+            await notion.close_order(order_id, out_date)
         orders_cache.clear_cache(model_id_for_kb)
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
