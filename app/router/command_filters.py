@@ -52,7 +52,6 @@ class CommandIntent(Enum):
 
     # Comment (priority 55)
     ADD_COMMENT = "add_comment"
-    REDDIT_COMMENT = "reddit_comment"
 
     # Model actions (priority 50)
     GET_REPORT = "get_report"

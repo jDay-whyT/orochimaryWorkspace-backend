@@ -68,7 +68,6 @@ class NotionAccounting:
     event_files: int = 0
     request_files: int = 0
     comment: str | None = None
-    comm_reddit: str | None = None
     status: str | None = None
     last_edited: str | None = None
     content: list[str] | None = None
@@ -811,21 +810,6 @@ class NotionClient:
         await self._request("PATCH", url, json=payload)
         LOGGER.info("update_accounting_comment completed: page_id=%s", page_id)
 
-    async def update_reddit_comment(self, page_id: str, comment: str) -> None:
-        """Update accounting comm_reddit."""
-        if len(comment) > 2000:
-            LOGGER.warning("Reddit comment truncated: page_id=%s len=%d", page_id, len(comment))
-            comment = comment[:2000]
-        payload = {
-            "properties": {
-                "comm_reddit": {"rich_text": [{"text": {"content": comment}}]},
-            }
-        }
-        url = f"https://api.notion.com/v1/pages/{page_id}"
-        LOGGER.info("update_reddit_comment: page_id=%s comment_len=%d", page_id, len(comment))
-        await self._request("PATCH", url, json=payload)
-        LOGGER.info("update_reddit_comment completed: page_id=%s", page_id)
-
     async def update_accounting_content(
         self,
         page_id: str,
@@ -1144,7 +1128,6 @@ def _parse_accounting(item: dict[str, Any]) -> NotionAccounting:
         event_files=event_files,
         request_files=request_files,
         comment=_extract_rich_text(item, "comments"),
-        comm_reddit=_extract_rich_text(item, "comm_reddit"),
         status=_extract_status(item, "status"),
         last_edited=last_edited,
         content=_extract_multi_select(item, "Content"),

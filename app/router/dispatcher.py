@@ -39,17 +39,6 @@ from app.utils import PAGE_SIZE
 
 
 LOGGER = logging.getLogger(__name__)
-REDDIT_COMMENT_TRIGGERS = [
-    "комент реддит",
-    "коммент реддит",
-    "comment reddit",
-    "reddit comment",
-    "реддит коммент",
-    "реддит комент",
-    "комент редит",
-    "редит комент",
-]
-
 
 async def _safe_edit_reply_markup(bot, chat_id: int, message_id: int) -> None:
     try:
@@ -160,10 +149,6 @@ async def route_message(
     user_state = memory_state.get(chat_id, user_id)
     if user_state and user_state.get("flow"):
         current_flow = user_state["flow"]
-        if current_flow == "reddit_comment":
-            await _handle_reddit_comment_flow(message, text, user_state, config, notion, memory_state, recent_models)
-            return
-
         if current_flow in _FLOW_FILTER_FLOWS:
             if current_flow in _TEXT_INPUT_FLOWS:
                 LOGGER.info(
@@ -227,15 +212,11 @@ async def route_message(
 
     # ===== Step 4: Intent Classification =====
     _t = time.time()
-    lowered = text.lower()
-    if any(trigger in lowered for trigger in REDDIT_COMMENT_TRIGGERS):
-        intent = CommandIntent.REDDIT_COMMENT
-    else:
-        intent = classify_intent_v2(
-            text,
-            has_model=entities.has_model,
-            has_numbers=entities.has_numbers,
-        )
+    intent = classify_intent_v2(
+        text,
+        has_model=entities.has_model,
+        has_numbers=entities.has_numbers,
+    )
     LOGGER.info(
         "Stage intent_classification: %.3fs | intent=%s for text=%r",
         time.time() - _t, intent.value, text[:60],
@@ -448,10 +429,6 @@ async def _execute_handler(
 
     if intent == CommandIntent.ADD_COMMENT:
         await _handle_add_comment(message, model, entities, config, notion, memory_state)
-        return
-
-    if intent == CommandIntent.REDDIT_COMMENT:
-        await _handle_reddit_comment_intent(message, text, model, config, notion, memory_state, recent_models)
         return
 
     # ===== MODEL ACTIONS (priority 50) =====
@@ -1440,165 +1417,6 @@ async def _handle_accounting_comment_input(message, text, user_state, config, no
         LOGGER.exception("Failed to update accounting comment")
         await message.answer("❌ Ошибка при сохранении комментария.")
         memory_state.clear(chat_id, user_id)
-
-
-async def _handle_reddit_comment_intent(
-    message: Message,
-    text: str,
-    model: dict | None,
-    config: Config,
-    notion: NotionClient,
-    memory_state: MemoryState,
-    recent_models: RecentModels,
-) -> None:
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-
-    if model:
-        await _start_reddit_comment_input(message, model, config, notion, memory_state)
-        return
-
-    memory_state.set(chat_id, user_id, {"flow": "reddit_comment", "step": "await_model"})
-    await message.answer("✏️ Укажи модель:")
-
-
-async def _handle_reddit_comment_flow(
-    message: Message,
-    text: str,
-    user_state: dict,
-    config: Config,
-    notion: NotionClient,
-    memory_state: MemoryState,
-    recent_models: RecentModels,
-) -> None:
-    from app.keyboards.inline import (
-        nlp_action_complete_keyboard,
-        nlp_confirm_model_keyboard,
-        nlp_model_selection_keyboard,
-    )
-
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-    step = user_state.get("step")
-
-    if step == "await_model":
-        resolution = await resolve_model(
-            query=text.strip(),
-            user_id=user_id,
-            db_models=config.db_models,
-            notion=notion,
-            recent_models=recent_models,
-        )
-        if resolution["status"] == "found":
-            await _start_reddit_comment_input(message, resolution["model"], config, notion, memory_state)
-            return
-        if resolution["status"] == "confirm":
-            m = resolution["model"]
-            k = generate_token()
-            memory_state.set(chat_id, user_id, {
-                "flow": "nlp_disambiguate",
-                "intent": CommandIntent.REDDIT_COMMENT.value,
-                "entities_raw": f"reddit comment {text}",
-                "k": k,
-            })
-            await message.answer(
-                f"🔍 Вы имели в виду <b>{html.escape(m['name'])}</b>?",
-                reply_markup=nlp_confirm_model_keyboard(m["id"], m["name"], k),
-                parse_mode="HTML",
-            )
-            return
-        if resolution["status"] == "multiple":
-            k = generate_token()
-            memory_state.set(chat_id, user_id, {
-                "flow": "nlp_disambiguate",
-                "intent": CommandIntent.REDDIT_COMMENT.value,
-                "entities_raw": f"reddit comment {text}",
-                "k": k,
-            })
-            await message.answer(
-                f"🔍 Уточните модель '{html.escape(text)}':",
-                reply_markup=nlp_model_selection_keyboard(resolution["models"], k),
-                parse_mode="HTML",
-            )
-            return
-        await message.answer("❌ Модель не найдена. Попробуй ещё раз.")
-        return
-
-    if step == "reddit_comment_input":
-        from app.roles import is_editor
-
-        if not is_editor(user_id, config):
-            await message.answer("❌ Нет прав.")
-            memory_state.clear(chat_id, user_id)
-            return
-
-        model_id = user_state.get("model_id", "")
-        model_name = user_state.get("model_name", "")
-        comment_text = text.strip()
-        yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
-        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
-        LOGGER.info(
-            "reddit_comment: model_id=%s yyyy_mm=%s record=%s",
-            model_id,
-            yyyy_mm,
-            record.page_id if record else None,
-        )
-        if not record:
-            await message.answer(f"❌ Нет записи в Accounting за текущий месяц для {html.escape(model_name)}", parse_mode="HTML")
-            memory_state.clear(chat_id, user_id)
-            return
-        try:
-            await notion.update_reddit_comment(record.page_id, comment_text)
-            try:
-                await message.delete()
-            except Exception:
-                pass
-            await _clear_previous_screen_keyboard(message, memory_state)
-            await _cleanup_prompt_message(message, memory_state)
-            from app.keyboards.inline import nlp_action_complete_keyboard
-            await message.answer(
-                f"✅ Комментарий обновлён — <b>{html.escape(model_name)}</b>\n"
-                f"💬 {html.escape(comment_text)}",
-                reply_markup=nlp_action_complete_keyboard(model_id),
-                parse_mode="HTML",
-            )
-        except Exception:
-            LOGGER.exception("Failed to update reddit comment")
-            await message.answer("❌ Ошибка при сохранении комментария.")
-        memory_state.clear(chat_id, user_id)
-        return
-
-    memory_state.clear(chat_id, user_id)
-
-
-async def _start_reddit_comment_input(
-    message: Message,
-    model: dict,
-    config: Config,
-    notion: NotionClient,
-    memory_state: MemoryState,
-) -> None:
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-    model_id = model["id"]
-    model_name = model["name"]
-    yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
-    record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
-    existing = (record.comm_reddit if record else None) or "пусто"
-
-    msg = await message.answer(
-        f"💬 Reddit комментарий — {html.escape(model_name)}\n"
-        f"Текущий: \"{html.escape(existing)}\"\n\n"
-        "Введи новый комментарий:",
-        parse_mode="HTML",
-    )
-    memory_state.set(chat_id, user_id, {
-        "flow": "reddit_comment",
-        "step": "reddit_comment_input",
-        "model_id": model_id,
-        "model_name": model_name,
-        "prompt_message_id": msg.message_id if msg else None,
-    })
 
 
 def _parse_files_count(text: str) -> int | None:
