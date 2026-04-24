@@ -155,6 +155,10 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
     if not rows:
         return "📭 Reddit board пуст"
 
+    now = today(config.timezone)
+    month_label = _MONTHS_RU_SHORT[now.month - 1]
+    header_line = f"<b>Reddit · {month_label} {now.year}</b> — {len(rows)} моделей\n"
+
     cards: list[str] = []
     for row in rows:
         if row.next_shoot_date:
@@ -171,7 +175,7 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
             lines.append(f"  └ {row.next_shoot_status}")
 
         if row.last_shoot_date:
-            lines.append(f"  | last: {_format_day_mon(row.last_shoot_date)}")
+            lines.append(f"  | last: <b>{_format_day_mon(row.last_shoot_date)}</b>")
 
         files_str = str(row.reddit_files) if row.reddit_files is not None else "—"
         if row.verif_requested > 0:
@@ -185,4 +189,4 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
 
         cards.append("\n".join(lines))
 
-    return "\n\n".join(cards) if cards else "📭 Reddit board пуст"
+    return header_line + "\n\n".join(cards)
