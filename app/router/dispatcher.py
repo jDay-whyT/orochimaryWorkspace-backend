@@ -341,7 +341,6 @@ def _intent_requires_model(intent: CommandIntent) -> bool:
     """Check if intent requires a model to be resolved."""
     no_model_intents = {
         CommandIntent.UNKNOWN,
-        CommandIntent.SHOW_SUMMARY,
         CommandIntent.SHOW_ORDERS,
         CommandIntent.SHOW_PLANNER,
         CommandIntent.SHOW_ACCOUNT,
@@ -364,11 +363,6 @@ async def _execute_handler(
     """Execute the appropriate handler based on intent."""
 
     # ===== MENU COMMANDS (no model) =====
-
-    if intent == CommandIntent.SHOW_SUMMARY:
-        from app.handlers.summary import show_summary_menu
-        await show_summary_menu(message, config, recent_models)
-        return
 
     if intent == CommandIntent.SHOW_ORDERS:
         from app.handlers.orders import show_orders_menu

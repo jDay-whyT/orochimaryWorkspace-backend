@@ -58,7 +58,6 @@ class CommandIntent(Enum):
     SHOW_MODEL_ORDERS = "show_model_orders"
 
     # Menu (priority 40)
-    SHOW_SUMMARY = "show_summary"
     SHOW_ORDERS = "show_orders"
     SHOW_PLANNER = "show_planner"
     SHOW_ACCOUNT = "show_account"
@@ -360,20 +359,6 @@ COMMAND_FILTERS = [
     # ========== MENU COMMANDS (Priority: 40) ==========
 
     CommandFilter(
-        intent=CommandIntent.SHOW_SUMMARY,
-        keywords=[
-            "сводка", "сводку", "сводки",
-            "summary",
-            "сводк",
-        ],
-        patterns=[
-            re.compile(r'\bсводк[а-я]*\b', re.IGNORECASE),
-            re.compile(r'\bsummary\b', re.IGNORECASE),
-        ],
-        priority=40,
-    ),
-
-    CommandFilter(
         intent=CommandIntent.SHOW_ORDERS,
         keywords=[
             "заказы", "заказов", "заказ",
@@ -470,7 +455,6 @@ IGNORE_KEYWORDS = {
     "статистика", "статистику", "стат", "стата", "stats", "statistics",
 
     # Меню
-    "сводка", "сводку", "summary",
     "заказы", "заказов", "заказ", "orders", "order",
     "планировщик", "планер", "план", "planner", "schedule", "planning",
     "аккаунт", "аккаунта", "акк", "account", "accounting", "бухгалтерия", "бух",
