@@ -18,8 +18,6 @@ from app.keyboards.inline import (
     planner_location_keyboard,
     accounting_menu_keyboard,
     accounting_quick_files_keyboard,
-    summary_menu_keyboard,
-    summary_card_keyboard,
     nlp_action_complete_keyboard,
     nlp_shoot_location_keyboard,
 )
@@ -45,8 +43,6 @@ __all__ = [
     "planner_location_keyboard",
     "accounting_menu_keyboard",
     "accounting_quick_files_keyboard",
-    "summary_menu_keyboard",
-    "summary_card_keyboard",
     "nlp_action_complete_keyboard",
     "nlp_shoot_location_keyboard",
     "calendar_keyboard",

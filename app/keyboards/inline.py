@@ -441,47 +441,6 @@ def nlp_accounting_content_keyboard(
     return builder.as_markup()
 
 
-# ==================== Summary ====================
-
-def summary_menu_keyboard(recent: list[tuple[str, str]]) -> InlineKeyboardMarkup:
-    """Summary section with recent models."""
-    builder = InlineKeyboardBuilder()
-    
-    # Recent models in rows of 3
-    row: list[InlineKeyboardButton] = []
-    for model_id, title in recent[:9]:
-        row.append(InlineKeyboardButton(
-            text=title,
-            callback_data=f"summary|model|{model_id}"
-        ))
-        if len(row) == 3:
-            builder.row(*row)
-            row = []
-    if row:
-        builder.row(*row)
-    
-    builder.row(
-        InlineKeyboardButton(text="🔍 Search", callback_data="summary|search|search"),
-        InlineKeyboardButton(text="◀️ Back", callback_data="summary|back|main"),
-    )
-    
-    return builder.as_markup()
-
-
-def summary_card_keyboard(model_id: str) -> InlineKeyboardMarkup:
-    """Model summary card actions."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="📦 Debts", callback_data=f"summary|debts|{model_id}"),
-            InlineKeyboardButton(text="📋 Orders", callback_data=f"summary|orders|{model_id}"),
-        ],
-        [
-            InlineKeyboardButton(text="➕ Files", callback_data=f"summary|files|{model_id}"),
-            InlineKeyboardButton(text="◀️ Back", callback_data="summary|back|menu"),
-        ],
-    ])
-
-
 # ==================== NLP Router Keyboards ====================
 #
 # All NLP keyboards use SHORT callback_data (max ~55 bytes) to stay within

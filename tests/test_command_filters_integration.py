@@ -51,7 +51,6 @@ def main():
 
     test_cases = [
         # Menu commands
-        ("сводка", CommandIntent.SHOW_SUMMARY),
         ("заказы", CommandIntent.SHOW_ORDERS),
         ("планировщик", CommandIntent.SHOW_PLANNER),
         ("аккаунт", CommandIntent.SHOW_ACCOUNT),

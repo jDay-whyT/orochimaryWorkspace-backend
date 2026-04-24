@@ -109,19 +109,6 @@ class TestIntentClassification:
         assert classify_intent_v2("скаут курага") == CommandIntent.SCOUT_CARD
         assert classify_intent_v2("скаут") != CommandIntent.SCOUT_CARD
 
-    # ========== SHOW_SUMMARY ==========
-
-    def test_show_summary_basic(self):
-        """Test summary menu."""
-        assert classify_intent_v2("сводка") == CommandIntent.SHOW_SUMMARY
-        assert classify_intent_v2("покажи сводку") == CommandIntent.SHOW_SUMMARY
-        assert classify_intent_v2("summary") == CommandIntent.SHOW_SUMMARY
-
-    def test_show_summary_variations(self):
-        """Test summary with variations."""
-        assert classify_intent_v2("сводки") == CommandIntent.SHOW_SUMMARY
-        assert classify_intent_v2("сводк") == CommandIntent.SHOW_SUMMARY
-
     # ========== SHOW_ORDERS ==========
 
     def test_show_orders_basic(self):
