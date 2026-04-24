@@ -175,9 +175,9 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
 
         files_str = str(row.reddit_files) if row.reddit_files is not None else "—"
         if row.verif_requested > 0:
-            stats = f"  ▸ reddit: {files_str} | вериф: {row.verif_received}/{row.verif_requested}"
+            stats = f"  ▸ reddit: <b>{files_str}<b> | verif: <b>{row.verif_received}/{row.verif_requested}<b>"
         else:
-            stats = f"  ▸ reddit: {files_str}"
+            stats = f"  ▸ reddit: <b>{files_str}<b>"
         lines.append(stats)
 
         if row.comm_reddit:
