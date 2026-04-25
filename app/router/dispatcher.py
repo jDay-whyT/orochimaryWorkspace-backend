@@ -912,9 +912,10 @@ async def _add_comment_to_order(message, model, entities, config, notion, memory
             comment_text = entities.comment_text
             from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
             await message.answer(
-                f"✅ Комментарий добавлен — {model_name}\n"
+                f"✅ Комментарий добавлен — <b>{html.escape(model_name)}</b>\n"
                 f"\"{comment_text[:40]}...\"",
                 reply_markup=_nlp_action_complete_keyboard(model["id"]),
+                parse_mode="HTML",
             )
         else:
             from app.keyboards.inline import nlp_comment_order_select_keyboard
@@ -961,9 +962,10 @@ async def _add_comment_to_shoot(message, model, entities, config, notion, memory
             comment_text = entities.comment_text
             from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
             await message.answer(
-                f"✅ Комментарий добавлен — {model_name}\n"
+                f"✅ Комментарий добавлен — <b>{html.escape(model_name)}</b>\n"
                 f"\"{comment_text[:40]}...\"",
                 reply_markup=_nlp_action_complete_keyboard(model["id"]),
+                parse_mode="HTML",
             )
         else:
             from app.keyboards.inline import nlp_shoot_select_keyboard
@@ -1580,8 +1582,8 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
             pass
         memory_state.clear(chat_id, user_id)
         partial_text = (
-            f"📥 Обновлено — <b>{html.escape(model_name)}</b>\n"
-            f"Получено: {new_received}/{count}"
+            f"🔄 Обновлено — <b>{html.escape(model_name)}</b>\n"
+            f"Получено: <b>{new_received}/{count}</b>"
         )
         try:
             await message.bot.edit_message_text(
