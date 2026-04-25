@@ -538,7 +538,7 @@ def model_card_keyboard(k: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📅 Съёмка", callback_data=f"nlp:act:shoot{s}"),
             InlineKeyboardButton(text="📁 Файлы", callback_data=f"nlp:act:files{s}"),
         ],
-        [InlineKeyboardButton(text="✅ Готово", callback_data="nlp:x:c")],
+        [InlineKeyboardButton(text="Готово", callback_data="nlp:x:c")],
     ])
 
 
@@ -702,7 +702,7 @@ def nlp_order_confirm_keyboard(model_id: str, k: str = "") -> InlineKeyboardMark
     """Confirmation after date selection. All context in memory."""
     s = f":{k}" if k else ""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Создать", callback_data=f"nlp:oc{s}")],
+        [InlineKeyboardButton(text="✓ Создать", callback_data=f"nlp:oc{s}")],
         [nlp_back_button(model_id)],
     ])
 
@@ -876,8 +876,8 @@ def nlp_close_order_date_keyboard(model_id: str, k: str = "") -> InlineKeyboardM
     s = f":{k}" if k else ""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✓ Сегодня", callback_data=f"nlp:cd:today{s}"),
-            InlineKeyboardButton(text="✓ Вчера", callback_data=f"nlp:cd:yesterday{s}"),
+            InlineKeyboardButton(text="Сегодня", callback_data=f"nlp:cd:today{s}"),
+            InlineKeyboardButton(text="Вчера", callback_data=f"nlp:cd:yesterday{s}"),
         ],
         [InlineKeyboardButton(text="📅 Другая дата", callback_data=f"nlp:cd:custom{s}")],
         [nlp_back_button(model_id)],
