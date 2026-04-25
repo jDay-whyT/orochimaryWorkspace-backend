@@ -6,7 +6,7 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 
 - Бот для управления Notion-базами: **Models**, **Orders**, **Planner**, **Accounting**
 - NLP-роутер: распознаёт намерения из свободного текста без команд
-- Основные флоу: **Orders**, **Planner**, **Accounting**, **Summary**, **Reddit**
+- Основные флоу: **Orders**, **Planner**, **Accounting**, **Reddit**
 - State: Redis (primary) / in-memory fallback
 - Cloud Run stateless: без корректных ENV и webhook бот не отвечает
 
@@ -38,13 +38,13 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `TELEGRAM_WEBHOOK_SECRET` | ⚠️ | Секрет для X-Telegram-Bot-Api-Secret-Token |
 | `TIMEZONE` | ⚠️ | Таймзона, по умолчанию `Europe/Brussels` |
 | `FILES_PER_MONTH` | ⚠️ | Лимит файлов в месяц, по умолчанию `200` |
-| `INTERNAL_SECRET` | ⚠️ | Секрет для `POST /internal/update-board` |
-| `MANAGERS_CHAT_ID` | ⚠️ | chat_id для менеджеров |
-| `MANAGERS_TOPIC_THREAD_ID` | ⚠️ | topic_thread_id для менеджеров |
+| `INTERNAL_SECRET` | ⚠️ | Секрет для internal endpoints |
+| `MANAGERS_CHAT_ID` | ⚠️ | chat_id группы для борда |
+| `MANAGERS_TOPIC_THREAD_ID` | ⚠️ | topic_thread_id борда съёмок |
+| `REDDIT_BOARD_TOPIC_THREAD_ID` | ⚠️ | topic_thread_id Reddit борда |
+| `BOARD_MESSAGE_ID` | ⚠️ | message_id закреплённого борда съёмок |
+| `REDDIT_BOARD_MESSAGE_ID` | ⚠️ | message_id закреплённого Reddit борда |
 | `REDIS_URL` | ⚠️ | Redis URL, например `redis://localhost:6379/0` |
-| `BOARD_MESSAGE_ID` | ⚠️ | message_id борда съёмок для редактирования |
-| `REDDIT_BOARD_MESSAGE_ID` | ⚠️ | message_id Reddit-борда для редактирования |
-| `REDDIT_BOARD_TOPIC_THREAD_ID` | ⚠️ | topic_thread_id для Reddit-борда |
 
 ## Структура проекта
 app/
@@ -60,7 +60,6 @@ app/
 │   ├── orders.py            # Orders CRUD
 │   ├── planner.py           # Planner flow
 │   ├── accounting.py        # Accounting flow
-│   ├── summary.py           # Summary cards
 │   ├── reports.py           # Report cards
 │   ├── reddit.py            # /reddit борд
 │   ├── notifications.py     # /shoots борд
@@ -99,11 +98,10 @@ app/
 | `три кастома стейдж` | Создать 3 заказа custom |
 | `вериф реддит стейдж` | Заказ верификации (10 шт по умолчанию) |
 | `стейдж 30 файлов` | Добавить 30 файлов в учёт месяца |
-| `коммент реддит стейдж` | Обновить Reddit комментарий |
 | `шут стейдж` | Создать съёмку в планере |
 | `репорт стейдж` | Отчёт за месяц |
-| `/reddit` | Reddit борд по всем моделям |
 | `/shoots` | Борд съёмок на 7 дней |
+| `/reddit` | Reddit борд по всем моделям |
 
 ## Типы заказов (Orders)
 
@@ -115,30 +113,41 @@ app/
 | `call` | Колл |
 | `ad request` | Ad Request |
 
+Для типов `short` и `verif reddit` доступно частичное закрытие через кнопку **Внести часть** — накапливает `received`. При `received >= count` заказ закрывается автоматически.
+
 ## Reddit борд (`/reddit`)
 
-Показывает карточки по всем Reddit-моделям:
-📌 Sukuna
-📅 Прошлая съёмка: 01 апр · done
-📅 Следующая: 28 апр · scheduled
-📁 Reddit файлов (апр): 87
-📋 Вериф: open · 10 шт · 15 апр
-💬 комментарий менеджера
+Показывает карточки по всем Reddit-моделям (источник: Accounting `Content=reddit`, `status=work`):
+Reddit · апр 2026 — 14 моделей
+ШАНЕЛЬ  28 апр (Пт)
+└ scheduled
+| last: 15 апр
+▸ reddit: 90 | вериф: 7/20
+💬 комментарий
 
-Источники: Accounting (фильтр `Content=reddit`) + Planner (новые модели → 🆕) + Orders (открытые `verif reddit`).
+Автообновление каждые 3 часа через Cloud Scheduler → `POST /internal/update-reddit-board`.
 
-## Карточка модели (CRM)
-📌 СТЕЙДЖ
-📦 Заказы: 2 откр · 1 просрочены
-📅 Съёмка: 25 апр · reddit, twitter
-📁 Файлы (апр): 120/200 (60%)
-Что делаем?
-[📦 Заказы] [📅 Съёмка] [📁 Файлы]
+## Борд съёмок (`/shoots`)
+
+Показывает съёмки на 7 дней вперёд. Автообновление через Cloud Scheduler → `POST /internal/update-board`.
+
+## Скаут карточка
+ШАНЕЛЬ · work · СБОРНАЯ
+└ @scout → @assist
+| es, eng < b1
+| anal: plug, fingers  |  calls: No
+| traffic: Reddit, Twitter
+| rent: no
+▸ content: Reddit 90
+▸ last shoot: 15 апр · posting, reddit
+▸ next shoot: 28 апр · twitter
+orders
+| done: 11  |  open: 5
 
 ## Accounting
 
 - 1 запись на модель в месяц
-- Title: `"{MODEL_NAME} {месяц_ru} {год}"` — например `"КЛЕЩ февраль 2026"`
+- Title: `"{MODEL_NAME} {месяц_ru} {год}"` — например `"ШАНЕЛЬ апрель 2026"`
 - Поля по типам: `of_files`, `reddit_files`, `twitter_files`, `fansly_files`, `social_files`, `request_files`
 - Лимит: `FILES_PER_MONTH` (default 200)
 
@@ -179,21 +188,22 @@ curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
   -d "{\"url\":\"https://YOUR_DOMAIN/tg/webhook\",\"secret_token\":\"$TELEGRAM_WEBHOOK_SECRET\"}"
 ```
 
-### Cloud Scheduler (борд съёмок, 06:00 UTC)
+### Cloud Scheduler
 
+Борд съёмок (каждые 3 часа):
 ```bash
-gcloud scheduler jobs create http orochimary-daily-board-sync \
+gcloud scheduler jobs create http update-shoots-board \
   --location=europe-west1 \
-  --schedule="0 6 * * *" \
+  --schedule="0 */3 * * *" \
+  --time-zone="UTC" \
   --uri="https://YOUR_CLOUD_RUN_URL/internal/update-board" \
   --http-method=POST \
   --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
 ```
 
-### Cloud Scheduler (Reddit-борд, каждые 3 часа)
-
+Reddit борд (каждые 3 часа):
 ```bash
-gcloud scheduler jobs create http orochimary-reddit-board-sync \
+gcloud scheduler jobs create http update-reddit-board \
   --location=europe-west1 \
   --schedule="0 */3 * * *" \
   --time-zone="UTC" \
@@ -201,6 +211,10 @@ gcloud scheduler jobs create http orochimary-reddit-board-sync \
   --http-method=POST \
   --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
 ```
+
+### Первый запуск бордов
+
+После первого деплоя — вызови каждый endpoint вручную или через `/shoots` и `/reddit`. Бот залогирует `message_id` нового сообщения. Добавь его в Cloud Run ENV как `BOARD_MESSAGE_ID` и `REDDIT_BOARD_MESSAGE_ID` соответственно, затем задеплой снова.
 
 ## Endpoints
 
@@ -210,7 +224,7 @@ gcloud scheduler jobs create http orochimary-reddit-board-sync \
 | `GET /healthz` | Healthcheck |
 | `POST /tg/webhook` | Telegram webhook |
 | `POST /internal/update-board` | Обновление борда съёмок |
-| `POST /internal/update-reddit-board` | Обновление Reddit-борда |
+| `POST /internal/update-reddit-board` | Обновление Reddit борда |
 
 ## Troubleshooting
 
@@ -221,3 +235,5 @@ gcloud scheduler jobs create http orochimary-reddit-board-sync \
 **Redis недоступен** — бот упадёт на старте если `REDIS_URL` задан но Redis не отвечает. Убери `REDIS_URL` для fallback на in-memory.
 
 **Timeouts** — увеличь timeout или уменьши concurrency в Cloud Run.
+
+**Борд не обновляется** — проверь `BOARD_MESSAGE_ID` / `REDDIT_BOARD_MESSAGE_ID` в ENV и что `MANAGERS_CHAT_ID` указан верно (с минусом).
