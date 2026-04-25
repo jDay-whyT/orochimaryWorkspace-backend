@@ -69,7 +69,7 @@ async def handle_accounting_callback(
 ) -> None:
     """Handle accounting callbacks."""
     if not is_authorized(query.from_user.id, config):
-        await query.answer("Access denied", show_alert=True)
+        await query.answer("❌ Нет доступа", show_alert=True)
         return
 
     parts = query.data.split("|")
@@ -366,7 +366,7 @@ async def _process_content_type_selection(
     except Exception:
         LOGGER.exception("Error adding files with content type")
         await query.message.edit_text(
-            "❌ Не смог обновить Notion, попробуй позже",
+            "❌ Ошибка Notion — попробуй позже",
             reply_markup=accounting_menu_keyboard(),
             parse_mode="HTML",
         )
@@ -388,7 +388,7 @@ async def _process_custom_files(message: Message, config: Config, memory_state: 
     except ValueError:
         if screen_chat_id and msg_id:
             await message.bot.edit_message_text(
-                "❌ Введите число от 0 до 700:",
+                "❌ Введи число от 0 до 700",
                 chat_id=screen_chat_id, message_id=msg_id, parse_mode="HTML",
             )
         return
@@ -432,7 +432,7 @@ async def _process_comment(message: Message, config: Config, memory_state: Memor
     msg_id = data.get("screen_message_id")
     if chat_id and msg_id:
         await message.bot.edit_message_text(
-            "✅ Comment updated!",
+            "✅ Готово",
             chat_id=chat_id, message_id=msg_id,
             reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
         )
@@ -529,4 +529,4 @@ async def handle_add_files_nlp(
         recent_models.add(message.from_user.id, model_id, model_name)
     except Exception:
         LOGGER.exception("Failed to add files")
-        await message.answer("❌ Не смог обновить Notion, попробуй позже.")
+        await message.answer("❌ Ошибка Notion — попробуй позже")

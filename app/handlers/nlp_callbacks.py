@@ -286,7 +286,7 @@ async def handle_nlp_callback(
 ) -> None:
     """Handle all NLP-related callbacks."""
     if not is_authorized(query.from_user.id, config):
-        await query.answer("Access denied", show_alert=True)
+        await query.answer("❌ Нет доступа", show_alert=True)
         return
 
     # Dedup: silently drop Telegram retries with same (user_id, callback_data)
@@ -343,7 +343,7 @@ async def handle_nlp_callback(
                     )
                     try:
                         await query.message.edit_text(
-                            "✅ Готово, напиши новую модель",
+                            "✅ Готово",
                             reply_markup=None,
                         )
                     except Exception:
@@ -598,7 +598,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             # Date known: proceed to mandatory location selection
             if not is_editor(user_id, config):
                 try:
-                    await query.message.edit_text("❌ Нет прав.")
+                    await query.message.edit_text("❌ Нет доступа")
                 except Exception:
                     # Ignore edit errors (e.g., "message is not modified")
                     pass
@@ -654,7 +654,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
         # Add files directly
         count = entities.first_number
         if not is_editor(user_id, config):
-            await query.message.edit_text("❌ Нет прав.")
+            await query.message.edit_text("❌ Нет доступа")
             return
         try:
             now = datetime.now(tz=config.timezone)
@@ -675,20 +675,18 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             progress_line = format_accounting_progress(new_files, record_status)
             from app.keyboards.inline import nlp_action_complete_keyboard
             await query.message.edit_text(
-                f"✅ +{count} файлов ({new_files} всего)\n\n"
-                f"<b>{html.escape(model_data.title)}</b>\n"
-                f"Файлов: {progress_line}",
+                f"✅ Файлы добавлены — {html.escape(model_data.title)}\n+{count} basic · итого {new_files}",
                 reply_markup=nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )
         except Exception as e:
             LOGGER.exception("Failed to add files: %s", e)
-            await query.message.edit_text("❌ Не смог обновить Notion, попробуй позже.")
+            await query.message.edit_text("❌ Ошибка Notion — попробуй позже")
 
     elif intent == CommandIntent.CLOSE_ORDERS:
         # Close orders flow
         if not is_editor(user_id, config):
-            await query.message.edit_text("❌ Нет доступа.")
+            await query.message.edit_text("❌ Нет доступа")
             return
         await _show_close_picker(
             query=query,
@@ -753,7 +751,7 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
     if action == "order":
         # Show order type selection
         if not is_editor(user_id, config):
-            await query.message.edit_text("❌ Нет доступа.")
+            await query.message.edit_text("❌ Нет доступа")
             return
         from app.keyboards.inline import nlp_order_type_keyboard
         k = generate_token()
@@ -986,7 +984,7 @@ async def _show_close_picker(
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
             msg = await query.message.edit_text(
-                "❌ Нет доступа.",
+                "❌ Нет доступа",
                 reply_markup=nlp_back_keyboard(model_id),
             )
         except TelegramBadRequest as e:
@@ -1004,7 +1002,7 @@ async def _show_close_picker(
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
             msg = await query.message.edit_text(
-                f"✅ Нет открытых заказов для {html.escape(model_name)}",
+                f"❌ Нет открытых заказов — {html.escape(model_name)}",
                 reply_markup=nlp_back_keyboard(model_id),
                 parse_mode="HTML",
             )
@@ -1033,7 +1031,7 @@ async def _show_close_picker(
     await _clear_previous_screen_keyboard(query, memory_state)
     try:
         msg = await query.message.edit_text(
-            f"📦 <b>{html.escape(model_name)}</b> · Какой заказ закрыть?",
+            f"📦 {html.escape(model_name).upper()} · Дата закрытия:",
             reply_markup=nlp_close_order_select_keyboard(
                 page_orders,
                 current_page,
@@ -1073,7 +1071,7 @@ async def _handle_orders_menu_action(
             from app.keyboards.inline import nlp_back_keyboard
             await _clear_previous_screen_keyboard(query, memory_state)
             msg = await query.message.edit_text(
-                "❌ Нет доступа.",
+                "❌ Нет доступа",
                 reply_markup=nlp_back_keyboard(model_id),
             )
             _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
@@ -1221,7 +1219,7 @@ async def _handle_files_menu_action(
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
             msg = await query.message.edit_text(
-                "❌ Нет доступа.",
+                "❌ Нет доступа",
                 reply_markup=nlp_back_keyboard(model_id),
             )
         except TelegramBadRequest as e:
@@ -1377,7 +1375,7 @@ async def _handle_shoot_menu_action(
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         msg = await query.message.edit_text(
-            "❌ Нет доступа.",
+            "❌ Нет доступа",
             reply_markup=nlp_back_keyboard(state.get("model_id", "")),
         )
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
@@ -1550,7 +1548,7 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
         # Create shoot
         if not is_editor(user_id, config):
             try:
-                await query.message.edit_text("❌ Нет прав.")
+                await query.message.edit_text("❌ Нет доступа")
             except TelegramBadRequest as e:
                 if "message is not modified" not in str(e):
                     raise
@@ -1624,7 +1622,7 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
 
     if not is_editor(user_id, config):
         try:
-            await query.message.edit_text("❌ Нет прав.")
+            await query.message.edit_text("❌ Нет доступа")
         except Exception:
             # Ignore "message is not modified" and similar edit errors
             pass
@@ -1655,8 +1653,7 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
         await _cleanup_prompt_message(query, memory_state)
         await _safe_confirm(
             query,
-            f"✅ Съемка создана на {shoot_date.strftime('%d.%m')}\n"
-            f"Контент: {ct_str}\nЛокация: {location}\nСтатус: {auto_status}",
+            f"✅ Съёмка создана — {html.escape(model_name)}\n{shoot_date.strftime('%d.%m')} · {ct_str} · {auto_status}",
             reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )
@@ -1664,7 +1661,7 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
     except Exception as e:
         LOGGER.exception("Failed to create shoot: %s", e)
         try:
-            await query.message.edit_text("❌ Ошибка при создании съемки.")
+            await query.message.edit_text("❌ Ошибка Notion — попробуй позже")
         except Exception:
             pass
         memory_state.clear(chat_id, user_id)
@@ -1684,7 +1681,7 @@ async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state)
     chat_id, user_id = _state_ids_from_query(query)
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.message.edit_text("❌ Нет доступа")
         return
 
     try:
@@ -1692,17 +1689,20 @@ async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state)
         from app.keyboards.inline import nlp_action_complete_keyboard
         shoot = await notion.get_shoot(shoot_id)
         model_id = shoot.model_id if shoot else ""
+        model_name = shoot.model_title if shoot else ""
+        content_str = ", ".join(shoot.content) if shoot and shoot.content else "—"
+        date_str = _format_date_short(shoot.date if shoot else None)
         planner_cache.clear_cache(model_id)
         await _clear_previous_screen_keyboard(query, memory_state)
         await _safe_confirm(
             query,
-            "✅ Съемка выполнена",
+            f"✅ Съёмка выполнена — {html.escape(model_name)}\n{date_str} · {content_str}",
             reply_markup=nlp_action_complete_keyboard(model_id),
         )
         memory_state.clear(chat_id, user_id)
     except Exception as e:
         LOGGER.exception("Failed to mark shoot as done: %s", e)
-        await query.message.edit_text("❌ Ошибка.")
+        await query.message.edit_text("❌ Ошибка")
 
 
 async def _handle_shoot_select(query, parts, config, notion, memory_state):
@@ -1715,19 +1715,22 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
     chat_id, user_id = _state_ids_from_query(query)
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.message.edit_text("❌ Нет доступа")
         return
 
     if action == "done":
         await notion.update_shoot_status(shoot_id, "done")
         shoot = await notion.get_shoot(shoot_id)
         model_id = shoot.model_id if shoot else ""
+        model_name = shoot.model_title if shoot else ""
+        content_str = ", ".join(shoot.content) if shoot and shoot.content else "—"
+        date_str = _format_date_short(shoot.date if shoot else None)
         planner_cache.clear_cache(model_id)
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         await _safe_confirm(
             query,
-            "✅ Съемка выполнена",
+            f"✅ Съёмка выполнена — {html.escape(model_name)}\n{date_str} · {content_str}",
             reply_markup=nlp_action_complete_keyboard(model_id),
         )
         memory_state.clear(chat_id, user_id)
@@ -1771,7 +1774,7 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
             from app.keyboards.inline import nlp_action_complete_keyboard
             await _clear_previous_screen_keyboard(query, memory_state)
             msg = await query.message.edit_text(
-                "✅ Комментарий добавлен",
+                f"✅ Комментарий добавлен — {html.escape(model_name)}\n\"{(comment_text or '')[:40]}...\"",
                 reply_markup=nlp_action_complete_keyboard(model_id),
             )
             memory_state.clear(chat_id, user_id)
@@ -1921,7 +1924,7 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
 
     if not is_editor(user_id, config):
         try:
-            await query.message.edit_text("❌ Нет прав.")
+            await query.message.edit_text("❌ Нет доступа")
         except TelegramBadRequest as e:
             if "message is not modified" not in str(e):
                 raise
@@ -2000,7 +2003,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
         in_date = date.fromisoformat(in_date_str) if in_date_str else date.today()
 
         if not is_editor(user_id, config):
-            await query.message.edit_text("❌ Нет прав.")
+            await query.message.edit_text("❌ Нет доступа")
             memory_state.clear(chat_id, user_id)
             return
 
@@ -2038,8 +2041,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
             await _cleanup_prompt_message(query, memory_state)
             await _safe_confirm(
                 query,
-                f"✅ Создано {count}x {type_label}\n"
-                f"<b>{html.escape(model_name)}</b> · {in_date.strftime('%d.%m')}",
+                f"✅ Заказ создан — {html.escape(model_name)}\n{type_label} × {count} · {in_date.strftime('%d.%m')}",
                 reply_markup=nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )
@@ -2090,13 +2092,15 @@ async def _handle_close_order_select(query, parts, config, memory_state):
         "flow": "nlp_close",
         "step": "awaiting_date",
         "order_id": order_id,
+        "order_type": order_type,
+        "days": order.get("days") if order else None,
         "model_id": model_id,
         "model_name": model_name,
         "k": k,
     })
     await _clear_previous_screen_keyboard(query, memory_state)
     msg = await query.message.edit_text(
-        "Дата закрытия:",
+        f"📦 {html.escape(model_name).upper()} · Дата закрытия:",
         reply_markup=nlp_close_order_date_keyboard(model_id, k),
         parse_mode="HTML",
     )
@@ -2157,7 +2161,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
     chat_id, user_id = _state_ids_from_query(query)
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.message.edit_text("❌ Нет доступа")
         return
 
     state = memory_state.get(chat_id, user_id)
@@ -2179,7 +2183,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         })
         await _clear_previous_screen_keyboard(query, memory_state)
         msg = await query.message.edit_text(
-            "Дата закрытия:",
+            f"📦 {html.escape(state.get('model_name', '')).upper()} · Дата закрытия:",
             reply_markup=nlp_close_order_date_keyboard(state.get("model_id", ""), k),
             parse_mode="HTML",
         )
@@ -2225,13 +2229,14 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _safe_confirm(
             query,
-            f"✅ Заказ закрыт · {out_date.strftime('%d.%m')}",
+            f"✅ Заказ закрыт — {html.escape(state.get('model_name', ''))}\n"
+            f"{state.get('order_type', '—')} · {state.get('days', '—')} дн",
             reply_markup=nlp_action_complete_keyboard(model_id_for_kb),
         )
         memory_state.clear(chat_id, user_id)
     except Exception as e:
         LOGGER.exception("Failed to close order: %s", e)
-        await safe_edit_message(query, "❌ Ошибка при закрытии заказа.")
+        await safe_edit_message(query, "❌ Ошибка Notion — попробуй позже")
 
 
 # ============================================================================
@@ -2246,7 +2251,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
     target = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа.")
+        await query.message.edit_text("❌ Нет доступа")
         memory_state.clear(chat_id, user_id)
         return
 
@@ -2257,6 +2262,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
 
     comment_text = state.get("comment_text")
     model_id = state.get("model_id", "")
+    model_name = state.get("model_name", "")
     if not comment_text:
         await query.message.edit_text("Текст комментария не найден.")
         memory_state.clear(chat_id, user_id)
@@ -2265,7 +2271,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
     if target == "order":
         orders = await orders_cache.get_cached_orders(notion, config, model_id)
         if not orders:
-            await query.message.edit_text("Нет открытых заказов.")
+            await query.message.edit_text("❌ Нет открытых заказов")
             memory_state.clear(chat_id, user_id)
             return
         if len(orders) == 1:
@@ -2274,7 +2280,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             await notion.update_order_comment(orders[0].page_id, new_comment)
             from app.keyboards.inline import nlp_action_complete_keyboard
             await query.message.edit_text(
-                "✅ Комментарий добавлен",
+                f"✅ Комментарий добавлен — {html.escape(model_name)}\n\"{(comment_text or '')[:40]}...\"",
                 reply_markup=nlp_action_complete_keyboard(model_id),
             )
             memory_state.clear(chat_id, user_id)
@@ -2284,7 +2290,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             memory_state.update(chat_id, user_id, step="awaiting_order_selection", k=k)
             await _clear_previous_screen_keyboard(query, memory_state)
             msg = await query.message.edit_text(
-                "Выберите заказ:",
+                f"📦 {html.escape(model_name).upper()} · Заказы",
                 reply_markup=nlp_comment_order_select_keyboard(orders, model_id, k),
                 parse_mode="HTML",
             )
@@ -2293,7 +2299,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
     elif target == "shoot":
         shoots = await planner_cache.get_cached_shoots(notion, config, model_id)
         if not shoots:
-            await query.message.edit_text("Нет запланированных съемок.")
+            await query.message.edit_text("❌ Нет съёмок")
             memory_state.clear(chat_id, user_id)
             return
         if len(shoots) == 1:
@@ -2302,7 +2308,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             await notion.update_shoot_comment(shoots[0].page_id, new_comment)
             from app.keyboards.inline import nlp_action_complete_keyboard
             await query.message.edit_text(
-                "✅ Комментарий добавлен",
+                f"✅ Комментарий добавлен — {html.escape(model_name)}\n\"{(comment_text or '')[:40]}...\"",
                 reply_markup=nlp_action_complete_keyboard(model_id),
             )
             memory_state.clear(chat_id, user_id)
@@ -2312,7 +2318,7 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             memory_state.update(chat_id, user_id, step="awaiting_shoot_selection", k=k)
             await _clear_previous_screen_keyboard(query, memory_state)
             msg = await query.message.edit_text(
-                "Выберите съемку:",
+                f"📅 {html.escape(model_name).upper()} · Съёмки",
                 reply_markup=nlp_shoot_select_keyboard(shoots, "comment", model_id, k),
                 parse_mode="HTML",
             )
@@ -2331,7 +2337,7 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
     order_id = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа.")
+        await query.message.edit_text("❌ Нет доступа")
         memory_state.clear(chat_id, user_id)
         return
 
@@ -2341,6 +2347,7 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
         return
 
     model_id = state.get("model_id", "") if state else ""
+    model_name = state.get("model_name", "") if state else ""
     comment_text = state.get("comment_text")
     if not comment_text:
         await query.message.edit_text("Текст комментария не найден.")
@@ -2357,13 +2364,13 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
         await notion.update_order_comment(order_id, new_comment)
         from app.keyboards.inline import nlp_action_complete_keyboard
         await query.message.edit_text(
-            "✅ Комментарий добавлен",
+            f"✅ Комментарий добавлен — {html.escape(model_name)}\n\"{(comment_text or '')[:40]}...\"",
             reply_markup=nlp_action_complete_keyboard(model_id),
         )
         memory_state.clear(chat_id, user_id)
     except Exception as e:
         LOGGER.exception("Failed to add comment: %s", e)
-        await query.message.edit_text("❌ Ошибка.")
+        await query.message.edit_text("❌ Ошибка")
         memory_state.clear(chat_id, user_id)
 
 
@@ -2380,7 +2387,7 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
     chat_id, user_id = _state_ids_from_query(query)
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.message.edit_text("❌ Нет доступа")
         return
 
     # model_id from memory
@@ -2414,15 +2421,13 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _safe_confirm(
             query,
-            f"✅ +{count} файлов ({content_type})\n\n"
-            f"<b>{html.escape(model_name)}</b>\n"
-            f"{result['field_name']}: {result['files']}",
+            f"✅ Файлы добавлены — {html.escape(model_name)}\n+{count} {content_type} · итого {result['files']}",
             reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )
     except Exception as e:
         LOGGER.exception("Failed to add files: %s", e)
-        await query.message.edit_text("❌ Не смог обновить Notion, попробуй позже.")
+        await query.message.edit_text("❌ Ошибка Notion — попробуй позже")
 
 
 async def _handle_disambig_orders(query, parts, config, notion, memory_state):
@@ -2604,7 +2609,7 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
     count = int(value)
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.message.edit_text("❌ Нет доступа")
         return
 
     memory_state.update(
@@ -2685,7 +2690,7 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
         return
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет прав.")
+        await query.message.edit_text("❌ Нет доступа")
         memory_state.clear(chat_id, user_id)
         return
 
@@ -2729,7 +2734,7 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
         display_type = display_type_mapping.get(content_type, content_type.replace("_", " ").title())
         await _safe_confirm(
             query,
-            f"✅ +{count} → {display_type}\n<b>{html.escape(model_name)}</b>",
+            f"✅ Файлы добавлены — {html.escape(model_name)}\n+{count} {display_type} · итого {new_value if record else count}",
             reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )
@@ -2737,7 +2742,7 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
         LOGGER.info("Added files by type: page=%s model=%s type=%s count=%d", page_id, model_id, content_type, count)
     except Exception as e:
         LOGGER.exception("Failed to add files by type: %s", e)
-        await query.message.edit_text("❌ Не смог обновить Notion, попробуй позже.")
+        await query.message.edit_text("❌ Ошибка Notion — попробуй позже")
         memory_state.clear(chat_id, user_id)
     finally:
         _oc_in_progress.discard(_fct_key)
@@ -2761,7 +2766,7 @@ async def _handle_shoot_content_toggle(query, parts, config, memory_state):
     ct = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа.")
+        await query.message.edit_text("❌ Нет доступа")
         return
     state = memory_state.get(chat_id, user_id)
     if not state:
@@ -2869,7 +2874,7 @@ async def _handle_shoot_content_manage(query, parts, config, notion, memory_stat
     shoot_id = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа.")
+        await query.message.edit_text("❌ Нет доступа")
         return
 
     shoot = await notion.get_shoot(shoot_id)
@@ -2908,7 +2913,7 @@ async def _handle_shoot_reschedule_cb(query, parts, config, notion, memory_state
     shoot_id = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа.")
+        await query.message.edit_text("❌ Нет доступа")
         return
     state = memory_state.get(chat_id, user_id)
     model_name = state.get("model_name", "") if state else ""
@@ -2940,7 +2945,7 @@ async def _handle_shoot_comment_cb(query, parts, config, notion, memory_state):
     shoot_id = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа.")
+        await query.message.edit_text("❌ Нет доступа")
         return
     state = memory_state.get(chat_id, user_id)
     model_name = state.get("model_name", "") if state else ""
@@ -2982,7 +2987,7 @@ async def _handle_accounting_content_toggle(query, parts, config, memory_state):
     ct = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа.")
+        await query.message.edit_text("❌ Нет доступа")
         return
     state = memory_state.get(chat_id, user_id)
     if not state:
@@ -3015,7 +3020,7 @@ async def _handle_accounting_content_save(query, parts, config, notion, memory_s
     await query.answer()
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа.")
+        await query.message.edit_text("❌ Нет доступа")
         return
     state = memory_state.get(chat_id, user_id)
     if not state:
@@ -3106,7 +3111,7 @@ async def _handle_partial_received(query, parts, config, memory_state):
     chat_id, user_id = _state_ids_from_query(query)
 
     if not is_editor(user_id, config):
-        await query.answer("❌ Нет доступа.", show_alert=True)
+        await query.answer("❌ Нет доступа", show_alert=True)
         return
 
     state = memory_state.get(chat_id, user_id)

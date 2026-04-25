@@ -203,13 +203,13 @@ async def _build_card_text_impl(
         f"📌 <b>{safe_name}</b>",
         "",
         f"📦 Заказы: {orders_line}",
+        "",
     ]
     if upcoming_shoot_line is not None:
-        lines.append(f"📅 Съёмка: {upcoming_shoot_line}")
+        lines.extend([f"📅 Съёмка: {upcoming_shoot_line}", ""])
     if last_shoot_line is not None:
-        lines.append(f"📅 Последняя: {last_shoot_line}")
+        lines.extend([f"📅 Последняя: {last_shoot_line}", ""])
     lines.append(f"📁 Файлы ({month_label}): {files_line}")
-    lines.extend(["", "Что делаем?"])
 
     text = "\n".join(lines)
     return text, has_error, open_orders_count
