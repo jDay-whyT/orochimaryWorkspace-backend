@@ -467,7 +467,7 @@ def nlp_accounting_content_keyboard(
 ORDER_TYPE_CB_MAP = {
     "custom": "custom",
     "short": "short",
-    "verif_reddit": "Verif Reddit",
+    "verif_reddit": "verif reddit",
     "call": "call",
     "ad_request": "ad request",
 }
@@ -477,6 +477,7 @@ ORDER_TYPE_CB_REVERSE = {v: k for k, v in ORDER_TYPE_CB_MAP.items()}
 ORDER_TYPE_DISPLAY = {
     "custom": "Custom",
     "short": "Short",
+    "verif reddit": "Verif Reddit",
     "verif_reddit": "Verif Reddit",
     "Verif Reddit": "Verif Reddit",
     "call": "Call",
