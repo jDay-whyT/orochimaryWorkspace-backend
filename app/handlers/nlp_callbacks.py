@@ -675,7 +675,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
             progress_line = format_accounting_progress(new_files, record_status)
             from app.keyboards.inline import nlp_action_complete_keyboard
             await query.message.edit_text(
-                f"✅ Файлы добавлены — {html.escape(model_data.title)}\n+{count} basic · итого {new_files}",
+                f"✅ Файлы добавлены — <b>{html.escape(model_data.title)}</b>\n+<b>{count}</b> basic · итого <b>{new_files}</b>",
                 reply_markup=nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )
@@ -1653,7 +1653,7 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
         await _cleanup_prompt_message(query, memory_state)
         await _safe_confirm(
             query,
-            f"✅ Съёмка создана — {html.escape(model_name)}\n{shoot_date.strftime('%d.%m')} · {ct_str} · {auto_status}",
+            f"✅ Съёмка создана — <b>{html.escape(model_name)}</b>\n{shoot_date.strftime('%d.%m')} · {ct_str} · {auto_status}",
             reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )
@@ -1696,7 +1696,7 @@ async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state)
         await _clear_previous_screen_keyboard(query, memory_state)
         await _safe_confirm(
             query,
-            f"✅ Съёмка выполнена — {html.escape(model_name)}\n{date_str} · {content_str}",
+            f"✅ Съёмка выполнена — <b>{html.escape(model_name)}</b>\n{date_str} · {content_str}",
             reply_markup=nlp_action_complete_keyboard(model_id),
         )
         memory_state.clear(chat_id, user_id)
@@ -1730,7 +1730,7 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
         await _clear_previous_screen_keyboard(query, memory_state)
         await _safe_confirm(
             query,
-            f"✅ Съёмка выполнена — {html.escape(model_name)}\n{date_str} · {content_str}",
+            f"✅ Съёмка выполнена — <b>{html.escape(model_name)}</b>\n{date_str} · {content_str}",
             reply_markup=nlp_action_complete_keyboard(model_id),
         )
         memory_state.clear(chat_id, user_id)
@@ -1774,8 +1774,9 @@ async def _handle_shoot_select(query, parts, config, notion, memory_state):
             from app.keyboards.inline import nlp_action_complete_keyboard
             await _clear_previous_screen_keyboard(query, memory_state)
             msg = await query.message.edit_text(
-                f"✅ Комментарий добавлен — {html.escape(model_name)}\n\"{(comment_text or '')[:40]}...\"",
+                f"✅ Комментарий добавлен — <b>{html.escape(model_name)}</b>\n\"{(comment_text or '')[:40]}...\"",
                 reply_markup=nlp_action_complete_keyboard(model_id),
+                parse_mode="HTML",
             )
             memory_state.clear(chat_id, user_id)
         else:
@@ -2041,7 +2042,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
             await _cleanup_prompt_message(query, memory_state)
             await _safe_confirm(
                 query,
-                f"✅ Заказ создан — {html.escape(model_name)}\n{type_label} × {count} · {in_date.strftime('%d.%m')}",
+                f"✅ Заказ создан — <b>{html.escape(model_name)}</b>\n{type_label} × <b>{count}</b> · {in_date.strftime('%d.%m')}",
                 reply_markup=nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )
@@ -2227,11 +2228,13 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
         from app.keyboards.inline import nlp_action_complete_keyboard
+        days_value = state.get("days") if state else None
         await _safe_confirm(
             query,
-            f"✅ Заказ закрыт — {html.escape(state.get('model_name', ''))}\n"
-            f"{state.get('order_type', '—')} · {state.get('days', '—')} дн",
+            f"✅ Заказ закрыт — <b>{html.escape(state.get('model_name', ''))}</b>\n"
+            f"{state.get('order_type', '—')} · <b>{days_value if days_value is not None else 0} дн</b>",
             reply_markup=nlp_action_complete_keyboard(model_id_for_kb),
+            parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
     except Exception as e:
@@ -2280,8 +2283,9 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             await notion.update_order_comment(orders[0].page_id, new_comment)
             from app.keyboards.inline import nlp_action_complete_keyboard
             await query.message.edit_text(
-                f"✅ Комментарий добавлен — {html.escape(model_name)}\n\"{(comment_text or '')[:40]}...\"",
+                f"✅ Комментарий добавлен — <b>{html.escape(model_name)}</b>\n\"{(comment_text or '')[:40]}...\"",
                 reply_markup=nlp_action_complete_keyboard(model_id),
+                parse_mode="HTML",
             )
             memory_state.clear(chat_id, user_id)
         else:
@@ -2308,8 +2312,9 @@ async def _handle_comment_target(query, parts, config, notion, memory_state):
             await notion.update_shoot_comment(shoots[0].page_id, new_comment)
             from app.keyboards.inline import nlp_action_complete_keyboard
             await query.message.edit_text(
-                f"✅ Комментарий добавлен — {html.escape(model_name)}\n\"{(comment_text or '')[:40]}...\"",
+                f"✅ Комментарий добавлен — <b>{html.escape(model_name)}</b>\n\"{(comment_text or '')[:40]}...\"",
                 reply_markup=nlp_action_complete_keyboard(model_id),
+                parse_mode="HTML",
             )
             memory_state.clear(chat_id, user_id)
         else:
@@ -2364,8 +2369,9 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
         await notion.update_order_comment(order_id, new_comment)
         from app.keyboards.inline import nlp_action_complete_keyboard
         await query.message.edit_text(
-            f"✅ Комментарий добавлен — {html.escape(model_name)}\n\"{(comment_text or '')[:40]}...\"",
+            f"✅ Комментарий добавлен — <b>{html.escape(model_name)}</b>\n\"{(comment_text or '')[:40]}...\"",
             reply_markup=nlp_action_complete_keyboard(model_id),
+            parse_mode="HTML",
         )
         memory_state.clear(chat_id, user_id)
     except Exception as e:
@@ -2421,7 +2427,7 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _safe_confirm(
             query,
-            f"✅ Файлы добавлены — {html.escape(model_name)}\n+{count} {content_type} · итого {result['files']}",
+            f"✅ Файлы добавлены — <b>{html.escape(model_name)}</b>\n+<b>{count}</b> {content_type} · итого <b>{result['files']}</b>",
             reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )
@@ -2734,7 +2740,7 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
         display_type = display_type_mapping.get(content_type, content_type.replace("_", " ").title())
         await _safe_confirm(
             query,
-            f"✅ Файлы добавлены — {html.escape(model_name)}\n+{count} {display_type} · итого {new_value if record else count}",
+            f"✅ Файлы добавлены — <b>{html.escape(model_name)}</b>\n+<b>{count}</b> {display_type} · итого <b>{new_value if record else count}</b>",
             reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
         )

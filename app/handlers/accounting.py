@@ -355,8 +355,8 @@ async def _process_content_type_selection(
         accounting_cache.clear_cache(model_id, yyyy_mm)
 
         await query.message.edit_text(
-            f"✅ Файлы добавлены — {model_name}\n"
-            f"+{files_count} {content_type} · итого {result['files']}",
+            f"✅ Файлы добавлены — <b>{html.escape(model_name)}</b>\n"
+            f"+<b>{files_count}</b> {content_type} · итого <b>{result['files']}</b>",
             reply_markup=accounting_menu_keyboard(),
             parse_mode="HTML",
         )

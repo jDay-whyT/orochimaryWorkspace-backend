@@ -111,8 +111,7 @@ async def _build_card_text_impl(
     today = now.date()
 
     orders_line = "—"
-    upcoming_shoot_line: str | None = None
-    last_shoot_line: str | None = None
+    shoot_line: str | None = None
     files_line = "—"
     has_error = False
     open_orders_count = -1
@@ -160,21 +159,29 @@ async def _build_card_text_impl(
                 continue
             status = (shoot.status or "").lower()
             if status in {"scheduled", "planned"} and parsed >= today:
-                upcoming.append((parsed, shoot))
+                upcoming.append((parsed, shoot, status or "—"))
             elif status == "done" and parsed <= today:
-                done.append((parsed, shoot))
+                done.append((parsed, shoot, status or "—"))
+        upcoming_part: str | None = None
+        done_part: str | None = None
         if upcoming:
             upcoming.sort(key=lambda pair: pair[0])
-            _, nearest = upcoming[0]
+            _, nearest, upcoming_status = upcoming[0]
             s_date = _format_date_card(nearest.date)
             content = ", ".join(nearest.content or []) or "—"
-            upcoming_shoot_line = f"{s_date} · {content}"
+            upcoming_part = f"<b>{s_date}</b> · {content} · {upcoming_status}"
         if done:
             done.sort(key=lambda pair: pair[0], reverse=True)
-            _, latest_done = done[0]
+            _, latest_done, done_status = done[0]
             done_date = _format_date_card(latest_done.date)
             content = ", ".join(latest_done.content or []) or "—"
-            last_shoot_line = f"{done_date} · {content}"
+            done_part = f"<b>{done_date}</b> · {content} · {done_status}"
+        if upcoming_part and done_part:
+            shoot_line = f"{upcoming_part}  |  {done_part}"
+        elif upcoming_part:
+            shoot_line = upcoming_part
+        elif done_part:
+            shoot_line = done_part
 
     # Files current month
     if isinstance(accounting_result, Exception):
@@ -192,7 +199,7 @@ async def _build_card_text_impl(
                 ("Social", int(getattr(record, "social_files", 0) or 0)),
                 ("Request", int(getattr(record, "request_files", 0) or 0)),
             ]
-            non_zero_parts = [f"{label}: {value}" for label, value in typed_counts if value > 0]
+            non_zero_parts = [f"{label}: <b>{value}</b>" for label, value in typed_counts if value > 0]
             if non_zero_parts:
                 files_line = " | ".join(non_zero_parts)
 
@@ -205,10 +212,8 @@ async def _build_card_text_impl(
         f"📦 Заказы: {orders_line}",
         "",
     ]
-    if upcoming_shoot_line is not None:
-        lines.extend([f"📅 Съёмка: {upcoming_shoot_line}", ""])
-    if last_shoot_line is not None:
-        lines.extend([f"📅 Последняя: {last_shoot_line}", ""])
+    if shoot_line is not None:
+        lines.extend([f"📅 {shoot_line}", ""])
     lines.append(f"📁 Файлы ({month_label}): {files_line}")
 
     text = "\n".join(lines)
