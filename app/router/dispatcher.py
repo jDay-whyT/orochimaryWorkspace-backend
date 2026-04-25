@@ -17,6 +17,7 @@ import logging
 import time
 from datetime import date, datetime, timedelta
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message
 
 from app.config import Config
@@ -1537,6 +1538,7 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
     current_received = int(user_state.get("current_received") or 0)
     model_name = user_state.get("model_name", "")
     model_id = user_state.get("model_id", "")
+    screen_message_id = user_state.get("screen_message_id")
 
     new_received = current_received + added
 
@@ -1550,15 +1552,25 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
             await message.delete()
         except Exception:
             pass
-        await _clear_previous_screen_keyboard(message, memory_state)
-        await _cleanup_prompt_message(message, memory_state)
         memory_state.clear(chat_id, user_id)
-        await message.answer(
+        success_text = (
             f"✅ Заказ закрыт — <b>{html.escape(model_name)}</b>\n"
-            f"📥 {new_received}/{count} · все получено",
-            reply_markup=nlp_action_complete_keyboard(model_id),
-            parse_mode="HTML",
+            f"📥 {new_received}/{count} · все получено"
         )
+        try:
+            await message.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=screen_message_id,
+                text=success_text,
+                reply_markup=nlp_action_complete_keyboard(model_id),
+                parse_mode="HTML",
+            )
+        except TelegramBadRequest:
+            await message.answer(
+                success_text,
+                reply_markup=nlp_action_complete_keyboard(model_id),
+                parse_mode="HTML",
+            )
     else:
         await notion.update_order_received(order_id, new_received)
         orders_cache.clear_cache(model_id)
@@ -1566,15 +1578,25 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
             await message.delete()
         except Exception:
             pass
-        await _clear_previous_screen_keyboard(message, memory_state)
-        await _cleanup_prompt_message(message, memory_state)
         memory_state.clear(chat_id, user_id)
-        await message.answer(
+        partial_text = (
             f"📥 Обновлено — <b>{html.escape(model_name)}</b>\n"
-            f"Получено: {new_received}/{count}",
-            reply_markup=nlp_action_complete_keyboard(model_id),
-            parse_mode="HTML",
+            f"Получено: {new_received}/{count}"
         )
+        try:
+            await message.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=screen_message_id,
+                text=partial_text,
+                reply_markup=nlp_action_complete_keyboard(model_id),
+                parse_mode="HTML",
+            )
+        except TelegramBadRequest:
+            await message.answer(
+                partial_text,
+                reply_markup=nlp_action_complete_keyboard(model_id),
+                parse_mode="HTML",
+            )
 
 
 # ============================================================================
