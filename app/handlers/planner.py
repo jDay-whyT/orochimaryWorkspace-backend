@@ -57,7 +57,7 @@ async def handle_planner_callback(
 ) -> None:
     """Handle planner callbacks."""
     if not is_authorized(query.from_user.id, config):
-        await query.answer("Access denied", show_alert=True)
+        await query.answer("❌ Нет доступа", show_alert=True)
         return
     
     parts = query.data.split("|")

@@ -1085,7 +1085,7 @@ async def _handle_files_stats(message, model, config, notion):
 
     except Exception as e:
         LOGGER.exception("Failed to get files stats: %s", e)
-        await message.answer("❌ Не смог обновить Notion, попробуй позже.")
+        await message.answer("❌ Ошибка Notion — попробуй позже")
 
 
 async def _handle_ambiguous(message, model, entities, config, memory_state):

@@ -83,7 +83,7 @@ async def handle_orders_callback(
 ) -> None:
     """Main orders callback handler."""
     if not is_authorized(query.from_user.id, config):
-        await query.answer("Access denied", show_alert=True)
+        await query.answer("❌ Нет доступа", show_alert=True)
         return
     
     parts = query.data.split("|", 2)
