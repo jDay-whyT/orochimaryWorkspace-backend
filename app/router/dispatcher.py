@@ -907,9 +907,12 @@ async def _add_comment_to_order(message, model, entities, config, notion, memory
             existing = order.comments or ""
             new_comment = format_appended_comment(existing, entities.comment_text, tz=config.timezone)
             await notion.update_order_comment(order.page_id, new_comment)
+            model_name = model["name"]
+            comment_text = entities.comment_text
             from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
             await message.answer(
-                "✅ Комментарий добавлен",
+                f"✅ Комментарий добавлен — {model_name}\n"
+                f"\"{comment_text[:40]}...\"",
                 reply_markup=_nlp_action_complete_keyboard(model["id"]),
             )
         else:
@@ -953,9 +956,12 @@ async def _add_comment_to_shoot(message, model, entities, config, notion, memory
             existing = shoot.comments or ""
             new_comment = format_appended_comment(existing, entities.comment_text, tz=config.timezone)
             await notion.update_shoot_comment(shoot.page_id, new_comment)
+            model_name = model["name"]
+            comment_text = entities.comment_text
             from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
             await message.answer(
-                "✅ Комментарий добавлен",
+                f"✅ Комментарий добавлен — {model_name}\n"
+                f"\"{comment_text[:40]}...\"",
                 reply_markup=_nlp_action_complete_keyboard(model["id"]),
             )
         else:
