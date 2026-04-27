@@ -74,6 +74,9 @@ router = Router()
 # Telegram retry while the first Notion API call is still in-flight).
 # asyncio is single-threaded so set membership checks are effectively atomic.
 _oc_in_progress: set[tuple[int, int] | tuple[int, str]] = set()
+# Tracks (chat_id, user_id) pairs that are currently executing close-order write.
+# Prevents duplicate closes from concurrent callbacks while Notion request is in-flight.
+_cd_in_progress: set[tuple[int, int]] = set()
 
 # Deduplication for callback_query events: Telegram sometimes retries the same
 # button press with a new update_id. We silently drop identical (user_id,
@@ -2217,6 +2220,11 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         out_date = today_date
 
     model_id_for_kb = state.get("model_id", "") if state else ""
+    _cd_key = (chat_id, user_id)
+    if _cd_key in _cd_in_progress:
+        await query.answer()
+        return
+    _cd_in_progress.add(_cd_key)
     try:
         order_type = state.get("order_type") if state else None
         count = state.get("count") if state else None
@@ -2240,6 +2248,8 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
     except Exception as e:
         LOGGER.exception("Failed to close order: %s", e)
         await safe_edit_message(query, "❌ Ошибка Notion — попробуй позже")
+    finally:
+        _cd_in_progress.discard(_cd_key)
 
 
 # ============================================================================
