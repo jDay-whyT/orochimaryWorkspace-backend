@@ -180,7 +180,8 @@ def _build_reddit_board_rows(
             continue
         row = rows[model_id]
         row.verif_requested += int(order.count or 0)
-        row.verif_received += int(order.received or 0)
+        effective_received = order.received if order.received else (order.count if order.out_date else 0)
+        row.verif_received += int(effective_received or 0)
 
     return sorted(rows.values(), key=lambda x: x.model_name.lower())
 
