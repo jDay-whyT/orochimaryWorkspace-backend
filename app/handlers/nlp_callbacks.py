@@ -2094,7 +2094,15 @@ async def _handle_close_order_select(query, parts, config, memory_state):
     # For short/verif reddit orders — show the partial-or-full options screen
     if order_type in ("short", "verif reddit"):
         await _show_short_close_options(
-            query, order_id, order_type, count, received, model_id, model_name, memory_state
+            query,
+            order_id,
+            order_type,
+            count,
+            received,
+            model_id,
+            model_name,
+            memory_state,
+            in_date=order.get("in_date") if order else None,
         )
         return
 
@@ -2122,7 +2130,7 @@ async def _handle_close_order_select(query, parts, config, memory_state):
 
 
 async def _show_short_close_options(
-    query, order_id, order_type, count, received, model_id, model_name, memory_state
+    query, order_id, order_type, count, received, model_id, model_name, memory_state, in_date=None
 ):
     """Show partial-or-full close screen for short / verif reddit orders."""
     from app.keyboards.inline import nlp_back_button, InlineKeyboardMarkup, InlineKeyboardButton
@@ -2139,6 +2147,7 @@ async def _show_short_close_options(
         "order_type": order_type,
         "count": count,
         "current_received": recv,
+        "in_date": in_date,
         "model_id": model_id,
         "model_name": model_name,
     })
