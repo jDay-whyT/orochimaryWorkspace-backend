@@ -62,8 +62,17 @@ async def _safe_confirm(
     try:
         await safe_edit_message(query, text, reply_markup=reply_markup, parse_mode=parse_mode)
     except Exception:
-        if query.message:
-            await query.message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        try:
+            if query.message:
+                await query.message.bot.send_message(
+                    chat_id=query.message.chat.id,
+                    message_thread_id=query.message.message_thread_id,
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode,
+                )
+        except Exception:
+            pass
 
 
 LOGGER = logging.getLogger(__name__)
@@ -2098,6 +2107,7 @@ async def _handle_close_order_select(query, parts, config, memory_state):
         "order_id": order_id,
         "order_type": order_type,
         "days": order.get("days") if order else None,
+        "in_date": order.get("in_date") if order else None,
         "model_id": model_id,
         "model_name": model_name,
         "k": k,
@@ -2181,6 +2191,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
             "order_id": order_id_for_close,
             "order_type": state.get("order_type"),
             "count": state.get("count"),
+            "in_date": state.get("in_date"),
             "model_id": state.get("model_id"),
             "model_name": state.get("model_name"),
             "k": k,
@@ -2236,11 +2247,13 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
         from app.keyboards.inline import nlp_action_complete_keyboard
-        days_value = state.get("days") if state else None
+        in_date_str = state.get("in_date") if state else None
+        days_value = (out_date - date.fromisoformat(in_date_str)).days if in_date_str else None
+        days_text = f" · <b>{days_value} дн</b>" if days_value is not None else ""
         await _safe_confirm(
             query,
             f"✅ Заказ закрыт — <b>{html.escape(state.get('model_name', ''))}</b>\n"
-            f"{state.get('order_type', '—')} · <b>{days_value if days_value is not None else 0} дн</b>",
+            f"{state.get('order_type', '—')}{days_text}",
             reply_markup=nlp_action_complete_keyboard(model_id_for_kb),
             parse_mode="HTML",
         )
