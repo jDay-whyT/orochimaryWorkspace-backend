@@ -106,3 +106,7 @@ ARCHIVE_ORDERS_DBS = [
     "31632bee-e7a0-8038-ba59-c2ef293fb1c4",  # Feb
     "33532bee-e7a0-80eb-bc7e-d80aff13e400",  # Mar
 ]
+
+ARCHIVE_ACCOUNTING_DBS = {
+    "2026-04": "35332bee-e7a0-81c2-b2c7-000b9d28c599",
+}

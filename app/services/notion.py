@@ -617,15 +617,11 @@ class NotionClient:
     async def query_reddit_shoots(
         self,
         database_id: str,
-        yyyy_mm: str,
+        date_from: date,
+        date_to: date,
         limit: int = 100,
     ) -> list[NotionPlanner]:
-        """Query planner records where content contains reddit for the given month."""
-        import calendar as _calendar
-        year, month = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
-        first_day = date(year, month, 1).isoformat()
-        last_day_num = _calendar.monthrange(year, month)[1]
-        last_day = date(year, month, last_day_num).isoformat()
+        """Query planner records where content contains reddit for the given date range."""
 
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
         payload = {
@@ -633,8 +629,8 @@ class NotionClient:
             "filter": {
                 "and": [
                     {"property": "content", "multi_select": {"contains": "reddit"}},
-                    {"property": "date", "date": {"on_or_after": first_day}},
-                    {"property": "date", "date": {"on_or_before": last_day}},
+                    {"property": "date", "date": {"on_or_after": date_from.isoformat()}},
+                    {"property": "date", "date": {"on_or_before": date_to.isoformat()}},
                 ],
             },
             "sorts": [{"property": "date", "direction": "descending"}],
