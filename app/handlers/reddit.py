@@ -3,7 +3,7 @@ import html
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -12,6 +12,7 @@ from aiogram.types import Message
 from app.config import Config
 from app.roles import is_authorized
 from app.services import NotionClient, NotionAccounting, NotionPlanner, NotionOrder
+from app.utils.constants import ARCHIVE_ACCOUNTING_DBS
 from app.utils.formatting import today
 
 LOGGER = logging.getLogger(__name__)
@@ -28,6 +29,8 @@ class RedditBoardRow:
     model_id: str
     model_name: str
     reddit_files: int | None = None
+    prev_reddit_files: int | None = None
+    prev_month_label: str | None = None
     comment: str | None = None
     last_shoot_date: str | None = None
     last_shoot_status: str | None = None
@@ -76,13 +79,26 @@ async def update_reddit_board(bot, config: Config, notion: NotionClient) -> None
     """Fetch Reddit board data and post/edit the board message."""
     yyyy_mm = today(config.timezone).strftime("%Y-%m")
 
-    accounting, planner, orders = await asyncio.gather(
-        notion.query_reddit_accounting(config.db_accounting, yyyy_mm),
-        notion.query_reddit_shoots(config.db_planner, yyyy_mm),
-        notion.query_verif_reddit_orders(config.db_orders, yyyy_mm),
-    )
+    now = today(config.timezone)
+    date_from = now - timedelta(days=60)
+    date_to = now
+    prev_month_last_day = date(now.year, now.month, 1) - timedelta(days=1)
+    prev_yyyy_mm = prev_month_last_day.strftime("%Y-%m")
+    archive_db_id = ARCHIVE_ACCOUNTING_DBS.get(prev_yyyy_mm)
 
-    board = _build_reddit_board_rows(accounting, planner, orders, today(config.timezone))
+    tasks = [
+        notion.query_reddit_accounting(config.db_accounting, yyyy_mm),
+        notion.query_reddit_shoots(config.db_planner, date_from, date_to),
+        notion.query_verif_reddit_orders(config.db_orders, yyyy_mm),
+    ]
+    if archive_db_id:
+        tasks.append(notion.query_reddit_accounting(archive_db_id, prev_yyyy_mm))
+
+    results = await asyncio.gather(*tasks)
+    accounting, planner, orders = results[0], results[1], results[2]
+    prev_accounting = results[3] if archive_db_id else None
+
+    board = _build_reddit_board_rows(accounting, planner, orders, now, prev_accounting)
     text = _format_reddit_board_text(board, config)
 
     message_id = config.reddit_board_message_id
@@ -132,8 +148,19 @@ def _build_reddit_board_rows(
     planner: list[NotionPlanner],
     orders: list[NotionOrder],
     today_date: date,
+    prev_accounting: list[NotionAccounting] | None = None,
 ) -> list[RedditBoardRow]:
     rows: dict[str, RedditBoardRow] = {}
+
+    prev_lookup: dict[str, int] = {}
+    if prev_accounting:
+        for acc in prev_accounting:
+            model_id = _mid(acc.model_id)
+            if model_id:
+                prev_lookup[model_id] = acc.reddit_files
+
+    prev_month_date = today_date.replace(day=1) - timedelta(days=1)
+    prev_month_label = _MONTHS_RU_SHORT[prev_month_date.month - 1]
 
     for acc in accounting:
         model_id = _mid(acc.model_id)
@@ -144,6 +171,8 @@ def _build_reddit_board_rows(
             model_id=model_id,
             model_name=model_name,
             reddit_files=acc.reddit_files,
+            prev_reddit_files=prev_lookup.get(model_id),
+            prev_month_label=prev_month_label if model_id in prev_lookup else None,
             comment=acc.comment,
         )
 
@@ -215,7 +244,16 @@ def _format_reddit_board_text(rows: list[RedditBoardRow], config: Config) -> str
             lines.append(f"  | last: <b>{_format_day_mon(row.last_shoot_date)}</b>")
 
         files_str = str(row.reddit_files) if row.reddit_files is not None else "—"
-        if row.verif_requested > 0:
+        if row.prev_reddit_files is not None:
+            prev_files_str = str(row.prev_reddit_files)
+            if row.verif_requested > 0:
+                stats = (
+                    f"  ▸ reddit: <b>{files_str}</b> | {row.prev_month_label}: <b>{prev_files_str}</b> "
+                    f"| verif: <b>{row.verif_received}/{row.verif_requested}</b>"
+                )
+            else:
+                stats = f"  ▸ reddit: <b>{files_str}</b> | {row.prev_month_label}: <b>{prev_files_str}</b>"
+        elif row.verif_requested > 0:
             stats = f"  ▸ reddit: <b>{files_str}</b> | verif: <b>{row.verif_received}/{row.verif_requested}</b>"
         else:
             stats = f"  ▸ reddit: <b>{files_str}</b>"
