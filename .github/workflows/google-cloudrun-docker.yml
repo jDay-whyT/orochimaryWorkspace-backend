@@ -116,8 +116,7 @@ jobs:
             GOOGLE_SERVICE_ACCOUNT_JSON=${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
             ANALYTICS_SPREADSHEET_ID=${{ secrets.ANALYTICS_SPREADSHEET_ID }}
             TIMEZONE=${{ vars.TIMEZONE }}
-            FILES_TARGET_WORK=${{ vars.FILES_TARGET_WORK }}
-            FILES_TARGET_NEW=${{ vars.FILES_TARGET_NEW }}
+          
             
 
       
