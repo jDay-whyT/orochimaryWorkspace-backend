@@ -655,7 +655,7 @@ class NotionClient:
                         if block.get("type") != "child_page":
                             continue
                         title = (block.get("child_page", {}) or {}).get("title", "").lower()
-                        if month_query in title:
+                        if title.startswith("robin") and month_query in title:
                             month_page_id = block.get("id")
                             break
                     if month_page_id:
