@@ -12,7 +12,6 @@ from aiogram.types import Message
 from app.config import Config
 from app.roles import is_authorized
 from app.services import NotionClient, NotionAccounting, NotionPlanner, NotionOrder
-from app.utils.constants import ARCHIVE_ACCOUNTING_DBS
 from app.utils.formatting import today
 
 LOGGER = logging.getLogger(__name__)
@@ -84,19 +83,12 @@ async def update_reddit_board(bot, config: Config, notion: NotionClient) -> None
     date_to = now
     prev_month_last_day = date(now.year, now.month, 1) - timedelta(days=1)
     prev_yyyy_mm = prev_month_last_day.strftime("%Y-%m")
-    archive_db_id = ARCHIVE_ACCOUNTING_DBS.get(prev_yyyy_mm)
-
-    tasks = [
+    accounting, planner, orders, prev_accounting = await asyncio.gather(
         notion.query_reddit_accounting(config.db_accounting, yyyy_mm),
         notion.query_reddit_shoots(config.db_planner, date_from, date_to),
         notion.query_verif_reddit_orders(config.db_orders, yyyy_mm),
-    ]
-    if archive_db_id:
-        tasks.append(notion.query_reddit_accounting(archive_db_id, prev_yyyy_mm))
-
-    results = await asyncio.gather(*tasks)
-    accounting, planner, orders = results[0], results[1], results[2]
-    prev_accounting = results[3] if archive_db_id else None
+        notion.query_reddit_accounting(config.db_accounting, prev_yyyy_mm),
+    )
 
     board = _build_reddit_board_rows(accounting, planner, orders, now, prev_accounting)
     text = _format_reddit_board_text(board, config)
