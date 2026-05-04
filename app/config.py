@@ -37,6 +37,7 @@ class Config:
     internal_secret: str = ""
     rent_topic_thread_id: int = 0
     redis_url: str | None = None
+    archive_page_id: str = ""
 
 
 def _parse_user_ids(value: str) -> set[int]:
@@ -115,6 +116,7 @@ def load_config(validate: bool = True) -> Config:
     db_orders = os.getenv("DB_ORDERS", "20b32bee-e7a0-81ab-b72b-000b78a1e78a").strip()
     db_planner = os.getenv("DB_PLANNER", "1fb32bee-e7a0-815f-ae1d-000ba6995a1a").strip()
     db_accounting = os.getenv("DB_ACCOUNTING", "1ff32bee-e7a0-8025-a26c-000bc7008ec8").strip()
+    archive_page_id = os.getenv("ARCHIVE_PAGE_ID", "").strip()
     
     # Access
     allowed_editors = _parse_user_ids(os.getenv("ALLOWED_EDITORS", ""))
@@ -185,6 +187,7 @@ def load_config(validate: bool = True) -> Config:
         db_orders=db_orders,
         db_planner=db_planner,
         db_accounting=db_accounting,
+        archive_page_id=archive_page_id,
         allowed_editors=allowed_editors,
         report_viewers=report_viewers,
         crm_topic_thread_id=crm_topic_thread_id,
