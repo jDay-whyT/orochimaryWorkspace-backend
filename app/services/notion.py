@@ -614,6 +614,67 @@ class NotionClient:
         data = await self._request("POST", url, json=payload)
         return [_parse_accounting(item) for item in data.get("results", [])]
 
+    async def find_archive_accounting_db(
+        self,
+        archive_page_id: str,
+        month_name_en: str,
+    ) -> str | None:
+        """
+        Find the archive accounting database ID for a given month.
+        """
+        try:
+            month_query = month_name_en.strip().lower()
+            if not archive_page_id or not month_query:
+                return None
+
+            root_url = f"https://api.notion.com/v1/blocks/{archive_page_id}/children"
+            root_data = await self._request("GET", root_url)
+
+            month_page_id: str | None = None
+            for item in root_data.get("results", []):
+                if item.get("type") != "column_list":
+                    continue
+
+                column_list_id = item.get("id")
+                if not column_list_id:
+                    continue
+
+                columns_url = f"https://api.notion.com/v1/blocks/{column_list_id}/children"
+                columns_data = await self._request("GET", columns_url)
+                for column in columns_data.get("results", []):
+                    if column.get("type") != "column":
+                        continue
+
+                    column_id = column.get("id")
+                    if not column_id:
+                        continue
+
+                    content_url = f"https://api.notion.com/v1/blocks/{column_id}/children"
+                    content_data = await self._request("GET", content_url)
+                    for block in content_data.get("results", []):
+                        if block.get("type") != "child_page":
+                            continue
+                        title = (block.get("child_page", {}) or {}).get("title", "").lower()
+                        if month_query in title:
+                            month_page_id = block.get("id")
+                            break
+                    if month_page_id:
+                        break
+                if month_page_id:
+                    break
+
+            if not month_page_id:
+                return None
+
+            page_children_url = f"https://api.notion.com/v1/blocks/{month_page_id}/children"
+            page_children = await self._request("GET", page_children_url)
+            for block in page_children.get("results", []):
+                if block.get("type") == "child_database":
+                    return block.get("id")
+            return None
+        except Exception:
+            return None
+
     async def query_reddit_shoots(
         self,
         database_id: str,

@@ -31,6 +31,7 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `DB_ORDERS` | ✅ | ID базы **Orders** (UUID) |
 | `DB_PLANNER` | ✅ | ID базы **Planner** (UUID) |
 | `DB_ACCOUNTING` | ✅ | ID базы **Accounting** (UUID) |
+| `ARCHIVE_PAGE_ID` | ⚠️ | ID архивной страницы Notion для поиска прошлых Reddit accounting баз |
 | `ALLOWED_EDITORS` | ✅ | user_id с доступом к чтению/записи |
 | `CRM_TOPIC_THREAD_ID` | ✅ | ID топика CRM в Telegram |
 | `REPORT_VIEWERS` | ⚠️ | user_id для scout read-only карточек |
@@ -177,6 +178,7 @@ gcloud run deploy orochimary-bot \
   --image gcr.io/YOUR_PROJECT/orochimary-bot:latest \
   --region europe-west1 \
   --platform managed \
+  --set-env-vars ARCHIVE_PAGE_ID=22332beee7a08089b33ed051a223f63f \
   --allow-unauthenticated
 ```
 
