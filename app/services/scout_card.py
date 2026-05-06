@@ -362,6 +362,25 @@ async def _fetch_monthly_accounting(
         model_page_id, month_offset, title_contains,
     )
 
+    if LOGGER.isEnabledFor(logging.DEBUG):
+        all_records = await _query_all_pages(
+            notion,
+            db_accounting,
+            {
+                "page_size": 100,
+                "filter": {"property": "model", "relation": {"contains": model_page_id}},
+                "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+            },
+        )
+        titles = [
+            _extract_title(r.get("properties", {}).get("Title"))
+            for r in all_records
+        ]
+        LOGGER.debug(
+            "scout accounting all titles for model=%s: %s",
+            model_page_id, titles,
+        )
+
     items = await _query_all_pages(
         notion,
         db_accounting,
