@@ -109,11 +109,11 @@ class TestModelCardKeyboard:
         assert "Файлы" in row1[2].text
 
     def test_row2_has_reset(self):
-        """Row 2: reset button."""
+        """Row 2: done/cancel button."""
         kb = model_card_keyboard("test1")
         row2 = kb.inline_keyboard[1]
         assert len(row2) == 1
-        assert "Сброс" in row2[0].text
+        assert "Готово" in row2[0].text
         assert row2[0].callback_data == "nlp:x:c"
 
     def test_no_report_or_menu_buttons(self):
@@ -169,13 +169,13 @@ class TestFilesQtyKeyboard:
     """Tests for the updated nlp_files_qty_keyboard (+15/+30/+50/Ввод)."""
 
     def test_has_15_30_50_custom(self):
-        """Keyboard should have +15, +30, +50, Ввод buttons."""
+        """Keyboard should have 20, 50, 80, Ввод buttons."""
         kb = nlp_files_qty_keyboard("model-1", "test1")
         row1 = kb.inline_keyboard[0]
         texts = [btn.text for btn in row1]
-        assert "+15" in texts
-        assert "+30" in texts
-        assert "+50" in texts
+        assert "20" in texts
+        assert "50" in texts
+        assert "80" in texts
         assert "Ввод" in texts
 
     def test_custom_button_callback(self):
@@ -186,11 +186,11 @@ class TestFilesQtyKeyboard:
         assert custom_btn.callback_data == "nlp:af:custom:abc123"
 
     def test_15_button_callback(self):
-        """+15 button -> nlp:af:15:{k}."""
+        """20 button -> nlp:af:20:{k}."""
         kb = nlp_files_qty_keyboard("model-1", "abc123")
         row1 = kb.inline_keyboard[0]
-        btn = [b for b in row1 if b.text == "+15"][0]
-        assert btn.callback_data == "nlp:af:15:abc123"
+        btn = [b for b in row1 if b.text == "20"][0]
+        assert btn.callback_data == "nlp:af:20:abc123"
 
     def test_all_callbacks_under_64_bytes(self):
         """All callback_data in files qty keyboard must be <64 bytes."""
@@ -254,13 +254,12 @@ class TestBuildModelCardText:
 
         assert "📌" in text
         assert "МЕЛИСА" in text
-        assert "📦 Заказы: 2 откр · 1 просрочены" in text
-        assert "📅 Съёмка: 25 апр · reddit, twitter" in text
-        assert "📅 Последняя: 8 апр · main pack" in text
+        assert "📦 Заказы: 2 откр · 2 просрочены" in text
+        assert "25 апр</b> · reddit, twitter · planned" in text
+        assert "8 апр</b> · main pack · done" in text
         assert "📁 Файлы (" in text
-        assert "OF: 50 | Reddit: 29" in text
+        assert "OF: <b>50</b> | Reddit: <b>29</b>" in text
         assert "79/200 (40%)" not in text
-        assert "Что делаем?" in text
 
     @pytest.mark.asyncio
     async def test_card_text_notion_failure(self):
@@ -285,7 +284,7 @@ class TestBuildModelCardText:
         )
 
         assert "📌" in text
-        assert "Мелиса" in text
+        assert "МЕЛИСА" in text
         assert "📦 Заказы: —" in text
         lines = text.split("\n")
         assert not any("Съёмка" in l for l in lines)
@@ -431,10 +430,10 @@ class TestModelCardHelpers:
         assert _month_ru(13) == "?"
 
     def test_format_date_card(self):
-        """_format_date_card formats ISO date to DD.MM."""
+        """_format_date_card formats ISO date to 'D mon'."""
         from app.services.model_card import _format_date_card
-        assert _format_date_card("2026-02-15") == "15.02"
-        assert _format_date_card("2026-12-01") == "01.12"
+        assert _format_date_card("2026-02-15") == "15 фев"
+        assert _format_date_card("2026-12-01") == "1 дек"
         assert _format_date_card(None) == "?"
         assert _format_date_card("invalid") == "?"
 

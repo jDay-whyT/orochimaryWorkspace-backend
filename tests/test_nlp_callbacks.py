@@ -108,10 +108,10 @@ class TestOrderTypeMapping:
 
     def test_display_names(self):
         """Display names are correct for callback values."""
-        assert ORDER_TYPE_DISPLAY["custom"] == "Кастом"
-        assert ORDER_TYPE_DISPLAY["short"] == "Шорт"
-        assert ORDER_TYPE_DISPLAY["verif reddit"] == "verif reddit"
-        assert ORDER_TYPE_DISPLAY["call"] == "Колл"
+        assert ORDER_TYPE_DISPLAY["custom"] == "Custom"
+        assert ORDER_TYPE_DISPLAY["short"] == "Short"
+        assert ORDER_TYPE_DISPLAY["verif reddit"] == "Verif Reddit"
+        assert ORDER_TYPE_DISPLAY["call"] == "Call"
         assert ORDER_TYPE_DISPLAY["ad_request"] == "Ad Request"
 
     def test_order_type_keyboard_no_spaces_in_callback(self):

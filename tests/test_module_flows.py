@@ -40,9 +40,8 @@ class TestAccessAndBackButtons:
     def test_files_menu_only_actions_and_back(self):
         kb = nlp_files_menu_keyboard(can_edit=True, model_id="m1")
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "➕ добавить файлы" in texts
-        assert "🗂 тип (контент)" in texts
-        assert "💬 обновить коммент" in texts
+        assert "+ Файлы" in texts
+        assert "💬 Комментарий" in texts
         assert any("Назад" in t for t in texts)
 
     def test_files_menu_viewer_only_back(self):
@@ -68,7 +67,7 @@ class TestOrderCreationDateFlow:
     def test_confirm_keyboard_has_create(self):
         kb = nlp_order_confirm_keyboard("m1", "t2")
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "✅ Создать" in texts
+        assert "✓ Создать" in texts
 
 
 class TestOrdersAggregationAndPagination:

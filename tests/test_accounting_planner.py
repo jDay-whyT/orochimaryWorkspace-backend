@@ -71,16 +71,17 @@ class TestAccountingUpdateMonthlyRecord:
         existing = NotionAccounting(
             page_id="existing-page",
             title="МЕЛИСА · accounting 2026-02",
-            files=120,
+            of_files=120,
         )
         svc.notion = AsyncMock()
         svc.notion.get_monthly_record.return_value = existing
-        svc.notion.update_accounting_files.return_value = None
+        svc.notion.update_accounting_files_by_type.return_value = None
+        svc.notion.add_to_accounting_content.return_value = None
 
         result = await svc.add_files("model-1", "МЕЛИСА", 50)
 
-        svc.notion.update_accounting_files.assert_called_once_with(
-            "existing-page", 170,
+        svc.notion.update_accounting_files_by_type.assert_called_once_with(
+            "existing-page", "of_files", 170,
         )
         assert result["files"] == 170
 
@@ -93,11 +94,12 @@ class TestAccountingUpdateMonthlyRecord:
         svc = AccountingService(config)
 
         record = NotionAccounting(
-            page_id="page-1", title="МЕЛИСА · accounting 2026-02", files=50,
+            page_id="page-1", title="МЕЛИСА · accounting 2026-02", of_files=50,
         )
         svc.notion = AsyncMock()
         svc.notion.get_monthly_record.return_value = record
-        svc.notion.update_accounting_files.return_value = None
+        svc.notion.update_accounting_files_by_type.return_value = None
+        svc.notion.add_to_accounting_content.return_value = None
 
         result = await svc.add_files("model-1", "МЕЛИСА", 15)
         assert result["files"] == 65
@@ -251,15 +253,13 @@ class TestModelCardDisplay:
         mock_notion.query_open_orders.return_value = []
         mock_notion.query_upcoming_shoots.return_value = []
         mock_notion.get_monthly_record.return_value = NotionAccounting(
-            page_id="a1", title="T", files=150,
+            page_id="a1", title="T", files=150, of_files=150,
         )
 
         config = _make_config(fpm=200)
         text = await build_model_card_text("m1", "TestModel", config, mock_notion)
 
-        assert "150/200" in text
-        assert "75%" in text
-        assert "+150" not in text  # no over (150 < 200)
+        assert "OF: <b>150</b>" in text
 
     @pytest.mark.asyncio
     async def test_card_shows_over_limit(self):
@@ -269,15 +269,13 @@ class TestModelCardDisplay:
         mock_notion.query_open_orders.return_value = []
         mock_notion.query_upcoming_shoots.return_value = []
         mock_notion.get_monthly_record.return_value = NotionAccounting(
-            page_id="a1", title="T", files=250,
+            page_id="a1", title="T", files=250, of_files=250,
         )
 
         config = _make_config(fpm=200)
         text = await build_model_card_text("m2", "OverModel", config, mock_notion)
 
-        assert "250/200" in text
-        assert "100%" in text  # capped at 100
-        assert "+50" in text  # 250 - 200 = 50
+        assert "OF: <b>250</b>" in text
 
     @pytest.mark.asyncio
     async def test_card_zero_files(self):
@@ -291,8 +289,8 @@ class TestModelCardDisplay:
         config = _make_config(fpm=200)
         text = await build_model_card_text("m3", "EmptyModel", config, mock_notion)
 
-        assert "0/200" in text
-        assert "0%" in text
+        assert "📁 Файлы (" in text
+        assert ": —" in text
 
 
 # ===========================================================================
@@ -385,7 +383,7 @@ class TestNlpShootContentTypes:
         assert "SFS" in NLP_SHOOT_CONTENT_TYPES
         assert "posting" in NLP_SHOOT_CONTENT_TYPES
         assert "fansly" in NLP_SHOOT_CONTENT_TYPES
-        assert len(NLP_SHOOT_CONTENT_TYPES) == 6
+        assert len(NLP_SHOOT_CONTENT_TYPES) == 9
 
 
 class TestFilesMonthLimit:
@@ -424,7 +422,7 @@ class TestAccountingTitleFormat:
         payload = call_args[1].get("json") or call_args[0][2]
         title_content = payload["properties"]["Title"]["title"][0]["text"]["content"]
         assert title_content == "МЕЛИСА февраль 2026"
-        assert payload["properties"]["Files"]["number"] == 30
+        assert payload["properties"]["of_files"]["number"] == 30
 
         # Cleanup singleton
         NotionClient._instances.pop("test-token-title", None)

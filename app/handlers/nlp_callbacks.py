@@ -928,6 +928,8 @@ async def _show_orders_view(
         orders_raw = await orders_cache.get_cached_orders(notion, config, model_id)
         orders = [dataclasses.asdict(o) for o in orders_raw]
         orders.sort(key=lambda o: o.get("in_date") or "9999-99-99")
+    elif orders and dataclasses.is_dataclass(orders[0]):
+        orders = [dataclasses.asdict(o) for o in orders]
 
     if not orders:
         await _show_orders_menu(query, config, notion, memory_state)
