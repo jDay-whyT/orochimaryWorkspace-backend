@@ -239,3 +239,7 @@ gcloud scheduler jobs create http update-reddit-board \
 **Timeouts** — увеличь timeout или уменьши concurrency в Cloud Run.
 
 **Борд не обновляется** — проверь `BOARD_MESSAGE_ID` / `REDDIT_BOARD_MESSAGE_ID` в ENV и что `MANAGERS_CHAT_ID` указан верно (с минусом).
+
+## License
+
+This project is licensed under the [GNU General Public License v3.0](LICENSE).
