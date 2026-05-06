@@ -401,6 +401,35 @@ async def _fetch_monthly_accounting(
         model_page_id, month_offset, title_contains, len(items),
     )
 
+    if not items and month_offset < 0:
+        archive_page_id = os.getenv("ARCHIVE_PAGE_ID", "").strip()
+        if archive_page_id:
+            month_en_full = target.strftime("%B").lower()
+            archive_db_id = await notion.find_archive_accounting_db(archive_page_id, month_en_full)
+            if archive_db_id:
+                LOGGER.debug(
+                    "scout accounting fallback to archive db=%s for %s",
+                    archive_db_id, title_contains,
+                )
+                items = await _query_all_pages(
+                    notion,
+                    archive_db_id,
+                    {
+                        "page_size": 50,
+                        "filter": {
+                            "and": [
+                                {"property": "model", "relation": {"contains": model_page_id}},
+                                {"property": "Title", "title": {"contains": title_contains}},
+                            ]
+                        },
+                        "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+                    },
+                )
+                LOGGER.debug(
+                    "scout accounting archive result: model=%s title=%r count=%d",
+                    model_page_id, title_contains, len(items),
+                )
+
     if not items:
         return None
     props = items[0].get("properties", {})
