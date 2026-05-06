@@ -401,7 +401,7 @@ async def _fetch_shoots_lines(
     model_page_id: str,
 ) -> list[tuple[str, list[str], str]]:
     today = date.today()
-    date_from = (today - timedelta(days=60)).isoformat()
+    date_from = (today - timedelta(days=30)).isoformat()
     date_to = (today + timedelta(days=14)).isoformat()
 
     items = await _query_all_pages(

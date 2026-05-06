@@ -184,9 +184,9 @@ def test_fetch_shoots_lines_returns_tuples_in_range(monkeypatch):
     assert result[0] == ("2026-04-14", ["reddit", "main pack"], "done")
     assert result[1] == ("2026-05-14", ["twitter"], "planned")
 
-    # Verify date range filter: -60 days = 2026-03-07, +14 days = 2026-05-20
+    # Verify date range filter: -30 days = 2026-04-06, +14 days = 2026-05-20
     date_filters = captured["filter"]["and"]
-    assert {"property": "date", "date": {"on_or_after": "2026-03-07"}} in date_filters
+    assert {"property": "date", "date": {"on_or_after": "2026-04-06"}} in date_filters
     assert {"property": "date", "date": {"on_or_before": "2026-05-20"}} in date_filters
 
 
