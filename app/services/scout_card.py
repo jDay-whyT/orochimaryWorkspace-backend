@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import calendar as _calendar
 import html
 import os
 from datetime import date, datetime, timedelta
@@ -17,18 +18,21 @@ _DB_PLANNER_DEFAULT = "1fb32bee-e7a0-815f-ae1d-000ba6995a1a"
 _DB_ACCOUNTING_DEFAULT = "1ff32bee-e7a0-8025-a26c-000bc7008ec8"
 
 _MONTHS_RU = {
-    1: "янв",
-    2: "фев",
-    3: "мар",
-    4: "апр",
-    5: "май",
-    6: "июн",
-    7: "июл",
-    8: "авг",
-    9: "сен",
-    10: "окт",
-    11: "ноя",
-    12: "дек",
+    1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
+    7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек",
+}
+
+_MONTHS_EN = {
+    1: "jan", 2: "feb", 3: "mar", 4: "apr", 5: "may", 6: "jun",
+    7: "jul", 8: "aug", 9: "sep", 10: "oct", 11: "nov", 12: "dec",
+}
+
+_ORDER_TYPE_SHORT = {
+    "custom": "custom",
+    "short": "short",
+    "verif reddit": "verif",
+    "call": "call",
+    "ad request": "ad req",
 }
 
 
@@ -48,6 +52,13 @@ def _format_ru_day(raw: str | None) -> str:
     if not dt:
         return "—"
     return f"{dt.day} {_MONTHS_RU[dt.month]}"
+
+
+def _format_en_day(raw: str | None) -> str:
+    dt = _parse_iso_date(raw)
+    if not dt:
+        return "—"
+    return f"{dt.day} {_MONTHS_EN[dt.month]}"
 
 
 def _extract_title(prop: dict[str, Any] | None) -> str | None:
@@ -130,9 +141,10 @@ def _format_boost(anal: str | None, calls: str | None) -> str:
     return f"Анал: {anal_text} | Колл: {calls_text}"
 
 
-def _format_monthly_files(accounting_row: dict[str, int] | None) -> str:
+def _format_content_month(label: str, accounting_row: dict[str, int] | None) -> str | None:
+    """Returns 'may: OF: <b>3</b> · Reddit: <b>1</b>' or None if all zeros."""
     if not accounting_row:
-        return "📁 Контент за мес: —"
+        return None
     categories = [
         ("of_files", "OF"),
         ("reddit_files", "Reddit"),
@@ -142,21 +154,25 @@ def _format_monthly_files(accounting_row: dict[str, int] | None) -> str:
         ("request_files", "Request"),
     ]
     parts: list[str] = []
-    for key, label in categories:
-        value = accounting_row.get(key, 0)
-        if value > 0:
-            parts.append(f"<b>{label} {value}</b>")
+    for key, name in categories:
+        val = accounting_row.get(key, 0)
+        if val > 0:
+            parts.append(f"{name}: <b>{val}</b>")
     if not parts:
-        return "📁 Контент за мес: —"
-    return "📁 Контент за мес: " + " · ".join(parts)
+        return None
+    return f"{label}: " + " · ".join(parts)
 
 
-def _format_shoot_line(prefix: str, dt: str | None, content: list[str] | None, empty_text: str) -> str:
-    day = _format_ru_day(dt)
-    if day == "—":
-        return f"{prefix}: {empty_text}"
-    content_text = ", ".join(content or [])
-    return f"{prefix}: {day}" + (f" · {content_text}" if content_text else "")
+def _format_orders_month(label: str, orders: dict[str, int]) -> str | None:
+    """Returns 'may: custom: <b>2</b> · short: <b>1</b>' or None if all zeros."""
+    parts: list[str] = []
+    for order_type, count in orders.items():
+        if count > 0:
+            display = _ORDER_TYPE_SHORT.get(order_type, order_type)
+            parts.append(f"{display}: <b>{count}</b>")
+    if not parts:
+        return None
+    return f"{label}: " + " · ".join(parts)
 
 
 def _format_scout_card(
@@ -164,12 +180,15 @@ def _format_scout_card(
     model_row: dict[str, Any],
     traffic: str,
     accounting_row: dict[str, int] | None,
-    orders_done: int,
-    orders_open: int,
-    last_shoot_line: str,
-    next_shoot_line: str | None,
+    accounting_prev_row: dict[str, int] | None,
+    shoots: list[tuple[str, list[str], str]],
+    orders_current: dict[str, int],
+    orders_prev: dict[str, int],
 ) -> str:
-    import re as _re
+    today = date.today()
+    cur_label = _MONTHS_EN[today.month]
+    prev_month_date = today.replace(day=1) - timedelta(days=1)
+    prev_label = _MONTHS_EN[prev_month_date.month]
 
     status = str(model_row.get("status") or "—").strip()
     project = str(model_row.get("project") or "").strip()
@@ -183,70 +202,69 @@ def _format_scout_card(
 
     safe = html.escape
 
-    # Header — model bold, project bold
     header = f"<b>{safe(model_name.upper())}</b> · {safe(status)}"
     if project:
         header += f" · <b>{safe(project)}</b>"
 
     lines = [header]
 
-    # Scout → Assist
     if scout or assist:
         lines.append(f"  └ {safe(scout or '—')} → {safe(assist or '—')}")
 
     lines.append("")
 
-    # Info block
+    # Info block — italic
     if language:
-        lines.append(f"  | {safe(language)}")
+        lines.append(f"  | <i>{safe(language)}</i>")
 
-    # Boost: replace Ru labels with En
     boost_en = boost.replace("Анал:", "anal:").replace("Колл:", "calls:")
     if boost_en:
-        lines.append(f"  | {safe(boost_en)}")
+        lines.append(f"  | <i>{safe(boost_en)}</i>")
 
     traffic_parts = [f"<b>{safe(t.strip())}</b>" for t in traffic_text.split(",") if t.strip()]
     traffic_bold = ", ".join(traffic_parts) if traffic_parts else "—"
-    lines.append(f"  | traffic: {traffic_bold}")
-    lines.append(f"  | rent: {rent}")
+    lines.append(f"  | <i>traffic: {traffic_bold}</i>")
+    lines.append(f"  | <i>rent: {rent}</i>")
 
     lines.append("")
 
-    # Content block — bold numbers
-    files_block = _format_monthly_files(accounting_row)
-    files_text = files_block.replace("📁 Контент за мес: ", "").replace("📁 Контент за мес:", "").strip()
-    files_text_bold = _re.sub(r'\b(\d+)\b', r'<b>\1</b>', files_text)
-    lines.append(f"  ▸ content: {files_text_bold}")
-
-    # Shoots — bold dates
-    def _strip_prefix(line: str) -> str:
-        for prefix in ["🎬 Снятый: ", "📅 Ближ. съёмка: ", "снятый: ", "след. съёмка: "]:
-            if line.startswith(prefix):
-                return line[len(prefix):]
-        return line
-
-    last_data = _strip_prefix(last_shoot_line)
-    # Bold the date part (first token before ' · ')
-    if " · " in last_data:
-        date_part, rest = last_data.split(" · ", 1)
-        lines.append(f"  ▸ last shoot: <b>{safe(date_part)}</b> · {safe(rest)}")
+    # Content section — two months
+    cur_content = _format_content_month(cur_label, accounting_row)
+    prev_content = _format_content_month(prev_label, accounting_prev_row)
+    if cur_content or prev_content:
+        lines.append("Content")
+        if cur_content:
+            lines.append(cur_content)
+        if prev_content:
+            lines.append(prev_content)
     else:
-        lines.append(f"  ▸ last shoot: {safe(last_data)}")
-
-    if next_shoot_line:
-        next_data = _strip_prefix(next_shoot_line)
-        if next_data and next_data not in {"не запланировано", "не было"}:
-            if " · " in next_data:
-                date_part, rest = next_data.split(" · ", 1)
-                lines.append(f"  ▸ next shoot: <b>{safe(date_part)}</b> · {safe(rest)}")
-            else:
-                lines.append(f"  ▸ next shoot: <b>{safe(next_data)}</b>")
+        lines.append("Content: —")
 
     lines.append("")
 
-    # Orders — bold label and numbers
-    lines.append(f"  <b>orders</b>")
-    lines.append(f"  | done: <b>{orders_done}</b>  |  open: <b>{orders_open}</b>")
+    # Shoots section — date range
+    if shoots:
+        lines.append("Shoots")
+        for date_str, content_types, shoot_status in shoots:
+            day = _format_en_day(date_str)
+            content_text = ", ".join(content_types) if content_types else "—"
+            lines.append(f"<b>{safe(day)}</b> · {safe(content_text)} · {safe(shoot_status)}")
+    else:
+        lines.append("Shoots: —")
+
+    lines.append("")
+
+    # Orders section — two months
+    cur_orders = _format_orders_month(cur_label, orders_current)
+    prev_orders = _format_orders_month(prev_label, orders_prev)
+    if cur_orders or prev_orders:
+        lines.append("Orders")
+        if cur_orders:
+            lines.append(cur_orders)
+        if prev_orders:
+            lines.append(prev_orders)
+    else:
+        lines.append("Orders: no orders")
 
     return "\n".join(lines)
 
@@ -318,11 +336,20 @@ async def _fetch_monthly_accounting(
     notion: NotionClient,
     db_accounting: str,
     model_page_id: str,
+    month_offset: int = 0,
 ) -> dict[str, int] | None:
     today = date.today()
-    month_start = today.replace(day=1).isoformat()
-    next_month = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
-    month_end = (next_month - timedelta(days=1)).isoformat()
+    # Navigate months using only replace/timedelta to stay compatible with
+    # monkeypatched date.today() in tests (FakeDate doesn't support construction).
+    target = today
+    for _ in range(abs(month_offset)):
+        if month_offset < 0:
+            target = target.replace(day=1) - timedelta(days=1)
+        else:
+            target = (target.replace(day=28) + timedelta(days=4)).replace(day=1)
+    month_start = target.replace(day=1)
+    next_month_first = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    month_end = next_month_first - timedelta(days=1)
 
     items = await _query_all_pages(
         notion,
@@ -335,8 +362,8 @@ async def _fetch_monthly_accounting(
                     {
                         "property": "edit day",
                         "last_edited_time": {
-                            "on_or_after": month_start,
-                            "on_or_before": month_end,
+                            "on_or_after": month_start.isoformat(),
+                            "on_or_before": month_end.isoformat(),
                         },
                     },
                 ]
@@ -357,107 +384,76 @@ async def _fetch_monthly_accounting(
     }
 
 
-async def _fetch_orders_stats(notion: NotionClient, db_orders: str, model_page_id: str) -> tuple[int, int]:
-    cutoff = date.today() - timedelta(days=30)
-    query_payload = {
-        "page_size": 100,
-        "filter": {
-            "and": [
-                {"property": "model", "relation": {"contains": model_page_id}},
-                {"property": "in", "date": {"on_or_after": cutoff.isoformat()}},
-            ]
-        },
-    }
-
-    items_by_db: list[list[dict[str, Any]]]
-    if ARCHIVE_ORDERS_DBS:
-        previous_month_index = date.today().month - 1
-        previous_month_archive_db = ARCHIVE_ORDERS_DBS[-1 if previous_month_index >= 1 else 0]
-        items_by_db = await asyncio.gather(
-            _query_all_pages(notion, db_orders, query_payload),
-            _query_all_pages(notion, previous_month_archive_db, query_payload),
-        )
-    else:
-        items_by_db = [await _query_all_pages(notion, db_orders, query_payload)]
-
-    items = [item for batch in items_by_db for item in batch]
-
-    done = 0
-    open_count = 0
-    for item in items:
-        props = item.get("properties", {})
-        order_type = _normalize(_extract_select_name(props.get("type")))
-        count = _extract_number(props.get("count"))
-
-        include = False
-        if order_type in {"custom", "call"}:
-            include = True
-        elif order_type == "short" and count >= 10:
-            include = True
-
-        if not include:
-            continue
-
-        status = _normalize(_extract_select_name(props.get("status")))
-        if status == "done":
-            done += 1
-        elif status == "open":
-            open_count += 1
-
-    return done, open_count
-
-
 async def _fetch_shoots_lines(
     notion: NotionClient,
     db_planner: str,
     model_page_id: str,
-) -> tuple[str, str | None]:
+) -> list[tuple[str, list[str], str]]:
+    today = date.today()
+    date_from = (today - timedelta(days=60)).isoformat()
+    date_to = (today + timedelta(days=14)).isoformat()
+
     items = await _query_all_pages(
         notion,
         db_planner,
         {
             "page_size": 100,
-            "filter": {"property": "model", "relation": {"contains": model_page_id}},
+            "filter": {
+                "and": [
+                    {"property": "model", "relation": {"contains": model_page_id}},
+                    {"property": "date", "date": {"on_or_after": date_from}},
+                    {"property": "date", "date": {"on_or_before": date_to}},
+                ]
+            },
             "sorts": [{"property": "date", "direction": "ascending"}],
         },
     )
 
-    today = date.today()
-    last_done: tuple[date, str | None, list[str]] | None = None
-    next_planned: tuple[date, str | None, list[str]] | None = None
-
+    result: list[tuple[str, list[str], str]] = []
     for item in items:
         props = item.get("properties", {})
         shoot_date_raw = _extract_date(props.get("date"))
-        shoot_date = _parse_iso_date(shoot_date_raw)
-        if not shoot_date:
+        if not _parse_iso_date(shoot_date_raw):
             continue
-
         status = _normalize(_extract_select_name(props.get("status")))
         content = _extract_multi_select(props.get("content"))
+        result.append((shoot_date_raw, content, status))
 
-        if status == "done":
-            if last_done is None or shoot_date > last_done[0]:
-                last_done = (shoot_date, shoot_date_raw, content)
+    return result
 
-        if status in {"scheduled", "planned"} and shoot_date >= today:
-            if next_planned is None or shoot_date < next_planned[0]:
-                next_planned = (shoot_date, shoot_date_raw, content)
 
-    last_line = _format_shoot_line(
-        "🎬 Снятый",
-        last_done[1] if last_done else None,
-        last_done[2] if last_done else None,
-        "не было",
-    )
-    next_line = _format_shoot_line(
-        "📅 Ближ. съёмка",
-        next_planned[1] if next_planned else None,
-        next_planned[2] if next_planned else None,
-        "не запланировано",
-    )
+async def _fetch_orders_by_type(
+    notion: NotionClient,
+    db_orders: str,
+    model_page_id: str,
+    yyyy_mm: str,
+) -> dict[str, int]:
+    year, month_str = yyyy_mm.split("-")
+    year_i, month_i = int(year), int(month_str)
+    first_day = date(year_i, month_i, 1).isoformat()
+    last_day = date(year_i, month_i, _calendar.monthrange(year_i, month_i)[1]).isoformat()
 
-    return last_line, next_line
+    query_payload = {
+        "page_size": 100,
+        "filter": {
+            "and": [
+                {"property": "model", "relation": {"contains": model_page_id}},
+                {"property": "in", "date": {"on_or_after": first_day}},
+                {"property": "in", "date": {"on_or_before": last_day}},
+            ]
+        },
+    }
+
+    items = await _query_all_pages(notion, db_orders, query_payload)
+
+    result: dict[str, int] = {}
+    for item in items:
+        props = item.get("properties", {})
+        order_type = _normalize(_extract_select_name(props.get("type")))
+        if order_type:
+            result[order_type] = result.get(order_type, 0) + 1
+
+    return result
 
 
 async def build_scout_report_card(model_name: str, notion: NotionClient) -> str | None:
@@ -473,11 +469,26 @@ async def build_scout_report_card(model_name: str, notion: NotionClient) -> str 
         return None
 
     model_page_id = model_row["page_id"]
-    traffic, accounting_row, orders_stats, shoots_lines = await asyncio.gather(
+
+    today = date.today()
+    cur_yyyy_mm = today.strftime("%Y-%m")
+    prev_month_date = today.replace(day=1) - timedelta(days=1)
+    prev_yyyy_mm = prev_month_date.strftime("%Y-%m")
+
+    (
+        traffic,
+        accounting_row,
+        accounting_prev_row,
+        shoots,
+        orders_current,
+        orders_prev,
+    ) = await asyncio.gather(
         _fetch_forms_traffic(notion, db_forms, model_page_id),
-        _fetch_monthly_accounting(notion, db_accounting, model_page_id),
-        _fetch_orders_stats(notion, db_orders, model_page_id),
+        _fetch_monthly_accounting(notion, db_accounting, model_page_id, month_offset=0),
+        _fetch_monthly_accounting(notion, db_accounting, model_page_id, month_offset=-1),
         _fetch_shoots_lines(notion, db_planner, model_page_id),
+        _fetch_orders_by_type(notion, db_orders, model_page_id, cur_yyyy_mm),
+        _fetch_orders_by_type(notion, db_orders, model_page_id, prev_yyyy_mm),
     )
 
     return _format_scout_card(
@@ -485,8 +496,8 @@ async def build_scout_report_card(model_name: str, notion: NotionClient) -> str 
         model_row=model_row,
         traffic=traffic,
         accounting_row=accounting_row,
-        orders_done=orders_stats[0],
-        orders_open=orders_stats[1],
-        last_shoot_line=shoots_lines[0],
-        next_shoot_line=shoots_lines[1],
+        accounting_prev_row=accounting_prev_row,
+        shoots=shoots,
+        orders_current=orders_current,
+        orders_prev=orders_prev,
     )
