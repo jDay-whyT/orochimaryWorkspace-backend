@@ -235,10 +235,7 @@ def test_fetch_monthly_accounting_filters_by_model_and_edit_day(monkeypatch):
     }
     assert captured_payload["filter"]["and"] == [
         {"property": "model", "relation": {"contains": "model-page-id"}},
-        {
-            "property": "edit day",
-            "last_edited_time": {"on_or_after": "2026-04-01", "on_or_before": "2026-04-30"},
-        },
+        {"property": "Title", "title": {"contains": "апрель 2026"}},
     ]
 
 
@@ -270,6 +267,7 @@ def test_fetch_monthly_accounting_prev_month(monkeypatch):
     )
 
     assert result is None
-    date_filter = captured_payload["filter"]["and"][1]["last_edited_time"]
-    assert date_filter["on_or_after"] == "2026-04-01"
-    assert date_filter["on_or_before"] == "2026-04-30"
+    assert captured_payload["filter"]["and"] == [
+        {"property": "model", "relation": {"contains": "model-page-id"}},
+        {"property": "Title", "title": {"contains": "апрель 2026"}},
+    ]

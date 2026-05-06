@@ -13,6 +13,7 @@ from typing import Any
 LOGGER = logging.getLogger(__name__)
 
 from app.utils.constants import ARCHIVE_ORDERS_DBS, DB_FORMS_DEFAULT
+from app.utils.formatting import MONTHS_RU_LOWER
 from app.services.notion import NotionClient
 
 _DB_MODELS_DEFAULT = "1fc32bee-e7a0-809f-8bbe-000be8182d4d"
@@ -350,13 +351,15 @@ async def _fetch_monthly_accounting(
             target = target.replace(day=1) - timedelta(days=1)
         else:
             target = (target.replace(day=28) + timedelta(days=4)).replace(day=1)
-    month_start = target.replace(day=1)
-    next_month_first = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    month_end = next_month_first - timedelta(days=1)
+
+    # Title filter: "апрель 2026" — more reliable than last_edited_time,
+    # which misses records last edited outside the target month.
+    month_label = MONTHS_RU_LOWER[target.month - 1]
+    title_contains = f"{month_label} {target.year}"
 
     LOGGER.debug(
-        "scout accounting query: model=%s offset=%d range=%s..%s",
-        model_page_id, month_offset, month_start.isoformat(), month_end.isoformat(),
+        "scout accounting query: model=%s offset=%d title_contains=%r",
+        model_page_id, month_offset, title_contains,
     )
 
     items = await _query_all_pages(
@@ -367,13 +370,7 @@ async def _fetch_monthly_accounting(
             "filter": {
                 "and": [
                     {"property": "model", "relation": {"contains": model_page_id}},
-                    {
-                        "property": "edit day",
-                        "last_edited_time": {
-                            "on_or_after": month_start.isoformat(),
-                            "on_or_before": month_end.isoformat(),
-                        },
-                    },
+                    {"property": "Title", "title": {"contains": title_contains}},
                 ]
             },
             "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
@@ -381,8 +378,8 @@ async def _fetch_monthly_accounting(
     )
 
     LOGGER.debug(
-        "scout accounting result: model=%s offset=%d count=%d",
-        model_page_id, month_offset, len(items),
+        "scout accounting result: model=%s offset=%d title_contains=%r count=%d",
+        model_page_id, month_offset, title_contains, len(items),
     )
 
     if not items:
