@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import calendar as _calendar
 import html
+import logging
 import os
 from datetime import date, datetime, timedelta
 from typing import Any
+
+LOGGER = logging.getLogger(__name__)
 
 from app.utils.constants import ARCHIVE_ORDERS_DBS, DB_FORMS_DEFAULT
 from app.services.notion import NotionClient
@@ -213,18 +216,18 @@ def _format_scout_card(
 
     lines.append("")
 
-    # Info block — italic
+    # Info block — italic, no pipe prefix
     if language:
-        lines.append(f"  | <i>{safe(language)}</i>")
+        lines.append(f"  <i>{safe(language)}</i>")
 
     boost_en = boost.replace("Анал:", "anal:").replace("Колл:", "calls:")
     if boost_en:
-        lines.append(f"  | <i>{safe(boost_en)}</i>")
+        lines.append(f"  <i>{safe(boost_en)}</i>")
 
     traffic_parts = [f"<b>{safe(t.strip())}</b>" for t in traffic_text.split(",") if t.strip()]
     traffic_bold = ", ".join(traffic_parts) if traffic_parts else "—"
-    lines.append(f"  | <i>traffic: {traffic_bold}</i>")
-    lines.append(f"  | <i>rent: {rent}</i>")
+    lines.append(f"  <i>traffic: {traffic_bold}</i>")
+    lines.append(f"  <i>rent: {rent}</i>")
 
     lines.append("")
 
@@ -351,6 +354,11 @@ async def _fetch_monthly_accounting(
     next_month_first = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
     month_end = next_month_first - timedelta(days=1)
 
+    LOGGER.debug(
+        "scout accounting query: model=%s offset=%d range=%s..%s",
+        model_page_id, month_offset, month_start.isoformat(), month_end.isoformat(),
+    )
+
     items = await _query_all_pages(
         notion,
         db_accounting,
@@ -371,6 +379,12 @@ async def _fetch_monthly_accounting(
             "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
         },
     )
+
+    LOGGER.debug(
+        "scout accounting result: model=%s offset=%d count=%d",
+        model_page_id, month_offset, len(items),
+    )
+
     if not items:
         return None
     props = items[0].get("properties", {})
