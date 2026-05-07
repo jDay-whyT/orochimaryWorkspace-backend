@@ -428,11 +428,6 @@ async def _execute_handler(
 
     # ===== MODEL ACTIONS (priority 50) =====
 
-    if intent == CommandIntent.GET_REPORT:
-        from app.handlers.reports import handle_report_nlp
-        await handle_report_nlp(message, model, config, notion, memory_state)
-        return
-
     if intent == CommandIntent.SHOW_MODEL_ORDERS:
         await _handle_show_model_orders(message, model, config, notion)
         return
@@ -1466,9 +1461,6 @@ async def _show_help_message(message: Message) -> None:
         "📁 <b>Файлы:</b>\n"
         "• мелиса 30 файлов\n"
         "• мелиса + 20\n\n"
-        "📊 <b>Отчеты:</b>\n"
-        "• репорт мелиса\n"
-        "• сводка\n\n"
         "Или /start",
         parse_mode="HTML",
     )

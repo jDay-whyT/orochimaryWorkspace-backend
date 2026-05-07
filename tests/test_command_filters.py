@@ -83,25 +83,6 @@ class TestIntentClassification:
         assert classify_intent_v2("melissa 50 files") == CommandIntent.ADD_FILES
         assert classify_intent_v2("30 photos sophia") == CommandIntent.ADD_FILES
 
-    # ========== GET_REPORT ==========
-
-    def test_get_report_basic(self):
-        """Test report generation."""
-        assert classify_intent_v2("репорт мелиса") == CommandIntent.GET_REPORT
-        assert classify_intent_v2("отчет софи") == CommandIntent.GET_REPORT
-        assert classify_intent_v2("статистика мелиса") == CommandIntent.GET_REPORT
-
-    def test_get_report_variations(self):
-        """Test report with word variations."""
-        assert classify_intent_v2("репорта мелиса") == CommandIntent.GET_REPORT
-        assert classify_intent_v2("стат для софи") == CommandIntent.GET_REPORT
-        assert classify_intent_v2("статистику покажи") == CommandIntent.GET_REPORT
-
-    def test_get_report_english(self):
-        """Test report in English."""
-        assert classify_intent_v2("report melissa") == CommandIntent.GET_REPORT
-        assert classify_intent_v2("stats sophia") == CommandIntent.GET_REPORT
-
     # ========== SCOUT_CARD ==========
 
     def test_scout_card_requires_model_after_prefix(self):

@@ -54,7 +54,6 @@ class CommandIntent(Enum):
     ADD_COMMENT = "add_comment"
 
     # Model actions (priority 50)
-    GET_REPORT = "get_report"
     SHOW_MODEL_ORDERS = "show_model_orders"
 
     # Menu (priority 40)
@@ -318,24 +317,6 @@ COMMAND_FILTERS = [
     ),
 
     # ========== MODEL ACTIONS (Priority: 50) ==========
-
-    CommandFilter(
-        intent=CommandIntent.GET_REPORT,
-        keywords=[
-            "репорт", "репорта", "репортов",
-            "отчет", "отчета", "отчетов",
-            "статистика", "статистику", "стат", "стата",
-            "report", "reports", "stats", "statistics",
-        ],
-        patterns=[
-            re.compile(r'\b(репорт|отчет)[а-я]*\b', re.IGNORECASE),
-            re.compile(r'\bстат[а-я]*\b', re.IGNORECASE),
-            re.compile(r'\breport[s]?\b', re.IGNORECASE),
-            re.compile(r'\bstats?\b', re.IGNORECASE),
-            re.compile(r'\bstatistics?\b', re.IGNORECASE),
-        ],
-        priority=50,
-    ),
 
     CommandFilter(
         intent=CommandIntent.SHOW_MODEL_ORDERS,

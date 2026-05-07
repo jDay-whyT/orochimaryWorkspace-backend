@@ -4,7 +4,7 @@ from typing import Any
 from aiogram import Bot, Dispatcher
 
 from app.config import Config
-from app.handlers import start, orders, planner, accounting, reports, nlp_callbacks, notifications, group_manager, reddit
+from app.handlers import start, orders, planner, accounting, nlp_callbacks, notifications, group_manager, reddit
 from app.services import NotionClient
 from app.state import MemoryState, RecentModels
 
