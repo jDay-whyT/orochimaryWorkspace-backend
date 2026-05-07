@@ -503,10 +503,23 @@ async def _fetch_orders_by_type(
         },
     }
 
-    items = await _query_all_pages(notion, db_orders, query_payload)
+    dbs_to_query = [db_orders]
+
+    today = date.today()
+    is_prev_month = (year_i, month_i) < (today.year, today.month)
+    archive_idx = month_i - 1  # Jan=0, Feb=1, …
+    if is_prev_month and archive_idx < len(ARCHIVE_ORDERS_DBS):
+        dbs_to_query.append(ARCHIVE_ORDERS_DBS[archive_idx])
+
+    all_items: list = []
+    for db_id in dbs_to_query:
+        try:
+            all_items.extend(await _query_all_pages(notion, db_id, query_payload))
+        except Exception:
+            LOGGER.warning("_fetch_orders_by_type: failed to query db=%s", db_id)
 
     result: dict[str, int] = {}
-    for item in items:
+    for item in all_items:
         props = item.get("properties", {})
         order_type = _normalize(_extract_select_name(props.get("type")))
         if order_type:

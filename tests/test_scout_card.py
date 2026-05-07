@@ -127,10 +127,44 @@ def test_fetch_orders_by_type_counts_per_type(monkeypatch):
 
     monkeypatch.setattr(scout_card, "_query_all_pages", fake_query)
 
+    # Use current month so archive DB is not queried (no double-counting).
     result = asyncio.run(
-        scout_card._fetch_orders_by_type(object(), "main-db", "model-id", "2026-04")
+        scout_card._fetch_orders_by_type(object(), "main-db", "model-id", "2026-05")
     )
     assert result == {"custom": 2, "short": 1}
+
+
+def test_fetch_orders_by_type_queries_archive_for_prev_month(monkeypatch):
+    queried_dbs: list[str] = []
+
+    async def fake_query(_notion, db_id, _payload):
+        queried_dbs.append(db_id)
+        return []
+
+    monkeypatch.setattr(scout_card, "_query_all_pages", fake_query)
+
+    # April 2026 is a previous month and has an archive entry (index 3).
+    asyncio.run(
+        scout_card._fetch_orders_by_type(object(), "main-db", "model-id", "2026-04")
+    )
+    from app.utils.constants import ARCHIVE_ORDERS_DBS
+    assert "main-db" in queried_dbs
+    assert ARCHIVE_ORDERS_DBS[3] in queried_dbs  # April = index 3
+
+
+def test_fetch_orders_by_type_no_archive_for_current_month(monkeypatch):
+    queried_dbs: list[str] = []
+
+    async def fake_query(_notion, db_id, _payload):
+        queried_dbs.append(db_id)
+        return []
+
+    monkeypatch.setattr(scout_card, "_query_all_pages", fake_query)
+
+    asyncio.run(
+        scout_card._fetch_orders_by_type(object(), "main-db", "model-id", "2026-05")
+    )
+    assert queried_dbs == ["main-db"]
 
 
 def test_fetch_orders_by_type_empty(monkeypatch):
