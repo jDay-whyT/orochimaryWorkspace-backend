@@ -497,8 +497,8 @@ async def _fetch_orders_by_type(
         "filter": {
             "and": [
                 {"property": "model", "relation": {"contains": model_page_id}},
-                {"property": "in", "date": {"on_or_after": first_day}},
-                {"property": "in", "date": {"on_or_before": last_day}},
+                {"property": "out", "date": {"on_or_after": first_day}},
+                {"property": "out", "date": {"on_or_before": last_day}},
             ]
         },
     }
