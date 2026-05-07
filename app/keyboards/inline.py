@@ -531,6 +531,7 @@ def model_card_keyboard(k: str = "") -> InlineKeyboardMarkup:
     Universal model card keyboard (CRM main scenario).
 
     Row 1: 📦 Заказы | 📅 Съёмка | 📁 Файлы
+    Row 2: 📝 Заметка | ✓ Готово
     """
     s = f":{k}" if k else ""
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -539,7 +540,10 @@ def model_card_keyboard(k: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📅 Съёмка", callback_data=f"nlp:act:shoot{s}"),
             InlineKeyboardButton(text="📁 Файлы", callback_data=f"nlp:act:files{s}"),
         ],
-        [InlineKeyboardButton(text="Готово", callback_data="nlp:x:c")],
+        [
+            InlineKeyboardButton(text="📝 Заметка", callback_data=f"nlp:act:note{s}"),
+            InlineKeyboardButton(text="✓ Готово", callback_data="nlp:x:c"),
+        ],
     ])
 
 

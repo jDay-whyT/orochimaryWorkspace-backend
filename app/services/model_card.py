@@ -117,6 +117,10 @@ async def _build_card_text_impl(
     open_orders_count = -1
 
     yyyy_mm = now.strftime("%Y-%m")
+
+    async def _no_notes():
+        return []
+
     results = await asyncio.gather(
         notion.query_open_orders(config.db_orders, model_page_id=model_id),
         notion.query_upcoming_shoots(
@@ -125,10 +129,11 @@ async def _build_card_text_impl(
             statuses=["planned", "scheduled", "rescheduled", "done"],
         ),
         notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm),
+        notion.get_recent_notes(config.db_notes, model_id, limit=3) if config.db_notes else _no_notes(),
         return_exceptions=True,
     )
 
-    orders_result, shoots_result, accounting_result = results
+    orders_result, shoots_result, accounting_result, notes_result = results
 
     # Orders open count
     if isinstance(orders_result, Exception):
@@ -215,6 +220,16 @@ async def _build_card_text_impl(
     if shoot_line is not None:
         lines.extend([f"📅 {shoot_line}", ""])
     lines.append(f"📁 Файлы ({month_label}): {files_line}")
+
+    if not isinstance(notes_result, Exception) and notes_result:
+        note_lines = []
+        for note in notes_result:
+            date_str = _format_date_card(note.date) if note.date else "?"
+            note_text = html.escape(note.text or "")
+            note_lines.append(f"{date_str} · {note_text}")
+        if note_lines:
+            lines.extend(["", "📝 Заметки"])
+            lines.extend(note_lines)
 
     text = "\n".join(lines)
     return text, has_error, open_orders_count

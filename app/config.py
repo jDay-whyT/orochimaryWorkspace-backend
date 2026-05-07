@@ -38,6 +38,8 @@ class Config:
     rent_topic_thread_id: int = 0
     redis_url: str | None = None
     archive_page_id: str = ""
+    db_notes: str = ""
+    owner_telegram_id: int = 0
 
 
 def _parse_user_ids(value: str) -> set[int]:
@@ -168,6 +170,12 @@ def load_config(validate: bool = True) -> Config:
 
     redis_url = os.getenv("REDIS_URL", "").strip() or None
     report_viewers = _parse_user_ids(os.getenv("REPORT_VIEWERS", ""))
+    db_notes = os.getenv("DB_NOTES", "").strip()
+
+    try:
+        owner_telegram_id = int(os.getenv("OWNER_TELEGRAM_ID", "0"))
+    except ValueError:
+        owner_telegram_id = 0
     try:
         scouts_chat_id = int(os.getenv("SCOUTS_CHAT_ID", "0"))
     except ValueError:
@@ -202,6 +210,8 @@ def load_config(validate: bool = True) -> Config:
         internal_secret=internal_secret,
         rent_topic_thread_id=rent_topic_thread_id,
         redis_url=redis_url,
+        db_notes=db_notes,
+        owner_telegram_id=owner_telegram_id,
     )
     
     if validate:

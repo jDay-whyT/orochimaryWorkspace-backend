@@ -817,6 +817,52 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
             memory_state=memory_state,
         )
 
+    elif action == "note":
+        await _handle_note_action(query, config, memory_state)
+
+
+async def _handle_note_action(
+    query: CallbackQuery,
+    config: Config,
+    memory_state: MemoryState,
+) -> None:
+    """Show note prompt. Callback: nlp:act:note:{k}"""
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
+    if not state or not state.get("model_id"):
+        await _session_expired(query, memory_state)
+        return
+    model_id = state["model_id"]
+    model_name = state.get("model_name", "")
+
+    if not config.db_notes:
+        await query.answer("Заметки не настроены", show_alert=True)
+        return
+    if not is_editor(user_id, config):
+        await query.answer("❌ Нет доступа", show_alert=True)
+        return
+
+    from app.keyboards.inline import nlp_back_keyboard
+    memory_state.set(chat_id, user_id, {
+        "flow": "nlp_note",
+        "step": "awaiting_text",
+        "model_id": model_id,
+        "model_name": model_name,
+    })
+    await _clear_previous_screen_keyboard(query, memory_state)
+    try:
+        msg = await query.message.edit_text(
+            f"✏️ Напиши заметку для <b>{html.escape(model_name)}</b>:",
+            reply_markup=nlp_back_keyboard(model_id),
+            parse_mode="HTML",
+        )
+    except TelegramBadRequest:
+        msg = None
+    _remember_screen_message(
+        memory_state, chat_id, user_id,
+        msg.message_id if msg else query.message.message_id,
+    )
+
 
 async def _handle_back_to_card(
     query: CallbackQuery,

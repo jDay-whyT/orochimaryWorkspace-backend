@@ -52,6 +52,15 @@ class NotionPlanner:
 
 
 @dataclass
+class NotionNote:
+    """Note entity — one record per model per event."""
+    page_id: str
+    model_id: str | None = None
+    text: str | None = None
+    date: str | None = None
+
+
+@dataclass
 class NotionAccounting:
     """Accounting entity — one record per model per month."""
     page_id: str
@@ -1015,6 +1024,53 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
 
+    # ==================== Notes ====================
+
+    async def create_note(
+        self,
+        database_id: str,
+        model_page_id: str,
+        model_name: str,
+        text: str,
+    ) -> str:
+        """Create a note for a model. Returns page ID."""
+        from datetime import date as _date
+        today = _date.today()
+        title = f"{model_name} {today.strftime('%d.%m.%Y')}"
+        if len(text) > 2000:
+            LOGGER.warning("Note text truncated: model=%s len=%d", model_page_id, len(text))
+            text = text[:2000]
+        properties: dict[str, Any] = {
+            "Title": {"title": [{"text": {"content": title}}]},
+            "model": {"relation": [{"id": model_page_id}]},
+            "text": {"rich_text": [{"text": {"content": text}}]},
+            "date": {"date": {"start": today.isoformat()}},
+        }
+        payload = {
+            "parent": {"database_id": database_id},
+            "properties": properties,
+        }
+        url = "https://api.notion.com/v1/pages"
+        data = await self._request("POST", url, json=payload)
+        LOGGER.info("Created note page_id=%s for model=%s", data["id"], model_page_id)
+        return data["id"]
+
+    async def get_recent_notes(
+        self,
+        database_id: str,
+        model_page_id: str,
+        limit: int = 3,
+    ) -> list[NotionNote]:
+        """Get recent notes for a model, sorted by date descending."""
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        payload = {
+            "page_size": limit,
+            "filter": {"property": "model", "relation": {"contains": model_page_id}},
+            "sorts": [{"property": "date", "direction": "descending"}],
+        }
+        data = await self._request("POST", url, json=payload)
+        return [_parse_note(item) for item in data.get("results", [])]
+
 
 # ==================== Helper functions ====================
 
@@ -1152,6 +1208,16 @@ def _parse_planner(item: dict[str, Any]) -> NotionPlanner:
         content=_extract_multi_select(item, "content"),
         location=_extract_select(item, "location"),
         comments=_extract_rich_text(item, "comments"),
+    )
+
+
+def _parse_note(item: dict[str, Any]) -> NotionNote:
+    """Parse note from Notion API response."""
+    return NotionNote(
+        page_id=item["id"],
+        model_id=_extract_relation_id(item, "model"),
+        text=_extract_rich_text(item, "text"),
+        date=_extract_date(item, "date"),
     )
 
 

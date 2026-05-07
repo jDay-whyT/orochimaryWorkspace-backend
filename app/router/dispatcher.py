@@ -1371,6 +1371,81 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
     )
 
 
+async def _handle_note_input(message, text, user_state, config, notion, memory_state):
+    """Handle note text input for nlp_note flow."""
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+
+    note_text = text.strip()
+    if not note_text:
+        await message.answer("❌ Заметка не может быть пустой.")
+        return
+
+    model_id = user_state.get("model_id")
+    model_name = user_state.get("model_name", "")
+    screen_message_id = user_state.get("screen_message_id")
+
+    if not model_id or not config.db_notes:
+        await message.answer("❌ Сессия устарела, попробуйте заново.")
+        memory_state.clear(chat_id, user_id)
+        return
+
+    try:
+        await notion.create_note(config.db_notes, model_id, model_name, note_text)
+    except Exception:
+        LOGGER.exception("Failed to create note model=%s", model_id)
+        await message.answer("❌ Ошибка при сохранении заметки.")
+        memory_state.clear(chat_id, user_id)
+        return
+
+    if config.owner_telegram_id:
+        try:
+            await message.bot.send_message(
+                config.owner_telegram_id,
+                f"📝 {html.escape(model_name)}\n{html.escape(note_text)}",
+                parse_mode="HTML",
+            )
+        except Exception:
+            LOGGER.warning("Failed to send owner note notification user=%s", user_id)
+
+    from app.keyboards.inline import model_card_keyboard
+    from app.services.model_card import build_model_card, clear_card_cache
+    clear_card_cache()
+
+    k = generate_token()
+    memory_state.set(chat_id, user_id, {
+        "flow": "nlp_actions",
+        "model_id": model_id,
+        "model_name": model_name,
+        "k": k,
+    })
+
+    try:
+        card_text, _ = await build_model_card(model_id, model_name, config, notion)
+    except Exception:
+        LOGGER.exception("Failed to rebuild model card after note")
+        card_text = f"📌 <b>{html.escape(model_name.upper())}</b>\n\n✅ Заметка сохранена"
+
+    keyboard = model_card_keyboard(k)
+
+    if screen_message_id:
+        try:
+            await message.bot.edit_message_text(
+                card_text,
+                chat_id=chat_id,
+                message_id=screen_message_id,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+            _remember_screen_message(memory_state, chat_id, user_id, screen_message_id)
+            return
+        except Exception:
+            pass
+
+    sent = await message.answer(card_text, reply_markup=keyboard, parse_mode="HTML")
+    _remember_screen_message(memory_state, chat_id, user_id, sent.message_id if sent else None)
+
+
 async def _handle_accounting_comment_input(message, text, user_state, config, notion, memory_state):
     """Handle accounting comment input for nlp_accounting_comment flow."""
     from app.roles import is_editor
@@ -1611,6 +1686,7 @@ _NLP_TEXT_HANDLERS: dict[tuple[str | None, str], object] = {
     ("nlp_files", "awaiting_count"): _handle_custom_files_input,
     (None, "awaiting_shoot_comment"): _handle_shoot_comment_input,
     ("nlp_accounting_comment", "awaiting_accounting_comment"): _handle_accounting_comment_input,
+    ("nlp_note", "awaiting_text"): _handle_note_input,
     ("nlp_order", "awaiting_custom_count"): _handle_custom_order_count_input,
     ("nlp_received", "awaiting_received"): _handle_received_input,
 }

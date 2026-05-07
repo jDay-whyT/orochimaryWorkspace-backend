@@ -108,13 +108,18 @@ class TestModelCardKeyboard:
         assert "Съёмка" in row1[1].text
         assert "Файлы" in row1[2].text
 
-    def test_row2_has_reset(self):
-        """Row 2: done/cancel button."""
+    def test_row2_has_note_and_done(self):
+        """Row 2: note button + done button."""
         kb = model_card_keyboard("test1")
         row2 = kb.inline_keyboard[1]
-        assert len(row2) == 1
-        assert "Готово" in row2[0].text
-        assert row2[0].callback_data == "nlp:x:c"
+        assert len(row2) == 2
+        texts = [btn.text for btn in row2]
+        assert any("Заметка" in t for t in texts)
+        assert any("Готово" in t for t in texts)
+        done_btn = next(b for b in row2 if "Готово" in b.text)
+        assert done_btn.callback_data == "nlp:x:c"
+        note_btn = next(b for b in row2 if "Заметка" in b.text)
+        assert note_btn.callback_data == "nlp:act:note:test1"
 
     def test_no_report_or_menu_buttons(self):
         """Model card should not include Report/Menu buttons."""
