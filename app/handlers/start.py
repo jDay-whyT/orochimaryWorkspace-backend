@@ -91,7 +91,7 @@ async def handle_nlp_message(
                 await message.answer("Модель не найдена")
                 return
             status_msg = await message.answer("⏳ Загружаю карточку...")
-            card = await build_scout_report_card(model["name"], notion)
+            card = await build_scout_report_card(model["name"], notion, config)
             if not card:
                 await status_msg.edit_text("Модель не найдена")
                 return

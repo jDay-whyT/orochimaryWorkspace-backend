@@ -117,9 +117,9 @@ async def handle_planner_callback(
         
         await query.answer()
     
-    except Exception as e:
+    except Exception:
         LOGGER.exception("Error in planner callback")
-        await query.answer(f"Error: {str(e)}", show_alert=True)
+        await query.answer("❌ Ошибка — попробуйте позже", show_alert=True)
 
 
 @router.message(FlowFilter({"planner"}), F.text)
@@ -193,7 +193,7 @@ async def _handle_back(
                 reply_markup=models_keyboard("planner", recent, show_search=True),
                 parse_mode="HTML",
             )
-            state["step"] = "select_model"
+            memory_state.update(chat_id, user_id, step="select_model")
     elif value == "content":
         state = memory_state.get(chat_id, user_id)
         if state:
@@ -205,7 +205,7 @@ async def _handle_back(
                 reply_markup=planner_content_keyboard("planner", selected),
                 parse_mode="HTML",
             )
-            state["step"] = "select_content"
+            memory_state.update(chat_id, user_id, step="select_content")
     elif value == "location":
         state = memory_state.get(chat_id, user_id)
         if state:
@@ -214,7 +214,7 @@ async def _handle_back(
                 reply_markup=planner_location_keyboard("planner"),
                 parse_mode="HTML",
             )
-            state["step"] = "select_location"
+            memory_state.update(chat_id, user_id, step="select_location")
 
 
 async def _cancel_flow(query: CallbackQuery, memory_state: MemoryState) -> None:
@@ -322,20 +322,23 @@ async def _select_model_for_shoot(
     # Fetch model details
     models_service = ModelsService(config)
     try:
-        model = await models_service.get_model(model_id)
+        model = await models_service.get_model_by_id(model_id)
         if not model:
             await query.answer("Model not found", show_alert=True)
             return
-        
+
         # Add to recent
         recent_models.add(user_id, model_id, model["name"])
-        
+
         # Save to state
-        state["model_id"] = model_id
-        state["model_name"] = model["name"]
-        state["step"] = "select_content"
-        state["content"] = []
-        
+        memory_state.update(
+            chat_id, user_id,
+            model_id=model_id,
+            model_name=model["name"],
+            step="select_content",
+            content=[],
+        )
+
         await query.message.edit_text(
             f"📅 <b>New Shoot</b>\n\n"
             f"Model: {html.escape(model['name'])}\n\n"
@@ -355,9 +358,9 @@ async def _start_search(query: CallbackQuery, memory_state: MemoryState) -> None
     state = memory_state.get(chat_id, user_id)
     if not state:
         return
-    
-    state["step"] = "search_model"
-    
+
+    memory_state.update(chat_id, user_id, step="search_model")
+
     await query.message.edit_text(
         "📅 <b>New Shoot</b>\n\n"
         "Step 1: Search model\n\n"
@@ -455,9 +458,9 @@ async def _toggle_content(
         selected.remove(content_type)
     else:
         selected.append(content_type)
-    
-    state["content"] = selected
-    
+
+    memory_state.update(chat_id, user_id, content=selected)
+
     await query.message.edit_text(
         f"📅 <b>New Shoot</b>\n\n"
         f"Model: {html.escape(state.get('model_name', 'Unknown'))}\n\n"
@@ -484,8 +487,8 @@ async def _finish_content_selection(
         await query.answer("Please select at least one content type", show_alert=True)
         return
     
-    state["step"] = "select_location"
-    
+    memory_state.update(chat_id, user_id, step="select_location")
+
     await query.message.edit_text(
         f"📅 <b>New Shoot</b>\n\n"
         f"Model: {html.escape(state.get('model_name', 'Unknown'))}\n"
@@ -508,9 +511,8 @@ async def _select_location(
     if not state:
         return
     
-    state["location"] = location
-    state["step"] = "select_date"
-    
+    memory_state.update(chat_id, user_id, location=location, step="select_date")
+
     # Show calendar (future dates only)
     today = date.today()
     current_year = today.year
@@ -557,23 +559,42 @@ async def _select_date(
     memory_state: MemoryState,
     date_str: str,
 ) -> None:
-    """Select date and show confirmation."""
+    """Select date — completes reschedule or advances new-shoot to confirmation."""
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
     if not state:
         return
-    
-    state["date"] = date_str
-    state["step"] = "confirm"
-    
-    # Show confirmation with option to add comment
+
+    # Reschedule path: state has shoot_id set by _start_reschedule
+    if state.get("shoot_id"):
+        shoot_id = state["shoot_id"]
+        service = PlannerService(config)
+        try:
+            await service.reschedule_shoot(shoot_id, date_str)
+            memory_state.clear(chat_id, user_id)
+            await query.message.edit_text(
+                f"✅ <b>Shoot rescheduled</b>\n\nNew date: {date_str}",
+                reply_markup=back_keyboard("planner", "menu"),
+                parse_mode="HTML",
+            )
+        except Exception:
+            LOGGER.exception("Failed to reschedule shoot %s", shoot_id)
+            await query.answer("❌ Ошибка — не удалось перенести съемку", show_alert=True)
+        finally:
+            await service.close()
+        return
+
+    # New-shoot path: save date and show confirmation
+    memory_state.update(chat_id, user_id, date=date_str, step="confirm")
+    state = memory_state.get(chat_id, user_id)
+
     model_name = state.get("model_name", "Unknown")
     content = ", ".join(state.get("content", []))
     location = state.get("location", "")
-    
+
     from aiogram.types import InlineKeyboardButton
     from aiogram.utils.keyboard import InlineKeyboardBuilder
-    
+
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="💬 Add Comment", callback_data="planner|comment|shoot"),
@@ -583,7 +604,7 @@ async def _select_date(
         InlineKeyboardButton(text="◀️ Back", callback_data="planner|back|location"),
         InlineKeyboardButton(text="✖ Cancel", callback_data="planner|cancel|cancel"),
     )
-    
+
     await query.message.edit_text(
         f"📅 <b>New Shoot - Confirmation</b>\n\n"
         f"Model: {html.escape(model_name)}\n"
@@ -607,9 +628,8 @@ async def _start_add_comment(
     if not state:
         return
     
-    state["step"] = "add_comment"
-    state["comment_for"] = comment_for
-    
+    memory_state.update(chat_id, user_id, step="add_comment", comment_for=comment_for)
+
     await query.message.edit_text(
         "📅 <b>Add Comment</b>\n\n"
         "Enter your comment:",
@@ -630,9 +650,9 @@ async def _handle_comment_text(
         return
     
     comment = message.text.strip()
-    state["comment"] = comment
-    state["step"] = "confirm"
-    
+    memory_state.update(chat_id, user_id, comment=comment, step="confirm")
+    state = memory_state.get(chat_id, user_id)
+
     # Update screen with comment added
     model_name = state.get("model_name", "Unknown")
     content = ", ".join(state.get("content", []))

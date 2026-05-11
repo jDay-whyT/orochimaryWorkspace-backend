@@ -123,7 +123,8 @@ class PlannerService:
 
     async def reschedule_shoot(self, shoot_id: str, new_date: str) -> None:
         """Reschedule shoot to new date"""
-        await self.notion.reschedule_shoot(shoot_id, new_date)
+        from datetime import date as _date
+        await self.notion.reschedule_shoot(shoot_id, _date.fromisoformat(new_date))
 
     async def update_comment(self, shoot_id: str, comment: str) -> None:
         """Update shoot comment"""

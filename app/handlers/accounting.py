@@ -423,14 +423,20 @@ async def _process_comment(message: Message, config: Config, memory_state: Memor
         return
 
     svc = AccountingService(config)
-    await svc.update_comment(record_id, comment_text)
+    try:
+        await svc.update_comment(record_id, comment_text)
+    except Exception:
+        LOGGER.exception("Failed to update accounting comment for record %s", record_id)
+        await message.answer("❌ Ошибка — не удалось сохранить комментарий")
+        memory_state.clear(chat_id, user_id)
+        return
 
-    chat_id = data.get("screen_chat_id")
+    screen_chat_id = data.get("screen_chat_id")
     msg_id = data.get("screen_message_id")
-    if chat_id and msg_id:
+    if screen_chat_id and msg_id:
         await message.bot.edit_message_text(
             "✅ Готово",
-            chat_id=chat_id, message_id=msg_id,
+            chat_id=screen_chat_id, message_id=msg_id,
             reply_markup=accounting_menu_keyboard(), parse_mode="HTML",
         )
     memory_state.clear(chat_id, user_id)

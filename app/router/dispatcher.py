@@ -41,6 +41,20 @@ from app.utils import PAGE_SIZE
 
 LOGGER = logging.getLogger(__name__)
 
+# Flows that have FlowFilter-equipped handlers — route_message defers to them.
+_FLOW_FILTER_FLOWS = {
+    "search", "new_order", "view", "comment",
+    "summary", "planner", "accounting",
+}
+# Subset that actually expects free-text input; callback-only flows must not
+# swallow text messages.
+_TEXT_INPUT_FLOWS = {
+    "search",
+    "new_order",
+    "comment",
+    "accounting",
+}
+
 async def _safe_edit_reply_markup(bot, chat_id: int, message_id: int) -> None:
     try:
         await bot.edit_message_reply_markup(
@@ -133,20 +147,6 @@ async def route_message(
     LOGGER.info("ROUTE_MESSAGE HIT user=%s text=%r", user_id, text[:80])
 
     # ===== Step 1: State Check =====
-    # Flows that have FlowFilter-equipped handlers.
-    _FLOW_FILTER_FLOWS = {
-        "search", "new_order", "view", "comment",
-        "summary", "planner", "accounting",
-    }
-    # Subset of flows that actually expect free-text user input.
-    # Callback-only flows must not swallow text messages.
-    _TEXT_INPUT_FLOWS = {
-        "search",
-        "new_order",
-        "comment",
-        "accounting",
-    }
-
     user_state = memory_state.get(chat_id, user_id)
     if user_state and user_state.get("flow"):
         current_flow = user_state["flow"]
@@ -455,7 +455,7 @@ async def _execute_handler(
             return
 
         status_msg = await message.answer("⏳ Загружаю карточку...")
-        card = await build_scout_report_card(model_name, notion)
+        card = await build_scout_report_card(model_name, notion, config)
         if card is None:
             await status_msg.edit_text("Модель не найдена")
             return

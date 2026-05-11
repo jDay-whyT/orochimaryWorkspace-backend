@@ -146,25 +146,3 @@ def get_intent_description(intent: CommandIntent) -> str:
     return descriptions.get(intent, "Неизвестно")
 
 
-def get_intent_priority(intent: CommandIntent) -> int:
-    """Get priority level for intent."""
-    priorities = {
-        CommandIntent.SHOOT_CREATE: 100,
-        CommandIntent.SCOUT_CARD: 110,
-        CommandIntent.SHOOT_DONE: 102,
-        CommandIntent.SHOOT_RESCHEDULE: 101,
-        CommandIntent.ADD_FILES: 90,
-        CommandIntent.CREATE_ORDERS: 80,
-        CommandIntent.CREATE_ORDERS_GENERAL: 70,
-        CommandIntent.CLOSE_ORDERS: 60,
-        CommandIntent.ADD_COMMENT: 55,
-        CommandIntent.SHOW_MODEL_ORDERS: 50,
-        CommandIntent.SHOW_ORDERS: 40,
-        CommandIntent.SHOW_PLANNER: 40,
-        CommandIntent.SHOW_ACCOUNT: 40,
-        CommandIntent.FILES_STATS: 35,
-        CommandIntent.AMBIGUOUS: 30,
-        CommandIntent.SEARCH_MODEL: 0,
-        CommandIntent.UNKNOWN: 0,
-    }
-    return priorities.get(intent, 0)

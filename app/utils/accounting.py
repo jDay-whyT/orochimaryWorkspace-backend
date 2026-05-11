@@ -1,3 +1,4 @@
+import functools
 import os
 
 from app.utils.constants import ACCOUNTING_STATUS_NEW, ACCOUNTING_STATUS_WORK
@@ -13,16 +14,21 @@ def _get_env_int(name: str, default: int) -> int:
         return default
 
 
-def get_accounting_target(status: str | None) -> int:
-    """Return monthly target based on accounting status."""
+@functools.lru_cache(maxsize=None)
+def _load_targets() -> tuple[int, int]:
+    """Read target env vars once per process."""
     work_fallback = _get_env_int("FILES_PER_MONTH", 200)
     work_target = _get_env_int("FILES_PER_MONTH_WORK", work_fallback)
     new_target = _get_env_int("FILES_PER_MONTH_NEW", 150)
+    return work_target, new_target
+
+
+def get_accounting_target(status: str | None) -> int:
+    """Return monthly target based on accounting status."""
+    work_target, new_target = _load_targets()
     normalized = (status or "").strip().lower()
     if normalized == ACCOUNTING_STATUS_NEW:
         return new_target
-    if normalized == ACCOUNTING_STATUS_WORK:
-        return work_target
     return work_target
 
 

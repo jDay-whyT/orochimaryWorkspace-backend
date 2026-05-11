@@ -14,11 +14,12 @@ class ModelsService:
         self.config = config
         self.notion = NotionClient(config.notion_token)
 
-    async def search_models(self, query: str) -> list[dict[str, Any]]:
+    async def search_models(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         """Search models by name"""
         models = await self.notion.query_models(
             self.config.db_models,
             query,
+            limit=limit,
         )
         return [
             {

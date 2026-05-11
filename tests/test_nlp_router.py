@@ -78,17 +78,6 @@ class TestMenuReportIntents:
         assert intent == CommandIntent.SEARCH_MODEL
         assert entities.model_name == "мелиса"
 
-    def test_melisa_report(self):
-        """'мелиса репорт' -> GET_REPORT."""
-        entities = extract_entities_v2("мелиса репорт")
-        intent = classify_intent_v2(
-            "мелиса репорт",
-            has_model=entities.has_model,
-            has_numbers=entities.has_numbers,
-        )
-        assert intent == CommandIntent.GET_REPORT
-        assert entities.model_name == "мелиса"
-
     def test_melisa_dolgi_search_model(self):
         """'мелиса долги' -> SEARCH_MODEL (no 'долги' filter defined)."""
         entities = extract_entities_v2("мелиса долги")

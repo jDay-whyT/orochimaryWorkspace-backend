@@ -8,7 +8,10 @@ import html
 import logging
 import os
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.config import Config
 
 LOGGER = logging.getLogger(__name__)
 
@@ -528,13 +531,17 @@ async def _fetch_orders_by_type(
     return result
 
 
-async def build_scout_report_card(model_name: str, notion: NotionClient) -> str | None:
+async def build_scout_report_card(
+    model_name: str,
+    notion: NotionClient,
+    config: "Config",
+) -> str | None:
     """Build scout card from Notion databases."""
-    db_models = os.getenv("DB_MODELS", _DB_MODELS_DEFAULT).strip()
+    db_models = config.db_models
     db_forms = os.getenv("DB_FORMS", DB_FORMS_DEFAULT).strip()
-    db_accounting = os.getenv("DB_ACCOUNTING", _DB_ACCOUNTING_DEFAULT).strip()
-    db_orders = os.getenv("DB_ORDERS", _DB_ORDERS_DEFAULT).strip()
-    db_planner = os.getenv("DB_PLANNER", _DB_PLANNER_DEFAULT).strip()
+    db_accounting = config.db_accounting
+    db_orders = config.db_orders
+    db_planner = config.db_planner
 
     model_row = await _fetch_model_row(notion, db_models, model_name)
     if not model_row:

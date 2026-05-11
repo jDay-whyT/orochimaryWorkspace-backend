@@ -213,18 +213,7 @@ _FLOW_STEP_RULES: dict[str, tuple[str, set[str] | None]] = {
     "fct": ("nlp_files", {"awaiting_content_type"}),
 }
 
-CONTENT_TYPE_FIELDS = {
-    "reddit": "reddit_files",
-    "twitter": "twitter_files",
-    "fansly": "fansly_files",
-    "main_pack": "of_files",
-    "new_main": "of_files",
-    "basic": "of_files",
-    "event": "of_files",
-    "instagram": "social_files",
-    "snapchat": "social_files",
-    "request": "request_files",
-}
+from app.utils.content_mapping import get_field_for_content_type as _get_field_for_content_type
 
 
 def _validate_flow_step(state: dict | None, action: str) -> bool:
@@ -2770,7 +2759,7 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
         )
         return
 
-    field_name = CONTENT_TYPE_FIELDS.get(content_type)
+    field_name = _get_field_for_content_type(content_type)
     if not field_name:
         await query.answer("Неизвестный тип", show_alert=True)
         return
