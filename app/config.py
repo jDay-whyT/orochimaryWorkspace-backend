@@ -40,6 +40,7 @@ class Config:
     archive_page_id: str = ""
     db_notes: str = ""
     owner_telegram_id: int = 0
+    mini_app_url: str = ""
 
 
 def _parse_user_ids(value: str) -> set[int]:
@@ -187,6 +188,8 @@ def load_config(validate: bool = True) -> Config:
         print(f"ERROR: Invalid TIMEZONE '{timezone_name}': {e}", file=sys.stderr)
         sys.exit(1)
     
+    mini_app_url = os.getenv("MINI_APP_URL", "").strip()
+
     config = Config(
         telegram_bot_token=telegram_bot_token,
         telegram_webhook_secret=telegram_webhook_secret,
@@ -212,6 +215,7 @@ def load_config(validate: bool = True) -> Config:
         redis_url=redis_url,
         db_notes=db_notes,
         owner_telegram_id=owner_telegram_id,
+        mini_app_url=mini_app_url,
     )
     
     if validate:

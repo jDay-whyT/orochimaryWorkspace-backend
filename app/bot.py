@@ -4,7 +4,7 @@ from typing import Any
 from aiogram import Bot, Dispatcher
 
 from app.config import Config
-from app.handlers import start, orders, planner, accounting, nlp_callbacks, notifications, group_manager, reddit
+from app.handlers import start, orders, planner, accounting, nlp_callbacks, notifications, group_manager, reddit, scout_app
 from app.services import NotionClient
 from app.state import MemoryState, RecentModels
 
@@ -27,6 +27,7 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, An
     dp.include_router(nlp_callbacks.router)
     # Group manager triggers (must run before NLP fallback)
     dp.include_router(group_manager.router)
+    dp.include_router(scout_app.router)    # /app command in scout group
     # 2. Fallback router (NLP + /start) - handles all unmatched text messages
     dp.include_router(start.router)        # MUST BE LAST - catches all text via NLP
 

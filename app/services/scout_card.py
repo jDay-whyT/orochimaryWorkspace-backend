@@ -531,6 +531,76 @@ async def _fetch_orders_by_type(
     return result
 
 
+async def build_scout_report_card_json(
+    model_name: str,
+    notion: NotionClient,
+    config: "Config",
+) -> dict | None:
+    """Build scout card as structured JSON dict (for Mini App API)."""
+    db_models = config.db_models
+    db_forms = os.getenv("DB_FORMS", DB_FORMS_DEFAULT).strip()
+    db_accounting = config.db_accounting
+    db_orders = config.db_orders
+    db_planner = config.db_planner
+
+    model_row = await _fetch_model_row(notion, db_models, model_name)
+    if not model_row:
+        return None
+
+    model_page_id = model_row["page_id"]
+
+    today = date.today()
+    cur_yyyy_mm = today.strftime("%Y-%m")
+    prev_month_date = today.replace(day=1) - timedelta(days=1)
+    prev_yyyy_mm = prev_month_date.strftime("%Y-%m")
+
+    (
+        traffic,
+        accounting_row,
+        accounting_prev_row,
+        shoots,
+        orders_current,
+        orders_prev,
+    ) = await asyncio.gather(
+        _fetch_forms_traffic(notion, db_forms, model_page_id),
+        _fetch_monthly_accounting(notion, db_accounting, model_page_id, month_offset=0),
+        _fetch_monthly_accounting(notion, db_accounting, model_page_id, month_offset=-1),
+        _fetch_shoots_lines(notion, db_planner, model_page_id),
+        _fetch_orders_by_type(notion, db_orders, model_page_id, cur_yyyy_mm),
+        _fetch_orders_by_type(notion, db_orders, model_page_id, prev_yyyy_mm),
+    )
+
+    needs_rent = _normalize(model_row.get("needs_rent"))
+    rent = needs_rent in {"true", "yes", "1", "нужна"}
+    traffic_list = [
+        t.strip() for t in (traffic or "").split(",")
+        if t.strip() and t.strip() != "—"
+    ]
+
+    return {
+        "model_name": model_name,
+        "status": model_row.get("status") or "",
+        "project": model_row.get("project") or "",
+        "scout": model_row.get("scout") or "",
+        "assist": model_row.get("assist") or "",
+        "language": model_row.get("language") or "",
+        "anal": model_row.get("anal") or "",
+        "calls": model_row.get("calls") or "",
+        "rent": rent,
+        "traffic": traffic_list,
+        "content_current": accounting_row or {},
+        "content_prev": accounting_prev_row or {},
+        "orders_current": orders_current,
+        "orders_prev": orders_prev,
+        "current_month": cur_yyyy_mm,
+        "prev_month": prev_yyyy_mm,
+        "shoots": [
+            {"date": date_str, "types": content_types, "status": shoot_status}
+            for date_str, content_types, shoot_status in shoots
+        ],
+    }
+
+
 async def build_scout_report_card(
     model_name: str,
     notion: NotionClient,

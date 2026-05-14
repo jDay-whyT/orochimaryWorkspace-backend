@@ -1,11 +1,13 @@
 import asyncio
 import logging
 import os
+import pathlib
 from collections import deque
 
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import setup_application
 
+from app.api.scout import api_scout_model_card, api_scout_models, api_scout_verify
 from app.bot import create_dispatcher
 from app.config import load_config
 from app.handlers.notifications import update_board
@@ -31,6 +33,13 @@ async def create_app() -> web.Application:
     app["notion"] = notion
     app["config"] = config
 
+    # Redis client for scout identity cache (permanent keys, no TTL).
+    # Reuses REDIS_URL from existing config — separate connection pool.
+    if config.redis_url:
+        from redis.asyncio import Redis as AioRedis
+        app["redis"] = AioRedis.from_url(config.redis_url, decode_responses=True)
+        LOGGER.info("Scout Redis client initialized")
+
     # Deduplication: track last 200 update_ids to skip Telegram re-deliveries.
     # deque(maxlen=200) keeps insertion order so we can evict the oldest ID
     # from the companion set before it is silently dropped by the deque.
@@ -39,12 +48,14 @@ async def create_app() -> web.Application:
 
     setup_application(app, dp, bot=bot)
 
-    async def on_shutdown(_: web.Application) -> None:
+    async def on_shutdown(_app: web.Application) -> None:
         LOGGER.info("Shutting down...")
         await bot.session.close()
-        # Close all NotionClient singleton instances
         from app.services.notion import NotionClient
         await NotionClient.close_all()
+        redis = _app.get("redis")
+        if redis:
+            await redis.aclose()
         LOGGER.info("Shutdown complete")
 
     app.on_shutdown.append(on_shutdown)
@@ -130,7 +141,37 @@ async def create_app() -> web.Application:
     app.router.add_post("/internal/update-board", internal_update_board)
     app.router.add_post("/internal/update-reddit-board", internal_update_reddit_board)
 
-    LOGGER.info("HTTP endpoints registered: GET /, GET /healthz, POST /tg/webhook, POST /internal/update-board, POST /internal/update-reddit-board")
+    # Scout Mini App API
+    app.router.add_post("/api/scout/models", api_scout_models)
+    app.router.add_get("/api/scout/model/{name}", api_scout_model_card)
+    app.router.add_post("/api/scout/verify", api_scout_verify)
+
+    # Static mini-app frontend.
+    # Docker: /app/static/mini-app/   Local build: frontend/dist/
+    _static_candidates = [
+        pathlib.Path("/app/static/mini-app"),
+        pathlib.Path(__file__).parent.parent / "frontend" / "dist",
+    ]
+    _static_dir = next((p for p in _static_candidates if p.is_dir()), None)
+    if _static_dir:
+        assets_dir = _static_dir / "assets"
+        if assets_dir.is_dir():
+            app.router.add_static("/mini-app/assets", str(assets_dir), name="mini_app_assets")
+
+        async def mini_app_index(_: web.Request) -> web.FileResponse:
+            return web.FileResponse(_static_dir / "index.html")
+
+        app.router.add_get("/mini-app", mini_app_index)
+        app.router.add_get("/mini-app/{tail:.*}", mini_app_index)
+        LOGGER.info("Mini-app static files served from %s", _static_dir)
+    else:
+        LOGGER.info("Mini-app static dir not found — frontend not yet built")
+
+    LOGGER.info(
+        "HTTP endpoints registered: GET /, GET /healthz, "
+        "POST /tg/webhook, POST /internal/update-board, POST /internal/update-reddit-board, "
+        "POST /api/scout/models, GET /api/scout/model/{name}, POST /api/scout/verify"
+    )
     return app
 
 

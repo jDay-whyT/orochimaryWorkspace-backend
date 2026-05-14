@@ -1071,6 +1071,46 @@ class NotionClient:
         data = await self._request("POST", url, json=payload)
         return [_parse_note(item) for item in data.get("results", [])]
 
+    async def query_models_by_scout(
+        self,
+        database_id: str,
+        scout_handle: str,
+    ) -> list[NotionModel]:
+        """
+        Query models where the scout field matches scout_handle.
+
+        Tries select filter first (most common), then rich_text fallback.
+        Both queries run against the normalized handle (e.g. "@username").
+        """
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+
+        async def _query(filter_payload: dict) -> list[NotionModel]:
+            try:
+                data = await self._request("POST", url, json={
+                    "page_size": 100,
+                    "filter": filter_payload,
+                })
+            except Exception:
+                return []
+            results = []
+            for item in data.get("results", []):
+                title = await self._extract_model_title(item)
+                if title:
+                    results.append(NotionModel(
+                        page_id=item["id"],
+                        title=title,
+                        project=_extract_select(item, "project"),
+                        status=_extract_status(item, "status"),
+                    ))
+            return results
+
+        models = await _query({"property": "scout", "select": {"equals": scout_handle}})
+        if not models:
+            models = await _query({"property": "scout", "rich_text": {"equals": scout_handle}})
+
+        LOGGER.info("query_models_by_scout: handle=%s found=%d", scout_handle, len(models))
+        return models
+
 
 # ==================== Helper functions ====================
 
