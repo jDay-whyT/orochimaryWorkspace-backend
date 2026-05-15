@@ -18,6 +18,7 @@ class NotionModel:
     project: str | None = None
     status: str | None = None
     winrate: str | None = None
+    scout: str | None = None
 
 
 @dataclass
@@ -255,6 +256,7 @@ class NotionClient:
                         project=_extract_select(item, "project"),
                         status=_extract_status(item, "status"),
                         winrate=_extract_select(item, "winrate"),
+                        scout=_extract_select(item, "scout") or _extract_rich_text(item, "scout"),
                     ))
             else:
                 LOGGER.warning("Skipping model %s - no valid title found", item.get("id"))

@@ -86,7 +86,7 @@ async def api_scout_models(request: web.Request) -> web.Response:
         return web.json_response({
             "scout": None,
             "models": [
-                {"name": m.title, "project": m.project, "status": m.status}
+                {"name": m.title, "project": m.project, "status": m.status, "scout": m.scout}
                 for m in models
             ],
         })
