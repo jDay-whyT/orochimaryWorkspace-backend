@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
@@ -218,6 +218,7 @@ class NotionClient:
 
         results: list[NotionModel] = []
         cursor: str | None = None
+        stop_cutoff = datetime.now(timezone.utc) - timedelta(days=90)
 
         while True:
             payload: dict = {"page_size": 100}
@@ -244,11 +245,21 @@ class NotionClient:
                     continue
                 if name_query and name_query.strip() and name_query.lower() not in title.lower():
                     continue
+                status_val = _extract_status(item, "status")
+                if (status_val or "").lower() == "stop":
+                    last_edited_str = item.get("last_edited_time", "")
+                    if last_edited_str:
+                        try:
+                            last_edited = datetime.fromisoformat(last_edited_str.replace("Z", "+00:00"))
+                            if last_edited < stop_cutoff:
+                                continue
+                        except ValueError:
+                            pass
                 results.append(NotionModel(
                     page_id=item["id"],
                     title=title,
                     project=_extract_select(item, "project"),
-                    status=_extract_status(item, "status"),
+                    status=status_val,
                     winrate=_extract_select(item, "winrate"),
                     scout=_extract_select(item, "scout") or _extract_rich_text(item, "scout"),
                 ))
