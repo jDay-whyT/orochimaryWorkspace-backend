@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import StatusBadge from './StatusBadge'
 
-const TABS = ['all', 'work', 'pause', 'stop']
+const TABS = ['all', 'work', 'new', 'inactive']
 
 export default function ModelList({ models, scout, onSelect }) {
   const [filter, setFilter] = useState('all')

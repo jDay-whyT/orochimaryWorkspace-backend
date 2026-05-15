@@ -72,10 +72,10 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
-.badge-work       { background: rgba(48,209,88,.18);   color: var(--green); }
-.badge-pause      { background: rgba(255,214,10,.18);  color: var(--yellow); }
-.badge-stop       { background: rgba(255,69,58,.18);   color: var(--red); }
-.badge-other      { background: rgba(142,142,147,.18); color: var(--text-muted); }
+.badge-work     { background: rgba(48,209,88,.18);   color: var(--green); }
+.badge-new      { background: rgba(10,132,255,.18);  color: var(--accent); }
+.badge-inactive { background: rgba(142,142,147,.18); color: var(--text-muted); }
+.badge-other    { background: rgba(142,142,147,.18); color: var(--text-muted); }
 
 /* ── Status filter tabs ─────────────────────────────── */
 .filter-tabs {
@@ -104,10 +104,10 @@ body {
 
 .filter-tab-count { opacity: .7; }
 
-.filter-tab--all   { border-color: var(--accent); color: var(--accent); background: rgba(10,132,255,.12); }
-.filter-tab--work  { border-color: var(--green);  color: var(--green);  background: rgba(48,209,88,.12);  }
-.filter-tab--pause { border-color: var(--yellow); color: var(--yellow); background: rgba(255,214,10,.12); }
-.filter-tab--stop  { border-color: var(--red);    color: var(--red);    background: rgba(255,69,58,.12);  }
+.filter-tab--all      { border-color: var(--accent);     color: var(--accent);     background: rgba(10,132,255,.12); }
+.filter-tab--work     { border-color: var(--green);      color: var(--green);      background: rgba(48,209,88,.12);  }
+.filter-tab--new      { border-color: var(--accent);     color: var(--accent);     background: rgba(10,132,255,.12); }
+.filter-tab--inactive { border-color: var(--text-muted); color: var(--text-muted); background: rgba(142,142,147,.12); }
 
 /* ── Model list ────────────────────────────────────── */
 .model-list { display: flex; flex-direction: column; gap: 10px; }
