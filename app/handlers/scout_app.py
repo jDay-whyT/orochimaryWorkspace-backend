@@ -18,7 +18,8 @@ async def scout_app_command(message: Message, config: Config) -> None:
         return
 
     if not config.mini_app_url:
-        LOGGER.warning("/app command triggered but MINI_APP_URL not configured")
+        LOGGER.error("/app: MINI_APP_URL env var not set — cannot send WebApp button")
+        await message.answer("⚠️ Mini App URL not configured (MINI_APP_URL)")
         return
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
