@@ -106,8 +106,7 @@ async def cmd_scout_button(message: Message, config: Config) -> None:
         await message.answer("⛔ Нет доступа.")
         return
 
-    bot_info = await message.bot.get_me()
-    url = f"https://t.me/{bot_info.username}/scoutcard"
+    url = "https://t.me/orochimarybot/ScoutCard"
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="Scout App", url=url)]]
     )
