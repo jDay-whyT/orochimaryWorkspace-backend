@@ -88,7 +88,7 @@ export default function ModelList({ models, scout, onSelect }) {
       ) : (
         <div className="model-list">
           {visible.map(m => (
-            <div key={m.name} className="model-item" onClick={() => onSelect(m.name)}>
+            <div key={m.id || m.name} className="model-item" onClick={() => onSelect(m.name)}>
               <div className="model-item-left">
                 <div className="model-item-name">{m.name}</div>
                 {m.project && <div className="model-item-meta">{m.project}</div>}
