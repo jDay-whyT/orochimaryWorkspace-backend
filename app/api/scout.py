@@ -86,7 +86,7 @@ async def api_scout_models(request: web.Request) -> web.Response:
         return web.json_response({
             "scout": None,
             "models": [
-                {"name": m.title, "project": m.project, "status": m.status, "scout": m.scout}
+                {"id": m.page_id, "name": m.title, "project": m.project, "status": m.status, "scout": m.scout}
                 for m in models
             ],
         })
@@ -101,7 +101,7 @@ async def api_scout_models(request: web.Request) -> web.Response:
     return web.json_response({
         "scout": handle,
         "models": [
-            {"name": m.title, "project": m.project, "status": m.status}
+            {"id": m.page_id, "name": m.title, "project": m.project, "status": m.status}
             for m in models
         ],
     })
