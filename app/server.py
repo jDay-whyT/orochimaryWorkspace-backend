@@ -135,7 +135,6 @@ async def create_app() -> web.Application:
 
         return web.Response(status=200, text="ok")
 
-    app.router.add_get("/", root)
     app.router.add_get("/healthz", healthcheck)
     app.router.add_post("/tg/webhook", telegram_webhook)
     app.router.add_post("/internal/update-board", internal_update_board)
@@ -147,24 +146,25 @@ async def create_app() -> web.Application:
     app.router.add_post("/api/scout/verify", api_scout_verify)
 
     # Static mini-app frontend.
-    # Docker: /app/static/mini-app/   Local build: frontend/dist/
+    # Docker: /app/static/   Local build: frontend/dist/
     _static_candidates = [
-        pathlib.Path("/app/static/mini-app"),
+        pathlib.Path("/app/static"),
         pathlib.Path(__file__).parent.parent / "frontend" / "dist",
     ]
-    _static_dir = next((p for p in _static_candidates if p.is_dir()), None)
+    _static_dir = next((p for p in _static_candidates if (p / "index.html").exists()), None)
     if _static_dir:
         assets_dir = _static_dir / "assets"
         if assets_dir.is_dir():
-            app.router.add_static("/mini-app/assets", str(assets_dir), name="mini_app_assets")
+            app.router.add_static("/assets", str(assets_dir), name="mini_app_assets")
 
         async def mini_app_index(_: web.Request) -> web.FileResponse:
             return web.FileResponse(_static_dir / "index.html")
 
-        app.router.add_get("/mini-app", mini_app_index)
-        app.router.add_get("/mini-app/{tail:.*}", mini_app_index)
+        app.router.add_get("/", mini_app_index)
+        app.router.add_get("/{tail:.*}", mini_app_index)
         LOGGER.info("Mini-app static files served from %s", _static_dir)
     else:
+        app.router.add_get("/", root)
         LOGGER.info("Mini-app static dir not found — frontend not yet built")
 
     LOGGER.info(

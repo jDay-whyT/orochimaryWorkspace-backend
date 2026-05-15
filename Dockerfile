@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 
 # Copy built frontend into static dir served by aiohttp
-COPY --from=frontend-builder /frontend/dist /app/static/mini-app
+COPY --from=frontend-builder /frontend/dist /app/static
 
 # Clean any bytecode that might have been copied
 RUN find /app -type d -name __pycache__ -exec rm -rf {} + || true
