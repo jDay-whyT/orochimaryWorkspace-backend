@@ -1,7 +1,5 @@
-import WebApp from '@twa-dev/sdk'
-
 function initData() {
-  return WebApp.initData || ''
+  return window.Telegram?.WebApp?.initData || ''
 }
 
 function authHeader() {

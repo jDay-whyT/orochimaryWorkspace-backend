@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import WebApp from '@twa-dev/sdk'
 import { fetchModels } from './api'
 import ModelList from './components/ModelList'
 import ModelCard from './components/ModelCard'
@@ -13,7 +12,7 @@ export default function App() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    WebApp.ready()
+    window.Telegram?.WebApp?.ready()
     load()
   }, [])
 
