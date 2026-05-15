@@ -48,6 +48,23 @@ async def create_app() -> web.Application:
 
     setup_application(app, dp, bot=bot)
 
+    async def on_startup(_app: web.Application) -> None:
+        if config.scouts_chat_id and config.mini_app_url:
+            from aiogram.types import MenuButtonWebApp, WebAppInfo as _WebAppInfo
+            try:
+                await bot.set_chat_menu_button(
+                    chat_id=config.scouts_chat_id,
+                    menu_button=MenuButtonWebApp(
+                        text="Scout App",
+                        web_app=_WebAppInfo(url=config.mini_app_url),
+                    ),
+                )
+                LOGGER.info("Scout group menu button set (chat_id=%s)", config.scouts_chat_id)
+            except Exception as exc:
+                LOGGER.warning("Failed to set scout group menu button: %s", exc)
+
+    app.on_startup.append(on_startup)
+
     async def on_shutdown(_app: web.Application) -> None:
         LOGGER.info("Shutting down...")
         await bot.session.close()
