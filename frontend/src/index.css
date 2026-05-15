@@ -107,6 +107,7 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 .filter-tabs::-webkit-scrollbar { display: none; }
+.scout-tabs { margin-bottom: 8px; }
 
 .filter-tab {
   flex-shrink: 0;
