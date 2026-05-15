@@ -2,6 +2,7 @@
 import logging
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 
@@ -22,10 +23,25 @@ async def scout_app_command(message: Message, config: Config) -> None:
         await message.answer("⚠️ Mini App URL not configured (MINI_APP_URL)")
         return
 
+    if not message.from_user:
+        return
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
-            text="Open Mini App",
+            text="Open Scout App",
             web_app=WebAppInfo(url=config.mini_app_url),
         )
     ]])
-    await message.answer("Scout card viewer:", reply_markup=keyboard)
+
+    # WebAppInfo buttons are not allowed in group chats — send via private DM.
+    try:
+        await message.bot.send_message(
+            chat_id=message.from_user.id,
+            text="Scout card viewer:",
+            reply_markup=keyboard,
+        )
+        await message.reply("✅ Check your private chat with the bot.")
+    except (TelegramForbiddenError, TelegramBadRequest):
+        await message.reply(
+            "Start the bot in private first, then use /app here."
+        )
