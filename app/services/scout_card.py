@@ -551,13 +551,22 @@ async def build_scout_report_card_json(
 
     today = date.today()
     cur_yyyy_mm = today.strftime("%Y-%m")
-    prev_month_date = today.replace(day=1) - timedelta(days=1)
-    prev_yyyy_mm = prev_month_date.strftime("%Y-%m")
+
+    def _month_ago(n: int) -> str:
+        t = today
+        for _ in range(n):
+            t = t.replace(day=1) - timedelta(days=1)
+        return t.strftime("%Y-%m")
+
+    h_months = [_month_ago(1), _month_ago(2), _month_ago(3)]
+    prev_yyyy_mm = h_months[0]
 
     (
         traffic,
         accounting_row,
-        accounting_prev_row,
+        accounting_h1,
+        accounting_h2,
+        accounting_h3,
         shoots,
         orders_current,
         orders_prev,
@@ -565,6 +574,8 @@ async def build_scout_report_card_json(
         _fetch_forms_traffic(notion, db_forms, model_page_id),
         _fetch_monthly_accounting(notion, db_accounting, model_page_id, month_offset=0),
         _fetch_monthly_accounting(notion, db_accounting, model_page_id, month_offset=-1),
+        _fetch_monthly_accounting(notion, db_accounting, model_page_id, month_offset=-2),
+        _fetch_monthly_accounting(notion, db_accounting, model_page_id, month_offset=-3),
         _fetch_shoots_lines(notion, db_planner, model_page_id),
         _fetch_orders_by_type(notion, db_orders, model_page_id, cur_yyyy_mm),
         _fetch_orders_by_type(notion, db_orders, model_page_id, prev_yyyy_mm),
@@ -589,7 +600,11 @@ async def build_scout_report_card_json(
         "rent": rent,
         "traffic": traffic_list,
         "content_current": accounting_row or {},
-        "content_prev": accounting_prev_row or {},
+        "content_history": [
+            {"month": h_months[0], "data": accounting_h1 or {}},
+            {"month": h_months[1], "data": accounting_h2 or {}},
+            {"month": h_months[2], "data": accounting_h3 or {}},
+        ],
         "orders_current": orders_current,
         "orders_prev": orders_prev,
         "current_month": cur_yyyy_mm,

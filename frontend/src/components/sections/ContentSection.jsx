@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 const FIELDS = [
   { key: 'of_files',      label: 'OF' },
   { key: 'reddit_files',  label: 'Reddit' },
@@ -13,12 +15,17 @@ function monthLabel(yyyyMm) {
   return new Date(+y, +m - 1, 1).toLocaleString('en', { month: 'short', year: 'numeric' })
 }
 
+function totalFiles(data) {
+  if (!data) return 0
+  return FIELDS.reduce((sum, f) => sum + (data[f.key] || 0), 0)
+}
+
 function StatGrid({ data }) {
-  const nonZero = FIELDS.filter((f) => (data?.[f.key] || 0) > 0)
+  const nonZero = FIELDS.filter(f => (data?.[f.key] || 0) > 0)
   if (!nonZero.length) return <p className="empty">No data</p>
   return (
     <div className="stat-grid">
-      {nonZero.map((f) => (
+      {nonZero.map(f => (
         <div key={f.key} className="stat-card">
           <div className="stat-label">{f.label}</div>
           <div className="stat-value">{data[f.key]}</div>
@@ -28,14 +35,50 @@ function StatGrid({ data }) {
   )
 }
 
+function HistoryMonth({ month, data }) {
+  const [open, setOpen] = useState(false)
+  const total = totalFiles(data)
+  return (
+    <div className="history-month">
+      <button className="history-month-btn" onClick={() => setOpen(o => !o)}>
+        <span className="history-month-name">{monthLabel(month)}</span>
+        <span className="history-month-right">
+          <span className="history-month-total">{total} files</span>
+          <span className="history-chevron">{open ? '↑' : '↓'}</span>
+        </span>
+      </button>
+      {open && <div className="history-month-body"><StatGrid data={data} /></div>}
+    </div>
+  )
+}
+
 export default function ContentSection({ card }) {
+  const total = totalFiles(card.content_current)
+  const history = card.content_history || []
+
   return (
     <div className="section">
       <div className="section-title">Content</div>
-      <div className="month-label">{monthLabel(card.current_month)}</div>
-      <StatGrid data={card.content_current} />
-      <div className="month-label">{monthLabel(card.prev_month)}</div>
-      <StatGrid data={card.content_prev} />
+
+      <div className="history-month-current">
+        <span className="history-month-name">{monthLabel(card.current_month)}</span>
+        <span className="history-month-right">
+          <span className="content-current-badge">current</span>
+          <span className="history-month-total">{total} files</span>
+        </span>
+      </div>
+      <div className="history-month-body">
+        <StatGrid data={card.content_current} />
+      </div>
+
+      {history.length > 0 && (
+        <>
+          <div className="history-section-label">History</div>
+          {history.map(h => (
+            <HistoryMonth key={h.month} month={h.month} data={h.data} />
+          ))}
+        </>
+      )}
     </div>
   )
 }
