@@ -48,22 +48,6 @@ async def create_app() -> web.Application:
 
     setup_application(app, dp, bot=bot)
 
-    async def on_startup(_app: web.Application) -> None:
-        if config.mini_app_url:
-            from aiogram.types import MenuButtonWebApp, WebAppInfo as _WebAppInfo
-            try:
-                await bot.set_chat_menu_button(
-                    menu_button=MenuButtonWebApp(
-                        text="Scout App",
-                        web_app=_WebAppInfo(url=config.mini_app_url),
-                    ),
-                )
-                LOGGER.info("Default menu button set to Scout App WebApp")
-            except Exception as exc:
-                LOGGER.warning("Failed to set default menu button: %s", exc)
-
-    app.on_startup.append(on_startup)
-
     async def on_shutdown(_app: web.Application) -> None:
         LOGGER.info("Shutting down...")
         await bot.session.close()
