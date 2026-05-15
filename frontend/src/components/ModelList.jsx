@@ -14,20 +14,25 @@ export default function ModelList({ models, scout, onSelect }) {
     ? ['all', ...Array.from(new Set(models.map(m => m.scout).filter(Boolean))).sort()]
     : []
 
+  const q = query.trim().toLowerCase()
+
+  // Scout-filtered base for accurate status counts
+  const scoutFiltered = scoutFilter === 'all'
+    ? models
+    : models.filter(m => m.scout === scoutFilter)
+
   const counts = TABS.reduce((acc, s) => {
     acc[s] = s === 'all'
-      ? models.length
-      : models.filter(m => (m.status || '').toLowerCase() === s).length
+      ? scoutFiltered.length
+      : scoutFiltered.filter(m => (m.status || '').toLowerCase() === s).length
     return acc
   }, {})
 
   const visibleTabs = TABS.filter(s => s === 'all' || counts[s] > 0)
   const showTabs = visibleTabs.length > 2
 
-  const q = query.trim().toLowerCase()
-  const visible = models
+  const visible = scoutFiltered
     .filter(m => filter === 'all' || (m.status || '').toLowerCase() === filter)
-    .filter(m => scoutFilter === 'all' || m.scout === scoutFilter)
     .filter(m => !q || m.name.toLowerCase().includes(q))
 
   return (
