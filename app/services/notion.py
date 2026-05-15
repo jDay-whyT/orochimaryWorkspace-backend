@@ -207,59 +207,55 @@ class NotionClient:
         name_query: str,
         limit: int = 10,
     ) -> list[NotionModel]:
-        """Search models by name."""
+        """Search models by name. Paginates until all records are fetched."""
         LOGGER.info("Querying models database %s with query: %s", database_id, name_query)
 
-        # If query is empty, fetch all models without filter
-        if not name_query or not name_query.strip():
-            payload = {
-                "page_size": limit,
-            }
-        else:
-            # Search by 'model' title field
-            payload = {
-                "page_size": limit,
-                "filter": {
-                    "property": "model",
-                    "title": {"contains": name_query},
-                },
-            }
-
         url = f"https://api.notion.com/v1/databases/{database_id}/query"
-
-        try:
-            data = await self._request("POST", url, json=payload)
-        except RuntimeError as e:
-            LOGGER.error("Failed to query models database %s: %s", database_id, e)
-            # Log helpful debugging info
-            if "404" in str(e):
-                LOGGER.error(
-                    "Database not found (404). Possible causes:\n"
-                    "  1. DB_MODELS environment variable is not set correctly\n"
-                    "  2. Database ID '%s' doesn't exist\n"
-                    "  3. Notion token doesn't have access to this database\n"
-                    "  4. Database was deleted or moved",
-                    database_id
-                )
-            raise
+        base_filter = {
+            "property": "model",
+            "title": {"contains": name_query},
+        } if name_query and name_query.strip() else None
 
         results: list[NotionModel] = []
-        for item in data.get("results", []):
-            title = await self._extract_model_title(item)
-            if title:
-                # Check if title matches query (for client-side filtering when title comes from relation)
-                if not name_query or not name_query.strip() or \
-                   name_query.lower() in title.lower():
-                    results.append(NotionModel(
-                        page_id=item["id"],
-                        title=title,
-                        project=_extract_select(item, "project"),
-                        status=_extract_status(item, "status"),
-                        winrate=_extract_select(item, "winrate"),
-                        scout=_extract_select(item, "scout") or _extract_rich_text(item, "scout"),
-                    ))
-            else:
-                LOGGER.warning("Skipping model %s - no valid title found", item.get("id"))
+        cursor: str | None = None
+
+        while True:
+            payload: dict = {"page_size": 100}
+            if base_filter:
+                payload["filter"] = base_filter
+            if cursor:
+                payload["start_cursor"] = cursor
+
+            try:
+                data = await self._request("POST", url, json=payload)
+            except RuntimeError as e:
+                LOGGER.error("Failed to query models database %s: %s", database_id, e)
+                if "404" in str(e):
+                    LOGGER.error(
+                        "Database not found (404). Check DB_MODELS env var (id=%s).",
+                        database_id,
+                    )
+                raise
+
+            for item in data.get("results", []):
+                title = await self._extract_model_title(item)
+                if not title:
+                    LOGGER.warning("Skipping model %s - no valid title", item.get("id"))
+                    continue
+                if name_query and name_query.strip() and name_query.lower() not in title.lower():
+                    continue
+                results.append(NotionModel(
+                    page_id=item["id"],
+                    title=title,
+                    project=_extract_select(item, "project"),
+                    status=_extract_status(item, "status"),
+                    winrate=_extract_select(item, "winrate"),
+                    scout=_extract_select(item, "scout") or _extract_rich_text(item, "scout"),
+                ))
+
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
 
         LOGGER.info("Found %d models for query '%s'", len(results), name_query)
         return results
