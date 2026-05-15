@@ -5,6 +5,7 @@ const TABS = ['all', 'work', 'new', 'inactive', 'stop', 'looted']
 
 export default function ModelList({ models, scout, onSelect }) {
   const [filter, setFilter] = useState('all')
+  const [query, setQuery] = useState('')
 
   const counts = TABS.reduce((acc, s) => {
     acc[s] = s === 'all'
@@ -16,20 +17,29 @@ export default function ModelList({ models, scout, onSelect }) {
   const visibleTabs = TABS.filter(s => s === 'all' || counts[s] > 0)
   const showTabs = visibleTabs.length > 2
 
-  const visible = filter === 'all'
-    ? models
-    : models.filter(m => (m.status || '').toLowerCase() === filter)
+  const q = query.trim().toLowerCase()
+  const visible = models
+    .filter(m => filter === 'all' || (m.status || '').toLowerCase() === filter)
+    .filter(m => !q || m.name.toLowerCase().includes(q))
 
   return (
     <div className="screen">
       <div className="header">
         <div className="header-title">{scout || 'All Models'}</div>
         <span className="header-sub">
-          {filter === 'all'
+          {visible.length === models.length
             ? `${models.length} models`
             : `${visible.length} / ${models.length}`}
         </span>
       </div>
+
+      <input
+        className="search-input"
+        type="search"
+        placeholder="Search…"
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+      />
 
       {showTabs && (
         <div className="filter-tabs">

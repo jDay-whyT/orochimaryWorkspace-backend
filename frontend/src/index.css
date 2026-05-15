@@ -79,6 +79,24 @@ body {
 .badge-looted   { background: rgba(255,214,10,.18);  color: var(--yellow); }
 .badge-other    { background: rgba(142,142,147,.18); color: var(--text-muted); }
 
+/* ── Search ─────────────────────────────────────────── */
+.search-input {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 15px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.search-input::placeholder { color: var(--text-muted); }
+.search-input:focus { border-color: var(--accent); }
+.search-input::-webkit-search-cancel-button { cursor: pointer; }
+
 /* ── Status filter tabs ─────────────────────────────── */
 .filter-tabs {
   display: flex;
