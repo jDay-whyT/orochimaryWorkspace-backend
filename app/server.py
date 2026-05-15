@@ -145,7 +145,9 @@ async def create_app() -> web.Application:
     app.router.add_get("/api/scout/model/{name}", api_scout_model_card)
     app.router.add_post("/api/scout/verify", api_scout_verify)
 
-    # Static mini-app frontend.
+    # Static mini-app frontend — must come LAST among GET routes.
+    # GET /{tail:.*} below is a wildcard that catches every unmatched GET.
+    # Any new GET API route added after this block will be shadowed by it.
     # Docker: /app/static/   Local build: frontend/dist/
     _static_candidates = [
         pathlib.Path("/app/static"),
