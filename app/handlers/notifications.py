@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 
 from app.config import Config
 from app.roles import can_edit
@@ -106,9 +106,8 @@ async def cmd_scout_button(message: Message, config: Config) -> None:
         await message.answer("⛔ Нет доступа.")
         return
 
-    url = "https://t.me/orochimarybot/ScoutCard"
     keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="Scout App", url=url)]]
+        inline_keyboard=[[InlineKeyboardButton(text="Scout App", web_app=WebAppInfo(url=config.mini_app_url))]]
     )
     await message.answer("👇 Перешли это сообщение в группу:", reply_markup=keyboard)
 
