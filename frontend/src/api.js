@@ -15,9 +15,10 @@ export async function fetchModels() {
   return res.json()
 }
 
-export async function fetchModelCard(name) {
+export async function fetchModelCard(name, signal) {
   const res = await fetch(`/api/scout/model/${encodeURIComponent(name)}`, {
     headers: authHeader(),
+    signal,
   })
   if (res.status === 401) throw Object.assign(new Error('unauthorized'), { status: 401 })
   if (res.status === 403) throw Object.assign(new Error('forbidden'), { status: 403 })

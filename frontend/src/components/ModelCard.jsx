@@ -11,9 +11,11 @@ export default function ModelCard({ name, onBack }) {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    fetchModelCard(name)
-      .then(setCard)
-      .catch((e) => setError(e.message))
+    const ctrl = new AbortController()
+    fetchModelCard(name, ctrl.signal)
+      .then((data) => { if (!ctrl.signal.aborted) setCard(data) })
+      .catch((e) => { if (!ctrl.signal.aborted) setError(e.message) })
+    return () => ctrl.abort()
   }, [name])
 
   if (error) {

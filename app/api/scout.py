@@ -38,10 +38,11 @@ async def _resolve_scout_handle(
     request: web.Request,
     user_id: int,
     username: str | None,
-) -> str | None:
+) -> tuple[str | None, list | None]:
     """
-    Return verified @handle for scout.
-    Resolution order: Redis cache → Notion query (if username present) → None.
+    Return (handle, models) for scout.
+    Resolution order: Redis cache → Notion query (if username present) → (None, None).
+    models is None when resolved from cache (caller must query Notion for models).
     """
     redis = request.app.get("redis")
     cache_key = f"scout:{user_id}"
@@ -49,10 +50,11 @@ async def _resolve_scout_handle(
     if redis:
         cached = await redis.get(cache_key)
         if cached:
-            return cached if isinstance(cached, str) else cached.decode()
+            handle = cached if isinstance(cached, str) else cached.decode()
+            return handle, None  # cache hit — caller queries models separately
 
     if not username:
-        return None
+        return None, None
 
     handle = f"@{username.lower().lstrip('@')}"
     notion = request.app["notion"]
@@ -60,12 +62,12 @@ async def _resolve_scout_handle(
 
     models = await notion.query_models_by_scout(config.db_models, handle)
     if not models:
-        return None
+        return None, None
 
     if redis:
-        await redis.set(cache_key, handle)
+        await redis.set(cache_key, handle, ex=86400)
 
-    return handle
+    return handle, models
 
 
 async def api_scout_models(request: web.Request) -> web.Response:
@@ -92,12 +94,13 @@ async def api_scout_models(request: web.Request) -> web.Response:
         })
 
     username = user.get("username")
-    handle = await _resolve_scout_handle(request, user_id, username)
+    handle, models = await _resolve_scout_handle(request, user_id, username)
 
     if not handle:
         return web.json_response({"status": "unverified"})
 
-    models = await notion.query_models_by_scout(config.db_models, handle)
+    if models is None:
+        models = await notion.query_models_by_scout(config.db_models, handle)
     return web.json_response({
         "scout": handle,
         "models": [
@@ -123,11 +126,12 @@ async def api_scout_model_card(request: web.Request) -> web.Response:
 
     if not _is_full_access(user_id, config):
         username = user.get("username")
-        handle = await _resolve_scout_handle(request, user_id, username)
+        handle, scout_models = await _resolve_scout_handle(request, user_id, username)
         if not handle:
             return web.json_response({"error": "unauthorized"}, status=401)
 
-        scout_models = await notion.query_models_by_scout(config.db_models, handle)
+        if scout_models is None:
+            scout_models = await notion.query_models_by_scout(config.db_models, handle)
         allowed = {m.title.lower() for m in scout_models}
         if model_name.lower() not in allowed:
             return web.json_response({"error": "forbidden"}, status=403)
@@ -170,6 +174,6 @@ async def api_scout_verify(request: web.Request) -> web.Response:
 
     redis = request.app.get("redis")
     if redis:
-        await redis.set(f"scout:{user_id}", handle)
+        await redis.set(f"scout:{user_id}", handle, ex=86400)
 
     return web.json_response({"status": "ok", "scout": handle})
