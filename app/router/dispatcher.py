@@ -32,7 +32,7 @@ from app.router.entities_v2 import (
     validate_model_name,
     get_order_type_display_name,
 )
-from app.router.command_filters import CommandIntent, extract_scout_model_name
+from app.router.command_filters import CommandIntent
 from app.router.model_resolver import resolve_model
 from app.utils.formatting import format_appended_comment, MAX_COMMENT_LENGTH
 from app.utils.accounting import calculate_accounting_progress, format_accounting_progress
@@ -345,7 +345,6 @@ def _intent_requires_model(intent: CommandIntent) -> bool:
         CommandIntent.SHOW_ORDERS,
         CommandIntent.SHOW_PLANNER,
         CommandIntent.SHOW_ACCOUNT,
-        CommandIntent.SCOUT_CARD,
     }
     return intent not in no_model_intents
 
@@ -442,25 +441,6 @@ async def _execute_handler(
 
     if intent == CommandIntent.AMBIGUOUS:
         await _handle_ambiguous(message, model, entities, config, memory_state)
-        return
-
-    # ===== SCOUT CARD (priority 110) =====
-
-    if intent == CommandIntent.SCOUT_CARD:
-        from app.services.scout_card import build_scout_report_card
-
-        model_name = extract_scout_model_name(text)
-        if not model_name:
-            await message.answer("Модель не найдена")
-            return
-
-        status_msg = await message.answer("⏳ Загружаю карточку...")
-        card = await build_scout_report_card(model_name, notion, config)
-        if card is None:
-            await status_msg.edit_text("Модель не найдена")
-            return
-
-        await status_msg.edit_text(card, parse_mode="HTML")
         return
 
     # ===== SEARCH MODEL (priority 0) =====

@@ -3,7 +3,6 @@ from types import SimpleNamespace
 
 from app.filters.topic_access import TopicAccessMessageFilter
 from app.services import scout_card
-from app.services.scout_card import _format_boost, _format_scout_card
 
 
 def test_topic_access_private_only_editor_allowed():
@@ -43,78 +42,6 @@ def test_topic_access_scouts_chat_allows_report_viewer():
     )
     assert asyncio.run(filt(msg, config)) is True
 
-
-def test_format_scout_card_files_orders_and_shoots():
-    text = _format_scout_card(
-        model_name="Курага",
-        model_row={
-            "status": "work",
-            "project": "GRAND",
-            "scout": "@brm",
-            "assist": "@cuterr12345",
-            "language": "eng > b1, ru, ua",
-            "anal": "plug,No",
-            "calls": "talking, —",
-            "needs_rent": "TRUE",
-        },
-        traffic="reddit, twitter",
-        accounting_row={
-            "of_files": 30,
-            "reddit_files": 10,
-            "twitter_files": 5,
-            "fansly_files": 2,
-        },
-        accounting_prev_row={
-            "of_files": 12,
-            "reddit_files": 8,
-        },
-        shoots=[
-            ("2026-04-14", ["reddit", "main pack"], "done"),
-            ("2026-05-25", ["twitter"], "planned"),
-        ],
-        orders_current={"custom": 2, "short": 1},
-        orders_prev={"custom": 5, "verif reddit": 2},
-    )
-    assert "<i>" in text
-    assert "anal:" in text
-    assert "calls:" in text
-    assert "traffic:" in text
-    assert "rent:" in text
-    assert "Content" in text
-    assert "OF: <b>30</b>" in text
-    assert "Reddit: <b>10</b>" in text
-    assert "OF: <b>12</b>" in text
-    assert "Shoots" in text
-    assert "<b>14 apr</b>" in text
-    assert "reddit, main pack · done" in text
-    assert "<b>25 may</b>" in text
-    assert "twitter · planned" in text
-    assert "Orders" in text
-    assert "custom: <b>2</b>" in text
-    assert "short: <b>1</b>" in text
-    assert "verif: <b>2</b>" in text
-
-
-def test_format_scout_card_empty_orders_and_files():
-    text = _format_scout_card(
-        model_name="Курага",
-        model_row={"status": "work"},
-        traffic="—",
-        accounting_row={"of_files": 0, "reddit_files": 0, "twitter_files": 0, "fansly_files": 0},
-        accounting_prev_row=None,
-        shoots=[],
-        orders_current={},
-        orders_prev={},
-    )
-    assert "traffic:" in text
-    assert "Content: —" in text
-    assert "Shoots: —" in text
-    assert "Orders: no orders" in text
-
-
-def test_format_boost_always_shows_both_labels():
-    assert _format_boost("No, —", "") == "Анал: No | Колл: No"
-    assert _format_boost("plug", "sexual, No") == "Анал: plug | Колл: sexual"
 
 
 def test_fetch_orders_by_type_counts_per_type(monkeypatch):

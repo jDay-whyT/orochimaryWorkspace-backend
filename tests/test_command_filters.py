@@ -13,7 +13,7 @@ from app.router.entities_v2 import (
     validate_model_name,
     get_order_type_display_name,
 )
-from app.router.command_filters import CommandIntent, extract_scout_model_name
+from app.router.command_filters import CommandIntent
 
 
 class TestIntentClassification:
@@ -82,13 +82,6 @@ class TestIntentClassification:
         """Test file addition in English."""
         assert classify_intent_v2("melissa 50 files") == CommandIntent.ADD_FILES
         assert classify_intent_v2("30 photos sophia") == CommandIntent.ADD_FILES
-
-    # ========== SCOUT_CARD ==========
-
-    def test_scout_card_requires_model_after_prefix(self):
-        """Test explicit scout card command format."""
-        assert classify_intent_v2("скаут курага") == CommandIntent.SCOUT_CARD
-        assert classify_intent_v2("скаут") != CommandIntent.SCOUT_CARD
 
     # ========== SHOW_ORDERS ==========
 
@@ -349,13 +342,6 @@ class TestUtilityFunctions:
         assert get_order_type_display_name("verif reddit") == "verif reddit"
         assert get_order_type_display_name("call") == "Колл"
         assert get_order_type_display_name("ad request") == "Ad Request"
-
-    def test_extract_scout_model_name(self):
-        """Test model extraction from explicit scout command."""
-        assert extract_scout_model_name("скаут курага") == "курага"
-        assert extract_scout_model_name("  СКАУТ   Mona Lisa  ") == "Mona Lisa"
-        assert extract_scout_model_name("курага") is None
-        assert extract_scout_model_name("скаут") is None
 
 
 if __name__ == "__main__":

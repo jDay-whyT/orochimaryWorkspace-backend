@@ -30,9 +30,6 @@ from enum import Enum
 
 class CommandIntent(Enum):
     """User command intents."""
-    # Scout card (priority 110)
-    SCOUT_CARD = "scout_card"
-
     # Shoot domain (priority 100)
     SHOOT_CREATE = "shoot_create"
     SHOOT_DONE = "shoot_done"
@@ -108,17 +105,6 @@ class CommandFilter:
 # ============================================================================
 
 COMMAND_FILTERS = [
-    # ========== SCOUT CARD (Priority: 110) ==========
-    # Explicit trigger only: "скаут <model_name>"
-    CommandFilter(
-        intent=CommandIntent.SCOUT_CARD,
-        keywords=[],
-        patterns=[
-            re.compile(r'^\s*скаут\s+\S.+$', re.IGNORECASE),
-        ],
-        priority=110,
-    ),
-
     # ========== SHOOT DOMAIN (Priority: 100) ==========
     # "съемка" always takes highest priority, ignoring other markers
 
@@ -671,19 +657,3 @@ def match_exclude_keywords(text: str, exclude_keywords: List[str]) -> bool:
     return any(kw.lower() in text_lower for kw in exclude_keywords)
 
 
-def extract_scout_model_name(text: str) -> Optional[str]:
-    """
-    Extract model name from explicit scout command: "скаут <model_name>".
-
-    Returns:
-        model_name without "скаут" prefix, or None when command format is invalid.
-    """
-    if not text or not text.strip():
-        return None
-
-    match = re.match(r'^\s*скаут\s+(.+?)\s*$', text, re.IGNORECASE)
-    if not match:
-        return None
-
-    model_name = match.group(1).strip()
-    return model_name or None
