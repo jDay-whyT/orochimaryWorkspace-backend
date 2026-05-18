@@ -336,9 +336,8 @@ async def _fetch_orders_by_type(
 
     today = date.today()
     is_prev_month = (year_i, month_i) < (today.year, today.month)
-    archive_idx = month_i - 1  # Jan=0, Feb=1, …
-    if is_prev_month and archive_idx < len(ARCHIVE_ORDERS_DBS):
-        dbs_to_query.append(ARCHIVE_ORDERS_DBS[archive_idx])
+    if is_prev_month and month_i in ARCHIVE_ORDERS_DBS:
+        dbs_to_query.append(ARCHIVE_ORDERS_DBS[month_i])
 
     all_items: list = []
     for db_id in dbs_to_query:

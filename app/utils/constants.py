@@ -101,10 +101,10 @@ NLP_ACCOUNTING_CONTENT_TYPES = [
 
 # Analytics/scout defaults
 DB_FORMS_DEFAULT = "22932beee7a0802492b2fd8b16ece74b"
-ARCHIVE_ORDERS_DBS = [
-    "2fd32bee-e7a0-80d6-b8a5-ee7bd1001052",  # Jan
-    "31632bee-e7a0-8038-ba59-c2ef293fb1c4",  # Feb
-    "33532bee-e7a0-80eb-bc7e-d80aff13e400",  # Mar
-    "35332beee7a08038a051d248bf51a1e9",      # Apr
-]
+ARCHIVE_ORDERS_DBS = {
+    1: "2fd32bee-e7a0-80d6-b8a5-ee7bd1001052",  # Jan
+    2: "31632bee-e7a0-8038-ba59-c2ef293fb1c4",  # Feb
+    3: "33532bee-e7a0-80eb-bc7e-d80aff13e400",  # Mar
+    4: "35332beee7a08038a051d248bf51a1e9",      # Apr
+}
 

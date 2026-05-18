@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 from urllib.parse import parse_qsl, unquote
 
 LOGGER = logging.getLogger(__name__)
@@ -42,6 +43,11 @@ def validate_init_data(init_data: str, bot_token: str) -> dict | None:
 
     if not hmac.compare_digest(expected, hash_value):
         LOGGER.warning("initData HMAC mismatch — rejecting request")
+        return None
+
+    auth_ts = int(params.get("auth_date", 0))
+    if not auth_ts or (time.time() - auth_ts) > 86400:
+        LOGGER.warning("initData expired or missing auth_date — rejecting request")
         return None
 
     user_str = params.get("user")
