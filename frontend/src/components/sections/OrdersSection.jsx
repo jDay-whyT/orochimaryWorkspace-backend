@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 const ORDER_LABELS = {
   custom:        'Custom',
   short:         'Short',
@@ -12,6 +14,11 @@ function monthLabel(yyyyMm) {
   return new Date(+y, +m - 1, 1).toLocaleString('en', { month: 'short', year: 'numeric' })
 }
 
+function totalOrders(orders) {
+  if (!orders) return 0
+  return Object.values(orders).reduce((sum, v) => sum + (v || 0), 0)
+}
+
 function OrderRows({ orders }) {
   const entries = Object.entries(orders || {}).filter(([, v]) => v > 0)
   if (!entries.length) return <p className="empty">No orders</p>
@@ -23,14 +30,50 @@ function OrderRows({ orders }) {
   ))
 }
 
+function HistoryMonth({ month, data }) {
+  const [open, setOpen] = useState(false)
+  const total = totalOrders(data)
+  return (
+    <div className="history-month">
+      <button className="history-month-btn" onClick={() => setOpen(o => !o)}>
+        <span className="history-month-name">{monthLabel(month)}</span>
+        <span className="history-month-right">
+          <span className="history-month-total">{total} orders</span>
+          <span className="history-chevron">{open ? '↑' : '↓'}</span>
+        </span>
+      </button>
+      {open && <div className="history-month-body"><OrderRows orders={data} /></div>}
+    </div>
+  )
+}
+
 export default function OrdersSection({ card }) {
+  const total = totalOrders(card.orders_current)
+  const history = card.orders_history || []
+
   return (
     <div className="section">
       <div className="section-title">Orders</div>
-      <div className="month-label">{monthLabel(card.current_month)}</div>
-      <OrderRows orders={card.orders_current} />
-      <div className="month-label">{monthLabel(card.prev_month)}</div>
-      <OrderRows orders={card.orders_prev} />
+
+      <div className="history-month-current">
+        <span className="history-month-name">{monthLabel(card.current_month)}</span>
+        <span className="history-month-right">
+          <span className="content-current-badge">current</span>
+          <span className="history-month-total">{total} orders</span>
+        </span>
+      </div>
+      <div className="history-month-body">
+        <OrderRows orders={card.orders_current} />
+      </div>
+
+      {history.length > 0 && (
+        <>
+          <div className="history-section-label">History</div>
+          {history.map(h => (
+            <HistoryMonth key={h.month} month={h.month} data={h.data} />
+          ))}
+        </>
+      )}
     </div>
   )
 }

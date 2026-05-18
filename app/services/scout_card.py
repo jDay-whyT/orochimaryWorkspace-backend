@@ -569,7 +569,9 @@ async def build_scout_report_card_json(
         accounting_h3,
         shoots,
         orders_current,
-        orders_prev,
+        orders_h1,
+        orders_h2,
+        orders_h3,
     ) = await asyncio.gather(
         _fetch_forms_traffic(notion, db_forms, model_page_id),
         _fetch_monthly_accounting(notion, db_accounting, model_page_id, month_offset=0),
@@ -578,7 +580,9 @@ async def build_scout_report_card_json(
         _fetch_monthly_accounting(notion, db_accounting, model_page_id, month_offset=-3),
         _fetch_shoots_lines(notion, db_planner, model_page_id),
         _fetch_orders_by_type(notion, db_orders, model_page_id, cur_yyyy_mm),
-        _fetch_orders_by_type(notion, db_orders, model_page_id, prev_yyyy_mm),
+        _fetch_orders_by_type(notion, db_orders, model_page_id, h_months[0]),
+        _fetch_orders_by_type(notion, db_orders, model_page_id, h_months[1]),
+        _fetch_orders_by_type(notion, db_orders, model_page_id, h_months[2]),
     )
 
     needs_rent = _normalize(model_row.get("needs_rent"))
@@ -606,9 +610,13 @@ async def build_scout_report_card_json(
             {"month": h_months[2], "data": accounting_h3 or {}},
         ],
         "orders_current": orders_current,
-        "orders_prev": orders_prev,
+        "orders_history": [
+            {"month": h_months[0], "data": orders_h1},
+            {"month": h_months[1], "data": orders_h2},
+            {"month": h_months[2], "data": orders_h3},
+        ],
         "current_month": cur_yyyy_mm,
-        "prev_month": prev_yyyy_mm,
+        "prev_month": h_months[0],
         "shoots": [
             {"date": date_str, "types": content_types, "status": shoot_status}
             for date_str, content_types, shoot_status in shoots
