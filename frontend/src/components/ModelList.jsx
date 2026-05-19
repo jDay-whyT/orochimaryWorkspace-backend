@@ -2,6 +2,8 @@ import { useState } from 'react'
 import StatusBadge from './StatusBadge'
 
 const TABS = ['all', 'work', 'new', 'inactive', 'stop', 'looted']
+const STATUS_ORDER = { work: 0, new: 1, inactive: 2, stop: 3, looted: 4 }
+function statusRank(m) { return STATUS_ORDER[(m.status || '').toLowerCase()] ?? 5 }
 
 export default function ModelList({ models, scout, onSelect }) {
   const [filter, setFilter] = useState('all')
@@ -34,6 +36,7 @@ export default function ModelList({ models, scout, onSelect }) {
   const visible = scoutFiltered
     .filter(m => filter === 'all' || (m.status || '').toLowerCase() === filter)
     .filter(m => !q || m.name.toLowerCase().includes(q))
+    .sort((a, b) => statusRank(a) - statusRank(b))
 
   return (
     <div className="screen">
