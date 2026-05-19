@@ -243,6 +243,7 @@ async def _fetch_monthly_accounting(
         return None
     props = items[0].get("properties", {})
     return {
+        "total": _extract_number(props.get("total")),
         "of_files": _extract_number(props.get("of_files")),
         "reddit_files": _extract_number(props.get("reddit_files")),
         "twitter_files": _extract_number(props.get("twitter_files")),

@@ -191,6 +191,7 @@ def test_fetch_monthly_accounting_filters_by_model_and_edit_day(monkeypatch):
     )
 
     assert result == {
+        "total": 0,
         "of_files": 12,
         "reddit_files": 4,
         "twitter_files": 3,

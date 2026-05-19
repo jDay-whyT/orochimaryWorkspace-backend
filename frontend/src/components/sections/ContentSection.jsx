@@ -13,7 +13,8 @@ const FIELDS = [
 
 function totalFiles(data) {
   if (!data) return 0
-  return FIELDS.reduce((sum, f) => sum + (data[f.key] || 0), 0)
+  const sum = FIELDS.reduce((s, f) => s + (data[f.key] || 0), 0)
+  return sum || (data.total || 0)
 }
 
 function StatGrid({ data }) {
