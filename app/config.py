@@ -23,7 +23,8 @@ class Config:
     
     # Access
     allowed_editors: set[int]
-    mini_app_viewers: set[int]
+    mini_app_viewer_ids: set[int]
+    mini_app_viewer_handles: set[str]
     crm_topic_thread_id: int
     scouts_chat_id: int
     
@@ -41,6 +42,24 @@ class Config:
     db_notes: str = ""
     owner_telegram_id: int = 0
     mini_app_url: str = ""
+
+
+def _parse_mini_app_viewers(value: str) -> tuple[set[int], set[str]]:
+    """Parse MINI_APP_VIEWERS: numeric IDs and @handles mixed."""
+    ids: set[int] = set()
+    handles: set[str] = set()
+    for part in value.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part.startswith("@"):
+            handles.add(part.lower())
+        else:
+            try:
+                ids.add(int(part))
+            except ValueError:
+                pass
+    return ids, handles
 
 
 def _parse_user_ids(value: str) -> set[int]:
@@ -170,7 +189,7 @@ def load_config(validate: bool = True) -> Config:
         rent_topic_thread_id = 0
 
     redis_url = os.getenv("REDIS_URL", "").strip() or None
-    mini_app_viewers = _parse_user_ids(os.getenv("MINI_APP_VIEWERS", ""))
+    mini_app_viewer_ids, mini_app_viewer_handles = _parse_mini_app_viewers(os.getenv("MINI_APP_VIEWERS", ""))
     db_notes = os.getenv("DB_NOTES", "").strip()
 
     try:
@@ -200,7 +219,8 @@ def load_config(validate: bool = True) -> Config:
         db_accounting=db_accounting,
         archive_page_id=archive_page_id,
         allowed_editors=allowed_editors,
-        mini_app_viewers=mini_app_viewers,
+        mini_app_viewer_ids=mini_app_viewer_ids,
+        mini_app_viewer_handles=mini_app_viewer_handles,
         crm_topic_thread_id=crm_topic_thread_id,
         scouts_chat_id=scouts_chat_id,
         timezone=timezone,

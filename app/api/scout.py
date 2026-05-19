@@ -28,10 +28,18 @@ def _extract_user(request: web.Request) -> dict | None:
     return validate_init_data(header[4:], config.telegram_bot_token)
 
 
-def _is_full_access(user_id: int, config) -> bool:
+def _is_full_access(user_id: int, config, username: str | None = None) -> bool:
     if _DEV_BYPASS and user_id == -1:
         return True
-    return user_id == config.owner_telegram_id or user_id in config.allowed_editors or user_id in config.mini_app_viewers
+    if user_id == config.owner_telegram_id or user_id in config.allowed_editors:
+        return True
+    if user_id in config.mini_app_viewer_ids:
+        return True
+    if username:
+        handle = f"@{username.lower().lstrip('@')}"
+        if handle in config.mini_app_viewer_handles:
+            return True
+    return False
 
 
 async def _resolve_scout_handle(
@@ -83,7 +91,8 @@ async def api_scout_models(request: web.Request) -> web.Response:
     config = request.app["config"]
     notion = request.app["notion"]
 
-    if _is_full_access(user_id, config):
+    username = user.get("username")
+    if _is_full_access(user_id, config, username):
         models = await notion.query_models(config.db_models, "", limit=200)
         if len(models) >= 200:
             LOGGER.warning("query_models returned 200 results — list may be truncated")
@@ -95,7 +104,6 @@ async def api_scout_models(request: web.Request) -> web.Response:
             ],
         })
 
-    username = user.get("username")
     handle, models = await _resolve_scout_handle(request, user_id, username)
 
     if not handle:
@@ -126,8 +134,8 @@ async def api_scout_model_card(request: web.Request) -> web.Response:
     config = request.app["config"]
     notion = request.app["notion"]
 
-    if not _is_full_access(user_id, config):
-        username = user.get("username")
+    username = user.get("username")
+    if not _is_full_access(user_id, config, username):
         handle, scout_models = await _resolve_scout_handle(request, user_id, username)
         if not handle:
             return web.json_response({"error": "unauthorized"}, status=401)
