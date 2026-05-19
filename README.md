@@ -21,7 +21,7 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 
 ## ENV переменные
 
-> `ALLOWED_EDITORS` и `REPORT_VIEWERS` — через запятую: `"123,456"`
+> `ALLOWED_EDITORS` — через запятую: `"123,456"`
 
 | Переменная | Обязательно | Описание |
 |---|---|---|
@@ -34,7 +34,6 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `ARCHIVE_PAGE_ID` | ⚠️ | ID архивной страницы Notion для поиска прошлых Reddit accounting баз |
 | `ALLOWED_EDITORS` | ✅ | user_id с доступом к чтению/записи |
 | `CRM_TOPIC_THREAD_ID` | ✅ | ID топика CRM в Telegram |
-| `REPORT_VIEWERS` | ⚠️ | user_id для scout read-only карточек |
 | `SCOUTS_CHAT_ID` | ⚠️ | chat_id скаут-чата |
 | `TELEGRAM_WEBHOOK_SECRET` | ⚠️ | Секрет для X-Telegram-Bot-Api-Secret-Token |
 | `TIMEZONE` | ⚠️ | Таймзона, по умолчанию `Europe/Brussels` |

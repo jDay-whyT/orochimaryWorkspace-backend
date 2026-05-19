@@ -34,7 +34,7 @@ class TopicAccessMessageFilter(BaseFilter):
             LOGGER.info("TopicAccessFilter: unsupported chat type")
             return False
         if config.scouts_chat_id and message.chat.id == config.scouts_chat_id:
-            result = user_id in (config.allowed_editors | config.report_viewers)
+            result = user_id in config.allowed_editors
             LOGGER.info("TopicAccessFilter: scouts chat result=%s", result)
             return result
         if message.message_thread_id != config.crm_topic_thread_id:
