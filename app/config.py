@@ -23,6 +23,7 @@ class Config:
     
     # Access
     allowed_editors: set[int]
+    mini_app_viewers: set[int]
     crm_topic_thread_id: int
     scouts_chat_id: int
     
@@ -169,6 +170,7 @@ def load_config(validate: bool = True) -> Config:
         rent_topic_thread_id = 0
 
     redis_url = os.getenv("REDIS_URL", "").strip() or None
+    mini_app_viewers = _parse_user_ids(os.getenv("MINI_APP_VIEWERS", ""))
     db_notes = os.getenv("DB_NOTES", "").strip()
 
     try:
@@ -198,6 +200,7 @@ def load_config(validate: bool = True) -> Config:
         db_accounting=db_accounting,
         archive_page_id=archive_page_id,
         allowed_editors=allowed_editors,
+        mini_app_viewers=mini_app_viewers,
         crm_topic_thread_id=crm_topic_thread_id,
         scouts_chat_id=scouts_chat_id,
         timezone=timezone,

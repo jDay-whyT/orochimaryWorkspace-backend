@@ -31,7 +31,7 @@ def _extract_user(request: web.Request) -> dict | None:
 def _is_full_access(user_id: int, config) -> bool:
     if _DEV_BYPASS and user_id == -1:
         return True
-    return user_id == config.owner_telegram_id or user_id in config.allowed_editors
+    return user_id == config.owner_telegram_id or user_id in config.allowed_editors or user_id in config.mini_app_viewers
 
 
 async def _resolve_scout_handle(

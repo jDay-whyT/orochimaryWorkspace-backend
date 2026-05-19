@@ -34,6 +34,7 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `ARCHIVE_PAGE_ID` | ⚠️ | ID архивной страницы Notion для поиска прошлых Reddit accounting баз |
 | `ALLOWED_EDITORS` | ✅ | user_id с доступом к чтению/записи |
 | `CRM_TOPIC_THREAD_ID` | ✅ | ID топика CRM в Telegram |
+| `MINI_APP_VIEWERS` | ⚠️ | user_id для просмотра мини-апп (все модели, без доступа к боту) |
 | `SCOUTS_CHAT_ID` | ⚠️ | chat_id скаут-чата |
 | `TELEGRAM_WEBHOOK_SECRET` | ⚠️ | Секрет для X-Telegram-Bot-Api-Secret-Token |
 | `TIMEZONE` | ⚠️ | Таймзона, по умолчанию `Europe/Brussels` |
