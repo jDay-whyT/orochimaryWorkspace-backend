@@ -199,6 +199,15 @@ class NotionClient:
 
         raise RuntimeError("Notion API retry limit exceeded")
 
+    # ==================== Generic access ====================
+
+    async def query_database(self, database_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        return await self._request("POST", url, json=payload)
+
+    async def get_page(self, page_id: str) -> dict[str, Any]:
+        return await self._request("GET", f"https://api.notion.com/v1/pages/{page_id}")
+
     # ==================== Models ====================
 
     async def query_models(

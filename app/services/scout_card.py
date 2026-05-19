@@ -107,7 +107,6 @@ async def _query_all_pages(
     database_id: str,
     payload: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    url = f"https://api.notion.com/v1/databases/{database_id}/query"
     results: list[dict[str, Any]] = []
     cursor: str | None = None
 
@@ -115,7 +114,7 @@ async def _query_all_pages(
         query_payload = dict(payload)
         if cursor:
             query_payload["start_cursor"] = cursor
-        data = await notion._request("POST", url, json=query_payload)
+        data = await notion.query_database(database_id, query_payload)
         results.extend(data.get("results", []))
         if not data.get("has_more"):
             break
@@ -133,7 +132,7 @@ async def _fetch_model_row(notion: NotionClient, db_models: str, model_name: str
     if not model:
         return None
 
-    page = await notion._request("GET", f"https://api.notion.com/v1/pages/{model.page_id}")
+    page = await notion.get_page(model.page_id)
     props = page.get("properties", {})
     return {
         "page_id": model.page_id,
