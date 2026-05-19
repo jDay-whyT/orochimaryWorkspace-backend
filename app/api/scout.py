@@ -85,6 +85,8 @@ async def api_scout_models(request: web.Request) -> web.Response:
 
     if _is_full_access(user_id, config):
         models = await notion.query_models(config.db_models, "", limit=200)
+        if len(models) >= 200:
+            LOGGER.warning("query_models returned 200 results — list may be truncated")
         return web.json_response({
             "scout": None,
             "models": [
@@ -104,7 +106,7 @@ async def api_scout_models(request: web.Request) -> web.Response:
     return web.json_response({
         "scout": handle,
         "models": [
-            {"id": m.page_id, "name": m.title, "project": m.project, "status": m.status}
+            {"id": m.page_id, "name": m.title, "project": m.project, "status": m.status, "scout": m.scout}
             for m in models
         ],
     })

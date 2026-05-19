@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { monthLabel } from '../../utils'
 
 const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
 
@@ -8,11 +9,6 @@ function formatDate(iso) {
   return `${+d} ${MONTHS[+m - 1]}`
 }
 
-function monthLabel(yyyyMm) {
-  if (!yyyyMm) return ''
-  const [y, m] = yyyyMm.split('-')
-  return new Date(+y, +m - 1, 1).toLocaleString('en', { month: 'short', year: 'numeric' })
-}
 
 function statusClass(status) {
   const s = (status || '').toLowerCase()
@@ -25,8 +21,8 @@ function statusClass(status) {
 
 function ShootList({ shoots }) {
   if (!shoots.length) return <p className="empty">No shoots</p>
-  return shoots.map((s, i) => (
-    <div key={i} className="shoot-item">
+  return shoots.map((s) => (
+    <div key={`${s.date}-${s.status}`} className="shoot-item">
       <div className="shoot-date">{formatDate(s.date)}</div>
       <div className="shoot-body">
         <div className={`shoot-status ${statusClass(s.status)}`}>{s.status}</div>

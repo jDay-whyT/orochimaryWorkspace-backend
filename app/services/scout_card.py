@@ -422,7 +422,6 @@ async def build_scout_report_card_json(
             {"month": h_months[2], "data": orders_h3},
         ],
         "current_month": cur_yyyy_mm,
-        "prev_month": h_months[0],
         "shoots": [
             {"date": date_str, "types": content_types, "status": shoot_status}
             for date_str, content_types, shoot_status in shoots

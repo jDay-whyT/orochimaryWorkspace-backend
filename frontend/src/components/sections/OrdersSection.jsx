@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { monthLabel } from '../../utils'
 
 const ORDER_LABELS = {
   custom:        'Custom',
@@ -8,11 +9,7 @@ const ORDER_LABELS = {
   'ad request':  'Ad Req',
 }
 
-function monthLabel(yyyyMm) {
-  if (!yyyyMm) return ''
-  const [y, m] = yyyyMm.split('-')
-  return new Date(+y, +m - 1, 1).toLocaleString('en', { month: 'short', year: 'numeric' })
-}
+
 
 function totalOrders(orders) {
   if (!orders) return 0

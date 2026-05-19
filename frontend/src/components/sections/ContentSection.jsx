@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { monthLabel } from '../../utils'
 
 const FIELDS = [
   { key: 'of_files',      label: 'OF' },
@@ -9,11 +10,6 @@ const FIELDS = [
   { key: 'request_files', label: 'Request' },
 ]
 
-function monthLabel(yyyyMm) {
-  if (!yyyyMm) return ''
-  const [y, m] = yyyyMm.split('-')
-  return new Date(+y, +m - 1, 1).toLocaleString('en', { month: 'short', year: 'numeric' })
-}
 
 function totalFiles(data) {
   if (!data) return 0

@@ -3,7 +3,7 @@
 :root {
   --bg:          var(--tg-theme-bg-color,           #1c1c1e);
   --bg-card:     var(--tg-theme-secondary-bg-color,  #2c2c2e);
-  --bg-section:  var(--tg-theme-bg-color, #3a3a3c);
+  --bg-section:  var(--tg-theme-secondary-bg-color, #3a3a3c);
   --text:        var(--tg-theme-text-color,          #f2f2f7);
   --text-muted:  var(--tg-theme-hint-color,          #8e8e93);
   --accent:      var(--tg-theme-button-color,        #0a84ff);
