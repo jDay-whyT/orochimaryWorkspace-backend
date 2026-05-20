@@ -1126,6 +1126,13 @@ class NotionClient:
         if not models:
             models = await _query({"property": "scout", "rich_text": {"equals": scout_handle}})
 
+        # fallback: Notion entry stored without leading @
+        if not models and scout_handle.startswith("@"):
+            bare = scout_handle[1:]
+            models = await _query({"property": "scout", "select": {"equals": bare}})
+            if not models:
+                models = await _query({"property": "scout", "rich_text": {"equals": bare}})
+
         LOGGER.info("query_models_by_scout: handle=%s found=%d", scout_handle, len(models))
         return models
 
