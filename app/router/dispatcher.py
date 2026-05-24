@@ -165,7 +165,7 @@ async def route_message(
             )
             memory_state.clear(chat_id, user_id)
 
-        if current_flow.startswith("nlp_"):
+        elif current_flow.startswith("nlp_"):
             if current_flow == "nlp_disambiguate":
                 memory_state.clear(chat_id, user_id)
                 # fall through — обработать текст как новый запрос
@@ -179,20 +179,16 @@ async def route_message(
                     await handler(message, text, user_state, config, notion, memory_state)
                     return
 
-                # nlp_* flows expect button presses, not free text.
-                # Respond with a prompt instead of silently swallowing the message.
-                LOGGER.info("ROUTE_MESSAGE SKIP: user=%s in nlp flow=%s, prompting for button", user_id, current_flow)
-                from app.keyboards.inline import nlp_flow_waiting_keyboard
-                await message.answer(
-                    "⏳ Жду нажатия кнопки или сбросьте состояние.",
-                    reply_markup=nlp_flow_waiting_keyboard(),
-                    parse_mode="HTML",
-                )
-                return
+                # No text handler for this step — user abandoned the flow.
+                # Clear state and reprocess as a fresh NLP request.
+                LOGGER.info("ROUTE_MESSAGE: user=%s abandoned nlp flow=%s step=%s, clearing and reprocessing", user_id, current_flow, current_step)
+                await _clear_previous_screen_keyboard(message, memory_state)
+                memory_state.clear(chat_id, user_id)
 
-        # Unknown flow — clear stale state and continue through NLP pipeline
-        LOGGER.warning("User %s has unknown flow=%s, clearing state", user_id, current_flow)
-        memory_state.clear(chat_id, user_id)
+        else:
+            # Unknown flow — clear stale state and continue through NLP pipeline
+            LOGGER.warning("User %s has unknown flow=%s, clearing state", user_id, current_flow)
+            memory_state.clear(chat_id, user_id)
 
     # ===== Step 2: Pre-filter =====
     passed, error_msg = prefilter_message(text)
