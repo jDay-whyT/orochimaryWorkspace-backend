@@ -83,6 +83,25 @@ async def _safe_delete_or_mark_done(bot, chat_id: int, message_id: int) -> None:
         pass
 
 
+async def _mark_screen_done(message: Message, memory_state: MemoryState) -> None:
+    """Edit previous screen message to '✅ Готово' and remove its keyboard."""
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    state = memory_state.get(chat_id, user_id) or {}
+    prev_id = state.get("screen_message_id")
+    if not prev_id:
+        return
+    try:
+        await message.bot.edit_message_text(
+            "✅ Готово",
+            chat_id=chat_id,
+            message_id=prev_id,
+            reply_markup=None,
+        )
+    except Exception:
+        pass
+
+
 async def _clear_previous_screen_keyboard(message: Message, memory_state: MemoryState) -> None:
     chat_id = message.chat.id
     user_id = message.from_user.id
@@ -182,7 +201,7 @@ async def route_message(
                 # No text handler for this step — user abandoned the flow.
                 # Clear state and reprocess as a fresh NLP request.
                 LOGGER.info("ROUTE_MESSAGE: user=%s abandoned nlp flow=%s step=%s, clearing and reprocessing", user_id, current_flow, current_step)
-                await _clear_previous_screen_keyboard(message, memory_state)
+                await _mark_screen_done(message, memory_state)
                 memory_state.clear(chat_id, user_id)
 
         else:
