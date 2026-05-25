@@ -37,6 +37,7 @@ from app.router.model_resolver import resolve_model
 from app.utils.formatting import format_appended_comment, MAX_COMMENT_LENGTH
 from app.utils.accounting import calculate_accounting_progress, format_accounting_progress
 from app.utils import PAGE_SIZE
+from app.utils.telegram import safe_answer
 
 
 LOGGER = logging.getLogger(__name__)
@@ -475,10 +476,10 @@ async def _execute_handler(
             card_text, _ = await build_model_card(
                 model["id"], model["name"], config, notion,
             )
-            sent = await message.answer(
+            sent = await safe_answer(
+                message,
                 card_text,
                 reply_markup=model_card_keyboard(k),
-                parse_mode="HTML",
             )
             _remember_screen_message(
                 memory_state,

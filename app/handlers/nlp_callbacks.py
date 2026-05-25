@@ -49,7 +49,7 @@ from app.keyboards.inline import ORDER_TYPE_CB_MAP
 from app.utils.formatting import format_appended_comment
 from app.utils.accounting import calculate_accounting_progress, format_accounting_progress
 from app.utils import PAGE_SIZE
-from app.utils.telegram import safe_edit_message
+from app.utils.telegram import safe_edit_message, safe_answer
 
 
 async def _safe_confirm(
@@ -926,20 +926,15 @@ async def _show_orders_menu(
         else f"📦 <b>{html.escape(model_name)}</b>\n\nНет открытых заказов."
     )
     await _clear_previous_screen_keyboard(query, memory_state)
-    try:
-        msg = await query.message.edit_text(
-            text,
-            reply_markup=nlp_orders_menu_keyboard(
-                can_edit=can_edit,
-                has_orders=has_orders,
-                model_id=model_id,
-            ),
-            parse_mode="HTML",
-        )
-    except TelegramBadRequest as e:
-        if "message is not modified" not in str(e):
-            raise
-        msg = None
+    msg = await safe_edit_message(
+        query,
+        text,
+        reply_markup=nlp_orders_menu_keyboard(
+            can_edit=can_edit,
+            has_orders=has_orders,
+            model_id=model_id,
+        ),
+    )
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
