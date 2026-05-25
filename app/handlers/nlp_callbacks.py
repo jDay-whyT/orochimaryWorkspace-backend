@@ -34,7 +34,7 @@ from datetime import date, datetime, timedelta
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import CallbackQuery, InaccessibleMessage, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.config import Config
 from app.filters.topic_access import TopicAccessCallbackFilter
@@ -63,7 +63,7 @@ async def _safe_confirm(
         await safe_edit_message(query, text, reply_markup=reply_markup, parse_mode=parse_mode)
     except Exception:
         try:
-            if query.message:
+            if query.message and not isinstance(query.message, InaccessibleMessage):
                 await query.message.bot.send_message(
                     chat_id=query.message.chat.id,
                     message_thread_id=query.message.message_thread_id,

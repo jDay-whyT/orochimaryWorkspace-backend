@@ -2,7 +2,7 @@
 import asyncio
 
 from aiogram.types import CallbackQuery
-from aiogram.types import Message
+from aiogram.types import InaccessibleMessage, Message
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 
 
@@ -27,8 +27,7 @@ async def safe_edit_message(
     Raises:
         TelegramBadRequest: For other Telegram errors (not message is not modified)
     """
-    # Check if message exists
-    if not query.message:
+    if not query.message or isinstance(query.message, InaccessibleMessage):
         return None
 
     retried_after_flood = False
