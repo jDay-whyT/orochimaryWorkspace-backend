@@ -308,6 +308,10 @@ async def handle_nlp_callback(
         await query.answer()
         return
 
+    if isinstance(query.message, InaccessibleMessage):
+        await query.answer()
+        return
+
     action = parts[1]
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
@@ -3203,15 +3207,19 @@ async def _handle_partial_received(query, parts, config, memory_state):
     })
 
     from app.keyboards.inline import nlp_back_keyboard
-    msg = await query.message.edit_text(
-        f"📥 <b>{html.escape(model_name)}</b> · {order_type} × {count}\n"
-        f"Получено сейчас: {current_received}/{count}\n\n"
-        f"Введи сколько получено (добавится к текущему):",
-        reply_markup=nlp_back_keyboard(model_id),
-        parse_mode="HTML",
-    )
-    memory_state.update(chat_id, user_id, prompt_message_id=msg.message_id if msg else None)
-    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+    try:
+        msg = await query.message.edit_text(
+            f"📥 <b>{html.escape(model_name)}</b> · {order_type} × {count}\n"
+            f"Получено сейчас: {current_received}/{count}\n\n"
+            f"Введи сколько получено (добавится к текущему):",
+            reply_markup=nlp_back_keyboard(model_id),
+            parse_mode="HTML",
+        )
+    except TelegramBadRequest:
+        msg = None
+    screen_id = (msg.message_id if msg else query.message.message_id)
+    memory_state.update(chat_id, user_id, prompt_message_id=screen_id, screen_message_id=screen_id)
+    _remember_screen_message(memory_state, chat_id, user_id, screen_id)
     await query.answer()
 
 

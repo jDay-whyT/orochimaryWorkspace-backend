@@ -99,8 +99,8 @@ async def _mark_screen_done(message: Message, memory_state: MemoryState) -> None
             message_id=prev_id,
             reply_markup=None,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        LOGGER.debug("_mark_screen_done failed msg_id=%s: %s", prev_id, e)
 
 
 async def _clear_previous_screen_keyboard(message: Message, memory_state: MemoryState) -> None:
@@ -183,10 +183,12 @@ async def route_message(
                 current_flow,
                 user_id,
             )
+            await _mark_screen_done(message, memory_state)
             memory_state.clear(chat_id, user_id)
 
         elif current_flow.startswith("nlp_"):
             if current_flow == "nlp_disambiguate":
+                await _mark_screen_done(message, memory_state)
                 memory_state.clear(chat_id, user_id)
                 # fall through — обработать текст как новый запрос
             else:
@@ -199,8 +201,15 @@ async def route_message(
                     await handler(message, text, user_state, config, notion, memory_state)
                     return
 
-                # No text handler for this step — user abandoned the flow.
-                # Clear state and reprocess as a fresh NLP request.
+                # No text handler for this step.
+                # nlp_close_picker has no recovery path once state is cleared
+                # (callback validation requires flow=nlp_close_picker). Show prompt.
+                if current_flow == "nlp_close_picker":
+                    LOGGER.info("ROUTE_MESSAGE: user=%s in nlp_close_picker, prompting wait", user_id)
+                    await message.answer("⏳ Выберите заказ из списка или нажмите «Назад».")
+                    return
+
+                # Other abandoned nlp_ flows — clear and reprocess as fresh request.
                 LOGGER.info("ROUTE_MESSAGE: user=%s abandoned nlp flow=%s step=%s, clearing and reprocessing", user_id, current_flow, current_step)
                 await _mark_screen_done(message, memory_state)
                 memory_state.clear(chat_id, user_id)
@@ -208,6 +217,7 @@ async def route_message(
         else:
             # Unknown flow — clear stale state and continue through NLP pipeline
             LOGGER.warning("User %s has unknown flow=%s, clearing state", user_id, current_flow)
+            await _mark_screen_done(message, memory_state)
             memory_state.clear(chat_id, user_id)
 
     # ===== Step 2: Pre-filter =====
@@ -1347,10 +1357,6 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
         count=count,
     )
 
-    page_id = user_state.get("accounting_page_id")
-    content_type = user_state.get("content_type")
-    if page_id and content_type:
-        await notion.add_to_accounting_content(page_id, content_type)
     await _clear_previous_screen_keyboard(message, memory_state)
     await _cleanup_prompt_message(message, memory_state)
     from app.keyboards.inline import nlp_files_content_type_keyboard

@@ -50,7 +50,7 @@ async def safe_answer(
     text: str,
     reply_markup=None,
     parse_mode: str = "HTML",
-) -> Message | None:
+) -> Message:
     retried_after_flood = False
     network_retries = 0
     while True:
@@ -70,3 +70,5 @@ async def safe_answer(
                 raise
             network_retries += 1
             await asyncio.sleep(_NETWORK_RETRY_DELAY)
+        except TelegramBadRequest:
+            raise

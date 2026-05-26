@@ -1122,16 +1122,24 @@ class NotionClient:
                     ))
             return results
 
-        models = await _query({"property": "scout", "select": {"equals": scout_handle}})
-        if not models:
-            models = await _query({"property": "scout", "rich_text": {"equals": scout_handle}})
+        import asyncio as _asyncio
 
-        # fallback: Notion entry stored without leading @
-        if not models and scout_handle.startswith("@"):
-            bare = scout_handle[1:]
-            models = await _query({"property": "scout", "select": {"equals": bare}})
-            if not models:
-                models = await _query({"property": "scout", "rich_text": {"equals": bare}})
+        async def _query_with_fallbacks() -> list:
+            result = await _query({"property": "scout", "select": {"equals": scout_handle}})
+            if not result:
+                result = await _query({"property": "scout", "rich_text": {"equals": scout_handle}})
+            if not result and scout_handle.startswith("@"):
+                bare = scout_handle[1:]
+                result = await _query({"property": "scout", "select": {"equals": bare}})
+                if not result:
+                    result = await _query({"property": "scout", "rich_text": {"equals": bare}})
+            return result
+
+        try:
+            models = await _asyncio.wait_for(_query_with_fallbacks(), timeout=20.0)
+        except _asyncio.TimeoutError:
+            LOGGER.warning("query_models_by_scout timeout handle=%s", scout_handle)
+            models = []
 
         LOGGER.info("query_models_by_scout: handle=%s found=%d", scout_handle, len(models))
         return models
