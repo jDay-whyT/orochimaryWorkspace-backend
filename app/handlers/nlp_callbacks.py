@@ -49,7 +49,7 @@ from app.keyboards.inline import ORDER_TYPE_CB_MAP
 from app.utils.formatting import format_appended_comment
 from app.utils.accounting import calculate_accounting_progress, format_accounting_progress
 from app.utils import PAGE_SIZE
-from app.utils.telegram import safe_edit_message, safe_answer
+from app.utils.telegram import safe_edit_message, safe_answer, safe_query_answer
 
 
 async def _safe_confirm(
@@ -295,7 +295,7 @@ async def handle_nlp_callback(
     _dedup_key = (query.from_user.id, query.data)
     _now = time.monotonic()
     if _now - _callback_dedup.get(_dedup_key, 0) < _CALLBACK_DEDUP_TTL:
-        await query.answer()
+        await safe_query_answer(query)
         return
     _callback_dedup[_dedup_key] = _now
     if len(_callback_dedup) > 1000:
@@ -305,11 +305,11 @@ async def handle_nlp_callback(
 
     parts = query.data.split(":")
     if len(parts) < 2:
-        await query.answer()
+        await safe_query_answer(query)
         return
 
     if isinstance(query.message, InaccessibleMessage):
-        await query.answer()
+        await safe_query_answer(query)
         return
 
     action = parts[1]
@@ -353,15 +353,15 @@ async def handle_nlp_callback(
                         )
                     except Exception:
                         pass
-            await query.answer()
+            await safe_query_answer(query)
             return
         if action == "bk":
             model_id = parts[2] if len(parts) >= 3 else None
             await _handle_back_to_card(query, config, notion, memory_state, model_id)
-            await query.answer()
+            await safe_query_answer(query)
             return
         if action == "noop":
-            await query.answer()
+            await safe_query_answer(query)
             return
 
         # ===== Token validation =====
@@ -487,7 +487,7 @@ async def handle_nlp_callback(
                 raise
 
     try:
-        await query.answer()
+        await safe_query_answer(query)
     except TelegramBadRequest:
         pass
 
@@ -864,7 +864,7 @@ async def _handle_back_to_card(
     memory_state: MemoryState,
     model_id: str | None,
 ) -> None:
-    await query.answer()  # Instant response to remove loading indicator
+    await safe_query_answer(query)  # Instant response to remove loading indicator
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
     if not model_id and state:
@@ -1636,7 +1636,7 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
     """Handle shoot location selection. Callback: nlp:sl:{location}[:{k}]"""
     # Acknowledge immediately to prevent Telegram from retrying the callback
     # while the slow Notion API call is in-flight.
-    await query.answer()
+    await safe_query_answer(query)
 
     if len(parts) < 3:
         return
@@ -2035,7 +2035,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
     # no other coroutine can interleave between these two lines.
     _oc_key = (chat_id, user_id)
     if _oc_key in _oc_in_progress:
-        await query.answer()
+        await safe_query_answer(query)
         return
     _oc_in_progress.add(_oc_key)
     try:
@@ -2203,7 +2203,7 @@ async def _show_short_close_options(
     )
     memory_state.update(chat_id, user_id, screen_message_id=msg.message_id if msg else query.message.message_id)
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-    await query.answer()
+    await safe_query_answer(query)
 
 
 async def _handle_close_date(query, parts, config, notion, memory_state):
@@ -2212,7 +2212,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
     Also handles navigation from short_options step (cd:{order_id}) — shows the
     date picker for a full close without touching the received field.
     """
-    await query.answer()
+    await safe_query_answer(query)
     if len(parts) < 3:
         return
 
@@ -2278,7 +2278,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
     model_id_for_kb = state.get("model_id", "") if state else ""
     _cd_key = (chat_id, user_id)
     if _cd_key in _cd_in_progress:
-        await query.answer()
+        await safe_query_answer(query)
         return
     _cd_in_progress.add(_cd_key)
     try:
@@ -2770,7 +2770,7 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
 
     _fct_key = (user_id, "fct")
     if _fct_key in _oc_in_progress:
-        await query.answer()
+        await safe_query_answer(query)
         return
     _oc_in_progress.add(_fct_key)
 
@@ -2869,7 +2869,7 @@ async def _handle_shoot_content_toggle(query, parts, config, memory_state):
 
 async def _handle_shoot_content_done(query, parts, config, notion, memory_state, recent_models):
     """Content selection done → proceed to date. Callback: nlp:scd:done[:{k}]"""
-    await query.answer()
+    await safe_query_answer(query)
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
     if not state:
@@ -3091,7 +3091,7 @@ async def _handle_accounting_content_toggle(query, parts, config, memory_state):
 
 async def _handle_accounting_content_save(query, parts, config, notion, memory_state):
     """Save accounting content. Callback: nlp:accs:save[:{k}]"""
-    await query.answer()
+    await safe_query_answer(query)
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
         await query.message.edit_text("❌ Нет доступа")
@@ -3220,7 +3220,7 @@ async def _handle_partial_received(query, parts, config, memory_state):
     screen_id = (msg.message_id if msg else query.message.message_id)
     memory_state.update(chat_id, user_id, prompt_message_id=screen_id, screen_message_id=screen_id)
     _remember_screen_message(memory_state, chat_id, user_id, screen_id)
-    await query.answer()
+    await safe_query_answer(query)
 
 
 def _calc_days_open(in_date_str: str | None) -> int:
@@ -3255,7 +3255,7 @@ async def _handle_more_actions(query, parts, config, notion, memory_state):
     """
     model_id = parts[2] if len(parts) >= 3 else None
     if not model_id:
-        await query.answer()
+        await safe_query_answer(query)
         return
 
     chat_id, user_id = _state_ids_from_query(query)
@@ -3295,7 +3295,7 @@ async def _handle_more_actions(query, parts, config, notion, memory_state):
         parse_mode="HTML",
     )
     _remember_screen_message(memory_state, chat_id, user_id, sent.message_id if sent else None)
-    await query.answer()
+    await safe_query_answer(query)
 
 
 async def _handle_done(query, parts, memory_state):
@@ -3310,4 +3310,4 @@ async def _handle_done(query, parts, memory_state):
         await query.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-    await query.answer()
+    await safe_query_answer(query)

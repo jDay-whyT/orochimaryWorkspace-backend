@@ -72,3 +72,14 @@ async def safe_answer(
             await asyncio.sleep(_NETWORK_RETRY_DELAY)
         except TelegramBadRequest:
             raise
+
+
+async def safe_query_answer(
+    query: CallbackQuery,
+    text: str = "",
+    show_alert: bool = False,
+) -> None:
+    try:
+        await query.answer(text, show_alert=show_alert)
+    except (TelegramNetworkError, TelegramBadRequest, asyncio.TimeoutError):
+        pass
