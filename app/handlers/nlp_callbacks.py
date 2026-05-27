@@ -312,6 +312,8 @@ async def handle_nlp_callback(
         await safe_query_answer(query)
         return
 
+    await safe_query_answer(query)  # ACK before any Notion/Redis work
+
     action = parts[1]
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
