@@ -35,6 +35,7 @@ from app.utils import (
     ORDER_TYPES,
     PAGE_SIZE,
     safe_edit_message,
+    safe_query_answer,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ async def handle_orders_callback(
     
     parts = query.data.split("|", 2)
     if len(parts) < 3:
-        await query.answer()
+        await safe_query_answer(query)
         return
     
     _, action, value = parts
@@ -156,7 +157,7 @@ async def handle_orders_callback(
             await create_order(query, memory_state, config, notion, recent_models)
         
         else:
-            await query.answer()
+            await safe_query_answer(query)
     
     except Exception as e:
         LOGGER.exception("Error in orders callback: %s", e)
@@ -300,7 +301,7 @@ async def handle_back(
             reply_markup=order_comment_keyboard(),
         )
     
-    await query.answer()
+    await safe_query_answer(query)
 
 
 async def handle_cancel(query: CallbackQuery, memory_state: MemoryState) -> None:
@@ -312,7 +313,7 @@ async def handle_cancel(query: CallbackQuery, memory_state: MemoryState) -> None
         "📦 <b>Orders</b>\n\nCancelled.",
         reply_markup=orders_menu_keyboard(),
     )
-    await query.answer()
+    await safe_query_answer(query)
 
 
 # ==================== Model Search ====================
@@ -331,7 +332,7 @@ async def start_model_search(query: CallbackQuery, memory_state: MemoryState) ->
         "🔍 Enter model name to search:",
         reply_markup=back_cancel_keyboard("orders"),
     )
-    await query.answer()
+    await safe_query_answer(query)
 
 
 async def handle_model_select(
@@ -391,7 +392,7 @@ async def handle_model_select(
         )
         await _show_orders_for_model(query, memory_state, config, notion)
     
-    await query.answer()
+    await safe_query_answer(query)
 
 
 # ==================== Open Orders List ====================
@@ -419,11 +420,11 @@ async def show_open_orders_list(
             "🔍 Enter model name to search:",
             reply_markup=back_cancel_keyboard("orders"),
         )
-        await query.answer()
+        await safe_query_answer(query)
         return
     
     await _show_orders_for_model(query, memory_state, config, notion)
-    await query.answer()
+    await safe_query_answer(query)
 
 
 async def _show_orders_for_model(
@@ -499,13 +500,13 @@ async def handle_pagination(
     try:
         page = int(value)
     except ValueError:
-        await query.answer()
+        await safe_query_answer(query)
         return
     
     chat_id, user_id = _state_ids_from_query(query)
     memory_state.update(chat_id, user_id, page=page)
     await _show_orders_for_model(query, memory_state, config, notion)
-    await query.answer()
+    await safe_query_answer(query)
 
 
 # ==================== Order Details ====================
@@ -552,7 +553,7 @@ async def show_order_details(
         f"In: {format_date_short(in_date)}{days_str}{comments_str}",
         reply_markup=order_action_keyboard(page_id),
     )
-    await query.answer()
+    await safe_query_answer(query)
 
 
 # ==================== Close Order ====================
@@ -625,7 +626,7 @@ async def start_comment_input(
         "💬 Enter comment for this order:",
         reply_markup=back_cancel_keyboard("orders"),
     )
-    await query.answer()
+    await safe_query_answer(query)
 
 
 # ==================== New Order Flow ====================
@@ -667,7 +668,7 @@ async def start_new_order(
             reply_markup=back_cancel_keyboard("orders"),
         )
     
-    await query.answer()
+    await safe_query_answer(query)
 
 
 async def handle_type_select(
@@ -700,7 +701,7 @@ async def handle_type_select(
         f"Select quantity:",
         reply_markup=order_qty_keyboard(),
     )
-    await query.answer()
+    await safe_query_answer(query)
 
 
 async def handle_qty_select(
@@ -724,7 +725,7 @@ async def handle_qty_select(
             f"Enter quantity (1-99):",
             reply_markup=back_cancel_keyboard("orders"),
         )
-        await query.answer()
+        await safe_query_answer(query)
         return
     
     try:
@@ -750,7 +751,7 @@ async def handle_qty_select(
         f"Select date:",
         reply_markup=order_date_keyboard(),
     )
-    await query.answer()
+    await safe_query_answer(query)
 
 
 async def handle_date_select(
@@ -787,7 +788,7 @@ async def handle_date_select(
         f"Add comment?",
         reply_markup=order_comment_keyboard(),
     )
-    await query.answer()
+    await safe_query_answer(query)
 
 
 async def handle_comment_skip(
@@ -799,7 +800,7 @@ async def handle_comment_skip(
     chat_id, user_id = _state_ids_from_query(query)
     memory_state.update(chat_id, user_id, comments=None, step="confirm")
     await _show_confirmation(query, memory_state, config)
-    await query.answer()
+    await safe_query_answer(query)
 
 
 async def start_order_comment_input(
@@ -825,7 +826,7 @@ async def start_order_comment_input(
         f"💬 Enter comment:",
         reply_markup=back_cancel_keyboard("orders"),
     )
-    await query.answer()
+    await safe_query_answer(query)
 
 
 async def _show_confirmation(
@@ -876,7 +877,7 @@ async def create_order(
     # no other coroutine can interleave between these two lines.
     _co_key = (chat_id, user_id)
     if _co_key in _co_in_progress:
-        await query.answer()
+        await safe_query_answer(query)
         return
     _co_in_progress.add(_co_key)
     try:

@@ -21,6 +21,7 @@ from app.utils.constants import (
 )
 from app.utils.telegram import (
     safe_edit_message,
+    safe_query_answer,
 )
 
 __all__ = [
@@ -40,6 +41,7 @@ __all__ = [
     "ORDER_STATUS_CANCELED",
     "PAGE_SIZE",
     "safe_edit_message",
+    "safe_query_answer",
     "MAX_COMMENT_LENGTH",
     "format_appended_comment",
 ]

@@ -21,6 +21,7 @@ from app.roles import is_authorized, is_editor_or_admin
 from app.services import PlannerService, ModelsService
 from app.state import MemoryState, RecentModels
 from app.utils.constants import PLANNER_CONTENT_OPTIONS, PLANNER_LOCATION_OPTIONS
+from app.utils.telegram import safe_query_answer
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -62,7 +63,7 @@ async def handle_planner_callback(
     
     parts = query.data.split("|")
     if len(parts) < 3:
-        await query.answer()
+        await safe_query_answer(query)
         return
     
     action = parts[1]
@@ -108,14 +109,14 @@ async def handle_planner_callback(
         elif action == "cal_nav":
             await _navigate_calendar(query, config, memory_state, value)
         elif action == "cal_ignore":
-            await query.answer()
+            await safe_query_answer(query)
             return
         elif action == "confirm":
             await _create_shoot(query, config, memory_state, recent_models)
         else:
             await query.answer("Unknown action", show_alert=True)
         
-        await query.answer()
+        await safe_query_answer(query)
     
     except Exception:
         LOGGER.exception("Error in planner callback")

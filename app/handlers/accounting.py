@@ -28,6 +28,7 @@ from app.services import accounting as accounting_cache
 from app.services.notion import NotionClient
 from app.state import MemoryState, RecentModels
 from app.utils.accounting import format_accounting_progress
+from app.utils.telegram import safe_query_answer
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -74,7 +75,7 @@ async def handle_accounting_callback(
 
     parts = query.data.split("|")
     if len(parts) < 3:
-        await query.answer()
+        await safe_query_answer(query)
         return
 
     action = parts[1]
@@ -124,7 +125,7 @@ async def handle_accounting_callback(
         LOGGER.exception("Error in accounting callback")
         await query.answer("Ошибка. Попробуйте позже.", show_alert=True)
 
-    await query.answer()
+    await safe_query_answer(query)
 
 
 @router.message(FlowFilter({"accounting"}), F.text)
@@ -315,7 +316,7 @@ async def _add_files_to_record(query: CallbackQuery, config: Config, memory_stat
         "Выберите тип контента:",
         reply_markup=content_type_selection_keyboard(),
     )
-    await query.answer()
+    await safe_query_answer(query)
 
 
 async def _process_content_type_selection(
@@ -325,7 +326,7 @@ async def _process_content_type_selection(
     content_type: str,
 ) -> None:
     """Process content type selection and add files to Notion."""
-    await query.answer()
+    await safe_query_answer(query)
 
     if not is_editor(query.from_user.id, config):
         await query.answer("Only editors can add files", show_alert=True)
