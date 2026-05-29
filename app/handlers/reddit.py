@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from aiogram import Router
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.filters import Command
 from aiogram.types import Message
 
@@ -114,10 +115,17 @@ async def update_reddit_board(bot, config: Config, notion: NotionClient) -> None
                 parse_mode="HTML",
             )
             return
+        except TelegramNetworkError as e:
+            LOGGER.warning("Edit reddit board timed out, skipping send: %s", e)
+            return
         except Exception as e:
-            if "message is not modified" in str(e).lower():
+            err = str(e).lower()
+            if "message is not modified" in err:
                 return
-            LOGGER.warning("Failed to edit reddit board message: %s", e)
+            if "message to edit not found" not in err:
+                LOGGER.warning("Failed to edit reddit board message: %s", e)
+                return
+            LOGGER.warning("Reddit board message gone, will send new: %s", e)
 
     if chat_id:
         sent = await bot.send_message(

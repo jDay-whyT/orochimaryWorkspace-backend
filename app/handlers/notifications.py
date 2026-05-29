@@ -2,6 +2,7 @@ import logging
 from datetime import date, timedelta
 
 from aiogram import Router
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 
@@ -77,10 +78,17 @@ async def update_board(bot, config: Config, notion: NotionClient) -> None:
                 parse_mode="HTML",
             )
             return
+        except TelegramNetworkError as e:
+            LOGGER.warning("Edit board timed out, skipping send: %s", e)
+            return
         except Exception as e:
-            if "message is not modified" in str(e).lower():
-                return  # текст не изменился, всё ок
-            LOGGER.warning("Failed to edit board message: %s", e)
+            err = str(e).lower()
+            if "message is not modified" in err:
+                return
+            if "message to edit not found" not in err:
+                LOGGER.warning("Failed to edit board message: %s", e)
+                return
+            LOGGER.warning("Board message gone, will send new: %s", e)
 
     if chat_id:
         sent = await bot.send_message(
