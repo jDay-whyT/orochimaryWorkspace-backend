@@ -115,8 +115,6 @@ jobs:
             DB_FORMS=${{ secrets.DB_FORMS }}
             GOOGLE_SERVICE_ACCOUNT_JSON=${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
             ANALYTICS_SPREADSHEET_ID=${{ secrets.ANALYTICS_SPREADSHEET_ID }}
-            SHEET_ID=${{ secrets.SHEET_ID }}
-            OWNER_TELEGRAM_ID=${{ secrets.OWNER_TELEGRAM_ID }}
             TIMEZONE=${{ vars.TIMEZONE }}
           
             
