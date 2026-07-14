@@ -10,7 +10,7 @@ from app.services.tango_schedule import TangoRawRow
 LOGGER = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-GRID_FIELDS = "sheets.data.rowData.values(formattedValue,userEnteredFormat.backgroundColor,textFormatRuns)"
+GRID_FIELDS = "sheets.data.rowData.values(formattedValue,userEnteredFormat.backgroundColor,textFormatRuns,hyperlink)"
 
 
 class SheetsClient:
@@ -56,12 +56,12 @@ class SheetsClient:
         return self._credentials.token
 
     async def get_tab_rows(self, spreadsheet_id: str, tab_name: str) -> list[TangoRawRow]:
-        """Fetch column A (name) + column B (current week) with formatting for a tab."""
+        """Fetch column A (name) + B (current week) + C (url) with formatting for a tab."""
         token = await self._access_token()
         session = await self._get_session()
         url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
         params = {
-            "ranges": f"{tab_name}!A:B",
+            "ranges": f"{tab_name}!A:C",
             "fields": GRID_FIELDS,
         }
         headers = {"Authorization": f"Bearer {token}"}
@@ -76,10 +76,11 @@ class SheetsClient:
         row_data = sheet_data[0].get("rowData") or []
 
         rows: list[TangoRawRow] = []
-        for row in row_data[1:]:  # row_data[0] is the header row ("name", "current week", ...)
+        for row in row_data[1:]:  # row_data[0] is the header row ("name", "current week", "url", ...)
             values = row.get("values") or []
             name_cell = values[0] if len(values) > 0 else {}
             week_cell = values[1] if len(values) > 1 else {}
+            url_cell = values[2] if len(values) > 2 else {}
             name = (name_cell.get("formattedValue") or "").strip()
             if not name:
                 continue
@@ -88,5 +89,6 @@ class SheetsClient:
                 name_background=(name_cell.get("userEnteredFormat") or {}).get("backgroundColor"),
                 week_text=week_cell.get("formattedValue") or "",
                 week_text_format_runs=week_cell.get("textFormatRuns"),
+                url=url_cell.get("hyperlink") or url_cell.get("formattedValue") or "",
             ))
         return rows

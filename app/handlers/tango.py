@@ -18,9 +18,10 @@ router = Router()
 def _build_message_html(entries: list[TangoScheduleEntry], tomorrow_ddmm: str) -> str:
     rows = ["<tr><th>Модель</th><th>Время</th></tr>"]
     for entry in entries:
-        rows.append(
-            f"<tr><td>{html.escape(entry.model_name)}</td><td>{html.escape(entry.time)}</td></tr>"
-        )
+        name = html.escape(entry.model_name)
+        if entry.url.startswith(("http://", "https://")):
+            name = f'<a href="{html.escape(entry.url)}">{name}</a>'
+        rows.append(f"<tr><td>{name}</td><td>{html.escape(entry.time)}</td></tr>")
     table = f"<table bordered striped>{''.join(rows)}</table>"
     header = f"<h3>Стримы на {tomorrow_ddmm} по Европе</h3>"
     footer = f"<footer>Всего стримов: {len(entries)}</footer>"

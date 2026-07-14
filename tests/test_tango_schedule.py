@@ -133,6 +133,26 @@ class TestBuildTomorrowSchedule:
         result = build_tomorrow_schedule(rows, "14.07")
         assert [e.model_name for e in result] == ["B", "A", "C"]
 
+    def test_url_carried_through_to_entry(self):
+        rows = [
+            TangoRawRow(
+                name="Танго 1",
+                name_background=None,
+                week_text="14.07 — 20:00",
+                week_text_format_runs=None,
+                url="https://www.tango.me/miaacarter",
+            )
+        ]
+        result = build_tomorrow_schedule(rows, "14.07")
+        assert result[0].url == "https://www.tango.me/miaacarter"
+
+    def test_missing_url_defaults_to_empty(self):
+        rows = [
+            TangoRawRow(name="Танго 1", name_background=None, week_text="14.07 — 20:00", week_text_format_runs=None)
+        ]
+        result = build_tomorrow_schedule(rows, "14.07")
+        assert result[0].url == ""
+
     def test_multiple_models_multiple_entries(self):
         rows = [
             TangoRawRow(

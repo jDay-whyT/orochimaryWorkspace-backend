@@ -17,6 +17,7 @@ class TangoRawRow:
     name_background: dict | None
     week_text: str
     week_text_format_runs: list[dict] | None
+    url: str = ""
 
 
 @dataclass
@@ -24,6 +25,7 @@ class TangoScheduleEntry:
     model_name: str
     time: str
     sort_hour: int
+    url: str = ""
 
 
 def find_entries(cell_text: str) -> list[dict]:
@@ -96,6 +98,7 @@ def build_tomorrow_schedule(rows: list[TangoRawRow], tomorrow_ddmm: str) -> list
                 model_name=row.name,
                 time=entry["time"],
                 sort_hour=sort_key(entry["hour"]),
+                url=row.url,
             ))
     result.sort(key=lambda e: e.sort_hour)
     return result
