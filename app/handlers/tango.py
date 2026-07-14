@@ -15,13 +15,16 @@ LOGGER = logging.getLogger(__name__)
 router = Router()
 
 
-def _build_table_html(entries: list[TangoScheduleEntry]) -> str:
+def _build_message_html(entries: list[TangoScheduleEntry], tomorrow_ddmm: str) -> str:
     rows = ["<tr><th>Модель</th><th>Время</th></tr>"]
     for entry in entries:
         rows.append(
             f"<tr><td>{html.escape(entry.model_name)}</td><td>{html.escape(entry.time)}</td></tr>"
         )
-    return f"<table bordered striped>{''.join(rows)}</table>"
+    table = f"<table bordered striped>{''.join(rows)}</table>"
+    header = f"<h3>Стримы на {tomorrow_ddmm} по Европе</h3>"
+    footer = f"<footer>Всего стримов: {len(entries)}</footer>"
+    return header + table + footer
 
 
 @router.message(Command("tango"))
@@ -52,5 +55,5 @@ async def cmd_tango(message: Message, config: Config, sheets: SheetsClient | Non
 
     await message.bot.send_rich_message(
         chat_id=message.chat.id,
-        rich_message=InputRichMessage(html=_build_table_html(entries)),
+        rich_message=InputRichMessage(html=_build_message_html(entries, tomorrow_ddmm)),
     )
