@@ -1,3 +1,5 @@
+import base64
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -42,6 +44,9 @@ class Config:
     db_notes: str = ""
     owner_telegram_id: int = 0
     mini_app_url: str = ""
+    sheet_id: str = ""
+    sheet_tab_name: str = "Аркуш1"
+    google_service_account_info: dict | None = None
 
 
 def _parse_mini_app_viewers(value: str) -> tuple[set[int], set[str]]:
@@ -76,6 +81,22 @@ def _parse_user_ids(value: str) -> set[int]:
         except ValueError:
             continue
     return result
+
+
+def _parse_google_service_account(value: str) -> dict | None:
+    """Parse GOOGLE_SERVICE_ACCOUNT_JSON: raw JSON, or base64-encoded JSON."""
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        pass
+    try:
+        return json.loads(base64.b64decode(value + "==").decode())
+    except Exception as e:
+        print(f"WARNING: GOOGLE_SERVICE_ACCOUNT_JSON is set but could not be parsed: {e}", file=sys.stderr)
+        return None
 
 
 def _validate_config(config: Config) -> None:
@@ -209,6 +230,10 @@ def load_config(validate: bool = True) -> Config:
     
     mini_app_url = os.getenv("MINI_APP_URL", "").strip()
 
+    sheet_id = os.getenv("SHEET_ID", "").strip()
+    sheet_tab_name = os.getenv("SHEET_TAB_NAME", "Аркуш1").strip() or "Аркуш1"
+    google_service_account_info = _parse_google_service_account(os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", ""))
+
     config = Config(
         telegram_bot_token=telegram_bot_token,
         telegram_webhook_secret=telegram_webhook_secret,
@@ -236,6 +261,9 @@ def load_config(validate: bool = True) -> Config:
         db_notes=db_notes,
         owner_telegram_id=owner_telegram_id,
         mini_app_url=mini_app_url,
+        sheet_id=sheet_id,
+        sheet_tab_name=sheet_tab_name,
+        google_service_account_info=google_service_account_info,
     )
     
     if validate:
