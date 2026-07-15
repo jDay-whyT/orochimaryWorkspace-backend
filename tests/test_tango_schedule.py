@@ -133,6 +133,37 @@ class TestBuildTomorrowSchedule:
         result = build_tomorrow_schedule(rows, "14.07")
         assert [e.model_name for e in result] == ["B", "A", "C"]
 
+    def test_pulls_in_early_morning_tail_from_day_after(self):
+        # Shift starts 14.07 evening, tail logged as 15.07 01:00 — belongs to 14.07's day
+        rows = [
+            TangoRawRow(name="Смайл", name_background=None, week_text="15.07 — 01:00", week_text_format_runs=None)
+        ]
+        result = build_tomorrow_schedule(rows, "14.07", "15.07")
+        assert len(result) == 1
+        assert result[0].time == "01:00"
+        assert result[0].sort_hour == 25
+
+    def test_day_after_entry_at_or_after_6am_excluded(self):
+        rows = [
+            TangoRawRow(name="Смайл", name_background=None, week_text="15.07 — 06:00", week_text_format_runs=None)
+        ]
+        assert build_tomorrow_schedule(rows, "14.07", "15.07") == []
+
+    def test_day_after_not_provided_ignores_next_day_entries(self):
+        rows = [
+            TangoRawRow(name="Смайл", name_background=None, week_text="15.07 — 01:00", week_text_format_runs=None)
+        ]
+        assert build_tomorrow_schedule(rows, "14.07") == []
+
+    def test_same_day_and_day_after_tail_both_included_and_ordered(self):
+        rows = [
+            TangoRawRow(name="A", name_background=None, week_text="14.07 — 20:00", week_text_format_runs=None),
+            TangoRawRow(name="B", name_background=None, week_text="14.07 — 02:00", week_text_format_runs=None),
+            TangoRawRow(name="C", name_background=None, week_text="15.07 — 03:00", week_text_format_runs=None),
+        ]
+        result = build_tomorrow_schedule(rows, "14.07", "15.07")
+        assert [(e.model_name, e.time) for e in result] == [("A", "20:00"), ("B", "02:00"), ("C", "03:00")]
+
     def test_url_carried_through_to_entry(self):
         rows = [
             TangoRawRow(

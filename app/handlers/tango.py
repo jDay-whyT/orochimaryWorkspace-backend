@@ -52,7 +52,9 @@ async def cmd_tango(message: Message, config: Config, sheets: SheetsClient | Non
         await message.answer("Google Sheets не настроен (SHEET_ID / GOOGLE_SERVICE_ACCOUNT_JSON отсутствуют).")
         return
 
-    tomorrow_ddmm = (today(config.timezone) + timedelta(days=1)).strftime("%d.%m")
+    now = today(config.timezone)
+    tomorrow_ddmm = (now + timedelta(days=1)).strftime("%d.%m")
+    day_after_ddmm = (now + timedelta(days=2)).strftime("%d.%m")
 
     try:
         rows = await sheets.get_tab_rows(config.sheet_id, config.sheet_tab_name)
@@ -61,7 +63,7 @@ async def cmd_tango(message: Message, config: Config, sheets: SheetsClient | Non
         await message.answer("Не удалось получить расписание из Google Sheets, попробуй позже.")
         return
 
-    entries = build_tomorrow_schedule(rows, tomorrow_ddmm)
+    entries = build_tomorrow_schedule(rows, tomorrow_ddmm, day_after_ddmm)
 
     if not entries:
         await message.answer("На завтра ничего не запланировано")

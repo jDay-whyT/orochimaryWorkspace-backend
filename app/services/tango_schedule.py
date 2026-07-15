@@ -81,13 +81,25 @@ def sort_key(hour: int) -> int:
     return hour + 24 if hour < 6 else hour
 
 
-def build_tomorrow_schedule(rows: list[TangoRawRow], tomorrow_ddmm: str) -> list[TangoScheduleEntry]:
+def build_tomorrow_schedule(
+    rows: list[TangoRawRow], tomorrow_ddmm: str, day_after_ddmm: str | None = None
+) -> list[TangoScheduleEntry]:
+    """
+    Models are CIS/LatAm-based; a shift that starts in the evening runs into the early
+    morning of the next calendar date. Entries dated day_after_ddmm before 06:00 are the
+    tail of tomorrow's stream day, so they're pulled in and sorted to the end alongside
+    same-day 00:00-05:59 entries (see sort_key).
+    """
     result: list[TangoScheduleEntry] = []
     for row in rows:
         if is_paused_row(row.name_background):
             continue
         for entry in find_entries(row.week_text):
-            if entry["date"] != tomorrow_ddmm:
+            if entry["date"] == tomorrow_ddmm:
+                pass
+            elif entry["date"] == day_after_ddmm and entry["hour"] < 6:
+                pass
+            else:
                 continue
             fmt = _format_at(entry["start"], row.week_text_format_runs)
             if fmt.get("strikethrough"):
