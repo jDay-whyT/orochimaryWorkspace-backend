@@ -3,6 +3,7 @@ import logging
 from datetime import timedelta
 
 from aiogram import Router
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.filters import Command
 from aiogram.types import InputRichMessage, Message
 
@@ -26,6 +27,18 @@ def _build_message_html(entries: list[TangoScheduleEntry], tomorrow_ddmm: str) -
     header = f"<h3>Стримы на {tomorrow_ddmm} по Европе</h3>"
     footer = f"<footer>Всего стримов: {len(entries)}</footer>"
     return header + table + footer
+
+
+def _build_fallback_text(entries: list[TangoScheduleEntry], tomorrow_ddmm: str) -> str:
+    lines = [f"<b>Стримы на {tomorrow_ddmm} по Европе</b>", ""]
+    for entry in entries:
+        name = html.escape(entry.model_name)
+        if entry.url.startswith(("http://", "https://")):
+            name = f'<a href="{html.escape(entry.url)}">{name}</a>'
+        lines.append(f"{html.escape(entry.time)} — {name}")
+    lines.append("")
+    lines.append(f"Всего стримов: {len(entries)}")
+    return "\n".join(lines)
 
 
 @router.message(Command("tango"))
@@ -54,7 +67,12 @@ async def cmd_tango(message: Message, config: Config, sheets: SheetsClient | Non
         await message.answer("На завтра ничего не запланировано")
         return
 
-    await message.bot.send_rich_message(
-        chat_id=message.chat.id,
-        rich_message=InputRichMessage(html=_build_message_html(entries, tomorrow_ddmm)),
-    )
+    try:
+        await message.bot.send_rich_message(
+            chat_id=message.chat.id,
+            rich_message=InputRichMessage(html=_build_message_html(entries, tomorrow_ddmm)),
+            request_timeout=60,
+        )
+    except TelegramNetworkError as e:
+        LOGGER.warning("send_rich_message timed out, falling back to plain text: %s", e)
+        await message.answer(_build_fallback_text(entries, tomorrow_ddmm), parse_mode="HTML")
