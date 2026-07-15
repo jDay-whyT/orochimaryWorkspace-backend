@@ -86,16 +86,19 @@ def build_tomorrow_schedule(
 ) -> list[TangoScheduleEntry]:
     """
     Models are CIS/LatAm-based; a shift that starts in the evening runs into the early
-    morning of the next calendar date. Entries dated day_after_ddmm before 06:00 are the
-    tail of tomorrow's stream day, so they're pulled in and sorted to the end alongside
-    same-day 00:00-05:59 entries (see sort_key).
+    morning of the next calendar date, and gets logged in the sheet under that later
+    date. So a 00:00-05:59 entry always belongs to the *previous* stream day, never its
+    own literal date (this mirrors sort_key's "end of the previous stream day" rule —
+    it must apply to which day's list an entry belongs to, not just its sort position,
+    or a model with a recurring nightly 00:00-05:59 slot shows up twice in one list: once
+    under its own date's direct match, again as the next day's tail).
     """
     result: list[TangoScheduleEntry] = []
     for row in rows:
         if is_paused_row(row.name_background):
             continue
         for entry in find_entries(row.week_text):
-            if entry["date"] == tomorrow_ddmm:
+            if entry["date"] == tomorrow_ddmm and entry["hour"] >= 6:
                 pass
             elif entry["date"] == day_after_ddmm and entry["hour"] < 6:
                 pass

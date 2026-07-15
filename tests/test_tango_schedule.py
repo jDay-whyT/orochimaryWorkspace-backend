@@ -128,9 +128,9 @@ class TestBuildTomorrowSchedule:
         rows = [
             TangoRawRow(name="A", name_background=None, week_text="14.07 — 22:00", week_text_format_runs=None),
             TangoRawRow(name="B", name_background=None, week_text="14.07 — 09:00", week_text_format_runs=None),
-            TangoRawRow(name="C", name_background=None, week_text="14.07 — 01:00", week_text_format_runs=None),
+            TangoRawRow(name="C", name_background=None, week_text="15.07 — 01:00", week_text_format_runs=None),
         ]
-        result = build_tomorrow_schedule(rows, "14.07")
+        result = build_tomorrow_schedule(rows, "14.07", "15.07")
         assert [e.model_name for e in result] == ["B", "A", "C"]
 
     def test_pulls_in_early_morning_tail_from_day_after(self):
@@ -155,14 +155,36 @@ class TestBuildTomorrowSchedule:
         ]
         assert build_tomorrow_schedule(rows, "14.07") == []
 
-    def test_same_day_and_day_after_tail_both_included_and_ordered(self):
+    def test_same_date_early_morning_entry_excluded_belongs_to_previous_day(self):
+        # A "14.07 — 02:00" entry is the tail of 13.07's stream day, not 14.07's own —
+        # it would only show up when building *13.07*'s schedule (day_after="14.07").
+        rows = [
+            TangoRawRow(name="B", name_background=None, week_text="14.07 — 02:00", week_text_format_runs=None),
+        ]
+        assert build_tomorrow_schedule(rows, "14.07", "15.07") == []
+
+    def test_day_and_its_tail_ordered_correctly(self):
         rows = [
             TangoRawRow(name="A", name_background=None, week_text="14.07 — 20:00", week_text_format_runs=None),
-            TangoRawRow(name="B", name_background=None, week_text="14.07 — 02:00", week_text_format_runs=None),
             TangoRawRow(name="C", name_background=None, week_text="15.07 — 03:00", week_text_format_runs=None),
         ]
         result = build_tomorrow_schedule(rows, "14.07", "15.07")
-        assert [(e.model_name, e.time) for e in result] == [("A", "20:00"), ("B", "02:00"), ("C", "03:00")]
+        assert [(e.model_name, e.time) for e in result] == [("A", "20:00"), ("C", "03:00")]
+
+    def test_daily_recurring_early_slot_shows_once_not_twice(self):
+        # g_grace-style: same model streams at 01:00 every single date. The 14.07 entry
+        # belongs to 13.07's list; only the 15.07 (day-after) entry belongs to 14.07's.
+        rows = [
+            TangoRawRow(
+                name="Танго 23",
+                name_background=None,
+                week_text="13.07 — 01:00\n14.07 — 01:00\n15.07 — 01:00\n16.07 — 01:00",
+                week_text_format_runs=None,
+            )
+        ]
+        result = build_tomorrow_schedule(rows, "14.07", "15.07")
+        assert len(result) == 1
+        assert result[0].time == "01:00"
 
     def test_url_carried_through_to_entry(self):
         rows = [
