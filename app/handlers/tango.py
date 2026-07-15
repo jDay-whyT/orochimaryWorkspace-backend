@@ -29,6 +29,16 @@ def _build_message_html(entries: list[TangoScheduleEntry], tomorrow_ddmm: str) -
     return header + table + footer
 
 
+def _build_plain_copy(entries: list[TangoScheduleEntry], tomorrow_ddmm: str) -> str:
+    """Plain, link-free, markup-free copy — easy to select and copy-paste as-is."""
+    lines = [f"Стримы на {tomorrow_ddmm} по Европе", ""]
+    for entry in entries:
+        lines.append(f"{entry.time} — {entry.model_name}")
+    lines.append("")
+    lines.append(f"Всего стримов: {len(entries)}")
+    return "\n".join(lines)
+
+
 def _build_fallback_text(entries: list[TangoScheduleEntry], tomorrow_ddmm: str) -> str:
     lines = [f"<b>Стримы на {tomorrow_ddmm} по Европе</b>", ""]
     for entry in entries:
@@ -78,3 +88,5 @@ async def cmd_tango(message: Message, config: Config, sheets: SheetsClient | Non
     except TelegramNetworkError as e:
         LOGGER.warning("send_rich_message timed out, falling back to plain text: %s", e)
         await message.answer(_build_fallback_text(entries, tomorrow_ddmm), parse_mode="HTML")
+
+    await message.answer(_build_plain_copy(entries, tomorrow_ddmm))
