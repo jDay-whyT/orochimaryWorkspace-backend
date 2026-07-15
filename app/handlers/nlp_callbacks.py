@@ -261,7 +261,7 @@ async def _reject_stale(
         )
     except Exception:
         pass
-    await query.answer(STALE_MSG, show_alert=True)
+    await safe_query_answer(query, STALE_MSG, show_alert=True)
 
 
 async def _session_expired(
@@ -477,7 +477,7 @@ async def handle_nlp_callback(
 
         else:
             LOGGER.warning("Unknown NLP callback action: %s", action)
-            await query.answer("Unknown action", show_alert=True)
+            await safe_query_answer(query, "Unknown action", show_alert=True)
 
     except Exception as e:
         LOGGER.exception("Error in NLP callback: %s", e)
@@ -831,10 +831,10 @@ async def _handle_note_action(
     model_name = state.get("model_name", "")
 
     if not config.db_notes:
-        await query.answer("Заметки не настроены", show_alert=True)
+        await safe_query_answer(query, "Заметки не настроены", show_alert=True)
         return
     if not is_editor(user_id, config):
-        await query.answer("❌ Нет доступа", show_alert=True)
+        await safe_query_answer(query, "❌ Нет доступа", show_alert=True)
         return
 
     from app.keyboards.inline import nlp_back_keyboard
@@ -1656,7 +1656,7 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
 
     # Re-entry guard: prevent duplicate Notion writes on double-tap / Telegram retry
     if state.get("shoot_location_processing"):
-        await query.answer("Подождите...")
+        await safe_query_answer(query, "Подождите...")
         return
 
     model_id = state.get("model_id", "")
@@ -2558,7 +2558,7 @@ async def _handle_report_orders(query, config, notion, memory_state):
 
     orders = await orders_cache.get_cached_orders(notion, config, model_id)
     if not orders:
-        await query.answer("Нет открытых заказов", show_alert=True)
+        await safe_query_answer(query, "Нет открытых заказов", show_alert=True)
         return
 
     model_data = await notion.get_model(model_id)
@@ -2679,7 +2679,7 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
         return
 
     if value not in {"15", "30", "50", "20", "80"}:
-        await query.answer("Неизвестное значение", show_alert=True)
+        await safe_query_answer(query, "Неизвестное значение", show_alert=True)
         return
 
     count = int(value)
@@ -2762,7 +2762,7 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
 
     field_name = _get_field_for_content_type(content_type)
     if not field_name:
-        await query.answer("Неизвестный тип", show_alert=True)
+        await safe_query_answer(query, "Неизвестный тип", show_alert=True)
         return
 
     if not is_editor(user_id, config):
@@ -3187,7 +3187,7 @@ async def _handle_partial_received(query, parts, config, memory_state):
     chat_id, user_id = _state_ids_from_query(query)
 
     if not is_editor(user_id, config):
-        await query.answer("❌ Нет доступа", show_alert=True)
+        await safe_query_answer(query, "❌ Нет доступа", show_alert=True)
         return
 
     state = memory_state.get(chat_id, user_id)
