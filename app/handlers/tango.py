@@ -3,7 +3,7 @@ import logging
 from datetime import timedelta
 
 from aiogram import Router
-from aiogram.exceptions import TelegramNetworkError
+from aiogram.exceptions import TelegramAPIError, TelegramNetworkError
 from aiogram.filters import Command
 from aiogram.types import InputRichMessage, Message
 
@@ -86,7 +86,16 @@ async def cmd_tango(message: Message, config: Config, sheets: SheetsClient | Non
             request_timeout=60,
         )
     except TelegramNetworkError as e:
-        LOGGER.warning("send_rich_message timed out, falling back to plain text: %s", e)
+        # Timeout is ambiguous — Telegram may have accepted the send despite the
+        # slow response. Skip the fallback rather than risk a duplicate (see
+        # commit 8e6f4a4 for the same bug in the board handlers).
+        LOGGER.warning("send_rich_message timed out, skipping fallback: %s", e)
+        return
+    except TelegramAPIError as e:
+        # Any other API error (bad request, etc.) means the rich message
+        # definitely was not sent, so a plain-text fallback is safe here.
+        LOGGER.warning("send_rich_message failed, falling back to plain text: %s", e)
         await message.answer(_build_fallback_text(entries, tomorrow_ddmm), parse_mode="HTML")
+        return
 
     await message.answer(_build_plain_copy(entries, tomorrow_ddmm))

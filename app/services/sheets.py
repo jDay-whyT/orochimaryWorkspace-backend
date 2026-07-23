@@ -61,7 +61,7 @@ class SheetsClient:
         session = await self._get_session()
         url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
         params = {
-            "ranges": f"{tab_name}!A:C",
+            "ranges": "'{}'!A:C".format(tab_name.replace("'", "''")),
             "fields": GRID_FIELDS,
         }
         headers = {"Authorization": f"Bearer {token}"}
