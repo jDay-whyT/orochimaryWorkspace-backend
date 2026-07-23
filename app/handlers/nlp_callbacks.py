@@ -681,14 +681,15 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
                 record_status = record.status
             progress_line = format_accounting_progress(new_files, record_status)
             from app.keyboards.inline import nlp_action_complete_keyboard
-            await query.message.edit_text(
+            await safe_edit_message(
+                query,
                 f"✅ Файлы добавлены — <b>{html.escape(model_data.title)}</b>\n+<b>{count}</b> basic · итого <b>{new_files}</b>",
                 reply_markup=nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )
         except Exception as e:
             LOGGER.exception("Failed to add files: %s", e)
-            await query.message.edit_text("❌ Ошибка Notion — попробуй позже")
+            await safe_edit_message(query, "❌ Ошибка Notion — попробуй позже", parse_mode=None)
 
     elif intent == CommandIntent.CLOSE_ORDERS:
         # Close orders flow
@@ -1752,7 +1753,7 @@ async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state)
         memory_state.clear(chat_id, user_id)
     except Exception as e:
         LOGGER.exception("Failed to mark shoot as done: %s", e)
-        await query.message.edit_text("❌ Ошибка")
+        await safe_edit_message(query, "❌ Ошибка", parse_mode=None)
 
 
 async def _handle_shoot_select(query, parts, config, notion, memory_state):
@@ -1866,16 +1867,12 @@ async def _handle_order_type(query, parts, config, memory_state):
     from app.router.entities_v2 import get_order_type_display_name
     type_label = get_order_type_display_name(order_type)
     await _clear_previous_screen_keyboard(query, memory_state)
-    try:
-        msg = await query.message.edit_text(
-            f"📦 <b>{html.escape(model_name)}</b> · {type_label}\n\nСколько?",
-            reply_markup=nlp_order_qty_keyboard(state.get("model_id", ""), k),
-            parse_mode="HTML",
-        )
-    except TelegramBadRequest as e:
-        if "message is not modified" not in str(e):
-            raise
-        msg = None
+    msg = await safe_edit_message(
+        query,
+        f"📦 <b>{html.escape(model_name)}</b> · {type_label}\n\nСколько?",
+        reply_markup=nlp_order_qty_keyboard(state.get("model_id", ""), k),
+        parse_mode="HTML",
+    )
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
@@ -2100,7 +2097,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
 
         except Exception as e:
             LOGGER.exception("Failed to create orders: %s", e)
-            await query.message.edit_text("❌ Ошибка при создании заказов.")
+            await safe_edit_message(query, "❌ Ошибка при создании заказов.", parse_mode=None)
             memory_state.clear(chat_id, user_id)
 
     finally:
@@ -2438,7 +2435,8 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
         new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
         await notion.update_order_comment(order_id, new_comment)
         from app.keyboards.inline import nlp_action_complete_keyboard
-        await query.message.edit_text(
+        await safe_edit_message(
+            query,
             f"✅ Комментарий добавлен — <b>{html.escape(model_name)}</b>\n\"{(comment_text or '')[:40]}...\"",
             reply_markup=nlp_action_complete_keyboard(model_id),
             parse_mode="HTML",
@@ -2446,7 +2444,7 @@ async def _handle_comment_order(query, parts, config, notion, memory_state):
         memory_state.clear(chat_id, user_id)
     except Exception as e:
         LOGGER.exception("Failed to add comment: %s", e)
-        await query.message.edit_text("❌ Ошибка")
+        await safe_edit_message(query, "❌ Ошибка", parse_mode=None)
         memory_state.clear(chat_id, user_id)
 
 
@@ -2503,7 +2501,7 @@ async def _handle_disambig_files(query, parts, config, notion, memory_state, rec
         )
     except Exception as e:
         LOGGER.exception("Failed to add files: %s", e)
-        await query.message.edit_text("❌ Ошибка Notion — попробуй позже")
+        await safe_edit_message(query, "❌ Ошибка Notion — попробуй позже", parse_mode=None)
 
 
 async def _handle_disambig_orders(query, parts, config, notion, memory_state):
@@ -2818,7 +2816,7 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
         LOGGER.info("Added files by type: page=%s model=%s type=%s count=%d", page_id, model_id, content_type, count)
     except Exception as e:
         LOGGER.exception("Failed to add files by type: %s", e)
-        await query.message.edit_text("❌ Ошибка Notion — попробуй позже")
+        await safe_edit_message(query, "❌ Ошибка Notion — попробуй позже", parse_mode=None)
         memory_state.clear(chat_id, user_id)
     finally:
         _oc_in_progress.discard(_fct_key)

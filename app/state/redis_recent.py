@@ -24,8 +24,15 @@ class RedisRecentModels:
     def __post_init__(self) -> None:
         if self.redis_client is None:
             from redis.asyncio import Redis
+            from redis.backoff import ExponentialBackoff
+            from redis.retry import Retry
 
             kwargs = dict(self.redis_kwargs)
+            kwargs.setdefault("socket_keepalive", True)
+            kwargs.setdefault("health_check_interval", 30)
+            kwargs.setdefault("retry_on_timeout", True)
+            kwargs.setdefault("retry_on_error", [ConnectionError, TimeoutError])
+            kwargs.setdefault("retry", Retry(ExponentialBackoff(), 2))
             self.redis_client = Redis.from_url(self.redis_url, decode_responses=True, **kwargs)
             LOGGER.info("RedisRecentModels initialized: url=%s ttl=%s", self.redis_url[:30], self.ttl_seconds)
 
@@ -64,21 +71,33 @@ class RedisRecentModels:
         return []
 
     def add(self, user_id: int, model_id: str, model_title: str) -> None:
-        items = self._load_models(user_id)
+        # Best-effort LRU cache — a transient Redis error here must never
+        # break the caller's actual operation (e.g. an already-created order).
+        try:
+            items = self._load_models(user_id)
 
-        # stored as oldest -> newest internally
-        items = [item for item in items if item[0] != model_id]
-        items.append([model_id, model_title])
-        items = items[-self.max_size :]
+            # stored as oldest -> newest internally
+            items = [item for item in items if item[0] != model_id]
+            items.append([model_id, model_title])
+            items = items[-self.max_size :]
 
-        assert self.redis_client is not None
-        self._run(self.redis_client.set(self._key(user_id), json.dumps(items), ex=self.ttl_seconds))
+            assert self.redis_client is not None
+            self._run(self.redis_client.set(self._key(user_id), json.dumps(items), ex=self.ttl_seconds))
+        except Exception as e:
+            LOGGER.warning("RedisRecentModels.add failed, skipping: %s", e)
 
     def get(self, user_id: int) -> list[tuple[str, str]]:
-        items = self._load_models(user_id)
+        try:
+            items = self._load_models(user_id)
+        except Exception as e:
+            LOGGER.warning("RedisRecentModels.get failed, returning empty: %s", e)
+            return []
         items.reverse()  # return most recent first
         return [(item[0], item[1]) for item in items]
 
     def clear(self, user_id: int) -> None:
-        assert self.redis_client is not None
-        self._run(self.redis_client.delete(self._key(user_id)))
+        try:
+            assert self.redis_client is not None
+            self._run(self.redis_client.delete(self._key(user_id)))
+        except Exception as e:
+            LOGGER.warning("RedisRecentModels.clear failed, skipping: %s", e)

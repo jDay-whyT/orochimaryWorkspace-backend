@@ -32,8 +32,15 @@ class RedisMemoryState:
     def __post_init__(self) -> None:
         if self.redis_client is None:
             from redis.asyncio import Redis
+            from redis.backoff import ExponentialBackoff
+            from redis.retry import Retry
 
             kwargs = dict(self.redis_kwargs)
+            kwargs.setdefault("socket_keepalive", True)
+            kwargs.setdefault("health_check_interval", 30)
+            kwargs.setdefault("retry_on_timeout", True)
+            kwargs.setdefault("retry_on_error", [ConnectionError, TimeoutError])
+            kwargs.setdefault("retry", Retry(ExponentialBackoff(), 2))
             self.redis_client = Redis.from_url(self.redis_url, decode_responses=True, **kwargs)
             LOGGER.info("RedisMemoryState initialized: url=%s ttl=%s", self.redis_url[:30], self.ttl_seconds)
 
