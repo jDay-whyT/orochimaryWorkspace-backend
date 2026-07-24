@@ -162,7 +162,7 @@ class NotionClient:
                     payload = (await response.text()).strip()
                     short_payload = payload[:200] if payload else "<empty>"
 
-                    if response.status in {429, 500, 502, 503, 504} and attempt < retries:
+                    if response.status in {429, 500, 502, 503, 504, 520} and attempt < retries:
                         backoff = 2 ** attempt  # 1s, 2s, 4s
                         LOGGER.warning(
                             "Notion API retry %d/%d %s %s: %s (backoff=%.1fs)",
