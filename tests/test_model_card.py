@@ -17,9 +17,7 @@ import pytest
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.router.intent_v2 import classify_intent_v2
 from app.router.entities_v2 import extract_entities_v2
-from app.router.command_filters import CommandIntent
 from app.state.memory import MemoryState
 from app.state.token import generate_token
 from app.keyboards.inline import (
@@ -38,53 +36,28 @@ from app.handlers.nlp_callbacks import (
 # ============================================================================
 
 class TestModelNameToCard:
-    """When user types only a model name, intent should be SEARCH_MODEL."""
+    """When user types only a model name, it should resolve (triggers model card)."""
 
     def test_melisa_alone_is_search_model(self):
-        """'мелиса' -> SEARCH_MODEL (triggers model card)."""
-        text = "мелиса"
-        entities = extract_entities_v2(text)
-        intent = classify_intent_v2(
-            text,
-            has_model=entities.has_model,
-            has_numbers=entities.has_numbers,
-        )
-        assert intent == CommandIntent.SEARCH_MODEL
+        """'мелиса' -> resolves as model (triggers model card)."""
+        entities = extract_entities_v2("мелиса")
+        assert entities.has_model is True
         assert entities.model_name == "мелиса"
 
     def test_klesh_alone_is_search_model(self):
-        """'клещ' -> SEARCH_MODEL."""
-        text = "клещ"
-        entities = extract_entities_v2(text)
-        intent = classify_intent_v2(
-            text,
-            has_model=entities.has_model,
-            has_numbers=entities.has_numbers,
-        )
-        assert intent == CommandIntent.SEARCH_MODEL
+        """'клещ' -> resolves as model."""
+        entities = extract_entities_v2("клещ")
+        assert entities.has_model is True
 
-    def test_melisa_with_action_not_search(self):
-        """'мелиса файлы 30' -> ADD_FILES (NOT SEARCH_MODEL)."""
-        text = "мелиса файлы 30"
-        entities = extract_entities_v2(text)
-        intent = classify_intent_v2(
-            text,
-            has_model=entities.has_model,
-            has_numbers=entities.has_numbers,
-        )
-        assert intent == CommandIntent.ADD_FILES
-        assert intent != CommandIntent.SEARCH_MODEL
+    def test_melisa_with_old_keyword_still_resolves(self):
+        """'мелиса файлы 30' -> still resolves model 'мелиса' (keyword is a no-op now)."""
+        entities = extract_entities_v2("мелиса файлы 30")
+        assert entities.model_name == "мелиса"
 
-    def test_melisa_shoot_not_search(self):
-        """'съемка мелиса 09.02' -> SHOOT_CREATE (NOT SEARCH_MODEL)."""
-        text = "съемка мелиса 09.02"
-        entities = extract_entities_v2(text)
-        intent = classify_intent_v2(
-            text,
-            has_model=entities.has_model,
-            has_numbers=entities.has_numbers,
-        )
-        assert intent == CommandIntent.SHOOT_CREATE
+    def test_melisa_shoot_still_resolves(self):
+        """'съемка мелиса 09.02' -> still resolves model 'мелиса' (keyword is a no-op now)."""
+        entities = extract_entities_v2("съемка мелиса 09.02")
+        assert entities.model_name == "мелиса"
 
 
 # ============================================================================

@@ -1,7 +1,5 @@
 """Router module for NLP-based message routing."""
 
-# New v2 system (recommended)
-from app.router.intent_v2 import classify_intent_v2, get_intent_description
 from app.router.entities_v2 import extract_entities_v2, EntitiesV2
 from app.router.command_filters import CommandIntent
 from app.router.prefilter import prefilter_message
@@ -21,10 +19,7 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
-    # New v2 system
     "CommandIntent",
-    "classify_intent_v2",
-    "get_intent_description",
     "EntitiesV2",
     "extract_entities_v2",
     # Pre-filter

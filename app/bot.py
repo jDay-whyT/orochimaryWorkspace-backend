@@ -4,7 +4,7 @@ from typing import Any
 from aiogram import Bot, Dispatcher
 
 from app.config import Config
-from app.handlers import start, orders, planner, accounting, nlp_callbacks, notifications, group_manager, reddit, tango
+from app.handlers import start, nlp_callbacks, notifications, group_manager, reddit, tango
 from app.services import NotionClient
 from app.services.sheets import SheetsClient
 from app.state import MemoryState, RecentModels
@@ -18,11 +18,7 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, An
     dp = Dispatcher()
 
     # Register handlers in priority order:
-    # 1. Flow-specific routers with FlowFilter (only handle text when their flow is active)
     dp.include_router(notifications.router) # /shoots command
-    dp.include_router(orders.router)       # FlowFilter({"search", "new_order", "view", "comment"})
-    dp.include_router(planner.router)      # FlowFilter({"planner"})
-    dp.include_router(accounting.router)   # FlowFilter({"accounting"})
     dp.include_router(reddit.router)       # /reddit command
     dp.include_router(tango.router)        # /tango command
     # NLP callback router (handles nlp: prefixed callbacks, including report detail)

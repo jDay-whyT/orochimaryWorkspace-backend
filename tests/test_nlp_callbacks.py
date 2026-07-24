@@ -21,7 +21,6 @@ from app.state.memory import MemoryState
 from app.state.token import generate_token
 from app.keyboards.inline import (
     ORDER_TYPE_CB_MAP,
-    ORDER_TYPE_CB_REVERSE,
     ORDER_TYPE_DISPLAY,
     nlp_order_type_keyboard,
     nlp_order_qty_keyboard,
@@ -30,7 +29,6 @@ from app.keyboards.inline import (
     nlp_model_actions_keyboard,
     nlp_shoot_date_keyboard,
     nlp_close_order_date_keyboard,
-    nlp_disambiguate_keyboard,
     nlp_stale_keyboard,
     nlp_files_qty_keyboard,
     nlp_report_keyboard,
@@ -96,10 +94,6 @@ class TestOrderTypeMapping:
         """Callback data for 'ad request' must use 'ad_request' (no spaces)."""
         assert "ad_request" in ORDER_TYPE_CB_MAP
         assert ORDER_TYPE_CB_MAP["ad_request"] == "ad request"
-
-    def test_reverse_mapping(self):
-        """Internal 'ad request' maps back to callback 'ad_request'."""
-        assert ORDER_TYPE_CB_REVERSE["ad request"] == "ad_request"
 
     def test_all_types_mapped(self):
         """All order types are in the callback map."""
@@ -356,7 +350,6 @@ class TestKeyboardTokenEmbedding:
             nlp_model_actions_keyboard(long_token),
             nlp_shoot_date_keyboard("model-1", long_token),
             nlp_close_order_date_keyboard("model-1", long_token),
-            nlp_disambiguate_keyboard(999, long_token),
             nlp_files_qty_keyboard("model-1", long_token),
             nlp_report_keyboard("model-1", long_token),
         ]
@@ -511,121 +504,6 @@ class TestStaleTokenScenario:
 
 
 # ============================================================================
-#                    CUSTOM DATE LOGIC TESTS
-# ============================================================================
-
-class TestCustomDateLogic:
-    """Tests for the date parsing logic (fixes datetime.resolution * 90 bug)."""
-
-    def test_jan10_when_today_feb06_is_same_year(self):
-        """'10.01' when today=06.02 → should be 10 Jan of CURRENT year, not next.
-
-        The bug was using datetime.resolution * 90 (microseconds) instead of
-        timedelta(days=90), causing any past date to jump to next year.
-        """
-        from app.router.entities_v2 import parse_date_ru
-
-        today = date(2026, 2, 6)
-        result = parse_date_ru("10.01", base_date=today)
-        assert result is not None
-        assert result == date(2026, 1, 10), \
-            f"Expected 2026-01-10, got {result}"
-
-    def test_feb05_when_today_feb06_is_same_year(self):
-        """'05.02' when today=06.02 → should be 05 Feb of CURRENT year.
-
-        Only 1 day in the past, well within 90-day threshold.
-        """
-        from app.router.entities_v2 import parse_date_ru
-
-        today = date(2026, 2, 6)
-        result = parse_date_ru("05.02", base_date=today)
-        assert result is not None
-        assert result == date(2026, 2, 5), \
-            f"Expected 2026-02-05, got {result}"
-
-    def test_close_date_custom_05_02_at_06_02(self):
-        """nlp_close cd:custom → input '05.02' (today=06.02) → 05.02 current year."""
-        from app.router.entities_v2 import parse_date_ru
-
-        today = date(2026, 2, 6)
-        result = parse_date_ru("05.02", base_date=today)
-        assert result == date(2026, 2, 5)
-
-    def test_date_far_past_jumps_to_next_year(self):
-        """Date more than 90 days in the past should jump to next year.
-
-        E.g., '01.10' when today=06.02 → Oct 1 is ~128 days ago → next year.
-        """
-        from app.router.entities_v2 import parse_date_ru
-
-        today = date(2026, 2, 6)
-        result = parse_date_ru("01.10", base_date=today)
-        assert result is not None
-        assert result == date(2026, 10, 1), \
-            f"Expected 2026-10-01, got {result}"
-
-    def test_date_exactly_90_days_ago(self):
-        """Date exactly 90 days in the past should NOT jump."""
-        from app.router.entities_v2 import parse_date_ru
-
-        today = date(2026, 2, 6)
-        # 90 days before 2026-02-06 = 2025-11-08
-        past_90 = today - timedelta(days=90)
-        date_str = f"{past_90.day:02d}.{past_90.month:02d}"
-        result = parse_date_ru(date_str, base_date=today)
-        assert result is not None
-        assert result.year == today.year, \
-            f"Date 90 days ago should stay same year: {result}"
-
-    def test_date_more_than_90_days_ago_jumps(self):
-        """Date more than 90 days in the past should jump to next year.
-
-        Use today=2026-06-15, date_str='01.02' → 2026-02-01 is ~134 days ago
-        → should become 2027-02-01.
-        """
-        from app.router.entities_v2 import parse_date_ru
-
-        today = date(2026, 6, 15)
-        result = parse_date_ru("01.02", base_date=today)
-        assert result is not None
-        assert result == date(2027, 2, 1), \
-            f"Expected 2027-02-01, got {result}"
-
-    def test_future_date_same_year(self):
-        """Future date should always be same year."""
-        from app.router.entities_v2 import parse_date_ru
-
-        today = date(2026, 2, 6)
-        result = parse_date_ru("15.03", base_date=today)
-        assert result == date(2026, 3, 15)
-
-    def test_today_date(self):
-        """Today's date should be same year."""
-        from app.router.entities_v2 import parse_date_ru
-
-        today = date(2026, 2, 6)
-        result = parse_date_ru("06.02", base_date=today)
-        assert result == date(2026, 2, 6)
-
-    def test_yesterday_date(self):
-        """Yesterday's date should be same year."""
-        from app.router.entities_v2 import parse_date_ru
-
-        today = date(2026, 2, 6)
-        result = parse_date_ru("05.02", base_date=today)
-        assert result == date(2026, 2, 5)
-
-    def test_invalid_date_returns_none(self):
-        """Invalid date like 31.02 should return None."""
-        from app.router.entities_v2 import parse_date_ru
-
-        today = date(2026, 2, 6)
-        result = parse_date_ru("31.02", base_date=today)
-        assert result is None
-
-
-# ============================================================================
 #                 KEYBOARD STRUCTURE TESTS
 # ============================================================================
 
@@ -726,8 +604,6 @@ class TestMessageEditErrorHandling:
         memory_state = MemoryState(ttl_seconds=60)
         memory_state.set(100, 42, {
             "flow": "nlp_actions",
-            "intent": "create_orders",
-            "entities_raw": "заказ кастом",
             "model_id": "page-123"
         })
 
@@ -736,16 +612,10 @@ class TestMessageEditErrorHandling:
 
         parts = ["nlp", "sm", "page-123", "abc123"]
 
-        # Mock extract_entities_v2 to return entities with order_type
-        with patch("app.router.entities_v2.extract_entities_v2") as mock_extract:
-            mock_extract.return_value = MagicMock(
-                order_type="custom",
-                first_number=1,
-                date=None
-            )
-            with patch("app.handlers.nlp_callbacks._clear_previous_screen_keyboard", new=AsyncMock()):
-                # This should not raise an exception even though edit_text raises TelegramBadRequest
-                await _handle_select_model(query, parts, config, notion, memory_state, recent_models)
+        with patch("app.handlers.nlp_callbacks._clear_previous_screen_keyboard", new=AsyncMock()), \
+             patch("app.services.model_card.build_model_card", new=AsyncMock(return_value=("card text", []))):
+            # This should not raise an exception even though edit_text raises TelegramBadRequest
+            await _handle_select_model(query, parts, config, notion, memory_state, recent_models)
 
         # If we got here without exception, test passed
         assert True

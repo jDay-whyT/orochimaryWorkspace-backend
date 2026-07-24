@@ -13,8 +13,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 from app.router.prefilter import STOP_WORDS, is_stop_word, looks_like_model_name
 from app.router.entities_v2 import extract_entities_v2, validate_model_name
-from app.router.intent_v2 import classify_intent_v2
-from app.router.command_filters import CommandIntent
 from app.state.memory import MemoryState
 from app.state.token import generate_token
 from app.keyboards.inline import model_card_keyboard
@@ -43,27 +41,10 @@ class TestStopWordsNotSearchModel:
 
     @pytest.mark.parametrize("word", GARBAGE_WORDS)
     def test_stop_word_not_search_model_intent(self, word):
-        """Stop-word should not produce SEARCH_MODEL intent."""
+        """Stop-word should not resolve to a model (has_model must be False)."""
         entities = extract_entities_v2(word)
-        intent = classify_intent_v2(
-            word,
-            has_model=entities.has_model,
-            has_numbers=entities.has_numbers,
-        )
-        assert intent != CommandIntent.SEARCH_MODEL, \
-            f"'{word}' triggered SEARCH_MODEL"
-
-    @pytest.mark.parametrize("word", GARBAGE_WORDS)
-    def test_stop_word_yields_unknown(self, word):
-        """Stop-word should produce UNKNOWN intent."""
-        entities = extract_entities_v2(word)
-        intent = classify_intent_v2(
-            word,
-            has_model=entities.has_model,
-            has_numbers=entities.has_numbers,
-        )
-        assert intent == CommandIntent.UNKNOWN, \
-            f"'{word}' should be UNKNOWN, got {intent}"
+        assert entities.has_model is False, \
+            f"'{word}' was treated as a model"
 
     def test_is_stop_word_function(self):
         """is_stop_word should detect stop-words."""
@@ -105,14 +86,10 @@ class TestLooksLikeModelName:
         assert looks_like_model_name("bcdfg") is False
 
     def test_real_model_name_is_still_search_model(self):
-        """A real model name like 'мелиса' should still trigger SEARCH_MODEL."""
+        """A real model name like 'мелиса' should still resolve as a model."""
         entities = extract_entities_v2("мелиса")
-        intent = classify_intent_v2(
-            "мелиса",
-            has_model=entities.has_model,
-            has_numbers=entities.has_numbers,
-        )
-        assert intent == CommandIntent.SEARCH_MODEL
+        assert entities.has_model is True
+        assert entities.model_name == "мелиса"
 
 
 # ============================================================================

@@ -4,11 +4,10 @@ Main routing dispatcher for NLP messages.
 Routing pipeline:
 1. State Check → есть ли активный flow?
 2. Pre-filter → gibberish, длина < 2, bot commands
-3. Intent Classification (priority-based)
-4. Model Resolution (aliases + fuzzy)
-5. Entity Extraction (numbers, dates, types)
-6. Validation & Parameter Collection
-7. Execute Handler
+3. Entity Extraction → model name
+4. Intent Classification (SEARCH_MODEL / UNKNOWN)
+5. Model Resolution (aliases + fuzzy)
+6. Execute Handler
 """
 
 import asyncio
@@ -26,35 +25,17 @@ from app.services import orders as orders_cache
 from app.state import MemoryState, RecentModels, generate_token
 
 from app.router.prefilter import prefilter_message
-from app.router.intent_v2 import classify_intent_v2
 from app.router.entities_v2 import (
     extract_entities_v2,
     validate_model_name,
-    get_order_type_display_name,
 )
 from app.router.command_filters import CommandIntent
 from app.router.model_resolver import resolve_model
 from app.utils.formatting import format_appended_comment, MAX_COMMENT_LENGTH
-from app.utils.accounting import calculate_accounting_progress, format_accounting_progress
-from app.utils import PAGE_SIZE
 from app.utils.telegram import safe_answer
 
 
 LOGGER = logging.getLogger(__name__)
-
-# Flows that have FlowFilter-equipped handlers — route_message defers to them.
-_FLOW_FILTER_FLOWS = {
-    "search", "new_order", "view", "comment",
-    "summary", "planner", "accounting",
-}
-# Subset that actually expects free-text input; callback-only flows must not
-# swallow text messages.
-_TEXT_INPUT_FLOWS = {
-    "search",
-    "new_order",
-    "comment",
-    "accounting",
-}
 
 async def _safe_edit_reply_markup(bot, chat_id: int, message_id: int) -> None:
     try:
@@ -170,23 +151,7 @@ async def route_message(
     user_state = memory_state.get(chat_id, user_id)
     if user_state and user_state.get("flow"):
         current_flow = user_state["flow"]
-        if current_flow in _FLOW_FILTER_FLOWS:
-            if current_flow in _TEXT_INPUT_FLOWS:
-                LOGGER.info(
-                    "ROUTE_MESSAGE SKIP: user=%s active flow=%s, deferring to FlowFilter",
-                    user_id,
-                    current_flow,
-                )
-                return  # Let FlowFilter-based handlers pick this up
-            LOGGER.warning(
-                "ROUTE_MESSAGE stale callback-only flow=%s for user=%s, clearing state and continuing NLP routing",
-                current_flow,
-                user_id,
-            )
-            await _mark_screen_done(message, memory_state)
-            memory_state.clear(chat_id, user_id)
-
-        elif current_flow.startswith("nlp_"):
+        if current_flow.startswith("nlp_"):
             if current_flow == "nlp_disambiguate":
                 await _mark_screen_done(message, memory_state)
                 memory_state.clear(chat_id, user_id)
@@ -232,22 +197,13 @@ async def route_message(
     _t = time.time()
     entities = extract_entities_v2(text)
     LOGGER.info(
-        "Stage entities_extraction: %.3fs | model=%s, numbers=%s, type=%s, date=%s",
-        time.time() - _t,
-        entities.model_name, entities.numbers, entities.order_type, entities.date,
+        "Stage entities_extraction: %.3fs | model=%s",
+        time.time() - _t, entities.model_name,
     )
 
     # ===== Step 4: Intent Classification =====
-    _t = time.time()
-    intent = classify_intent_v2(
-        text,
-        has_model=entities.has_model,
-        has_numbers=entities.has_numbers,
-    )
-    LOGGER.info(
-        "Stage intent_classification: %.3fs | intent=%s for text=%r",
-        time.time() - _t, intent.value, text[:60],
-    )
+    intent = CommandIntent.SEARCH_MODEL if entities.has_model else CommandIntent.UNKNOWN
+    LOGGER.info("intent=%s for text=%r", intent.value, text[:60])
 
     # ===== Step 5: Model Resolution =====
     model = None
@@ -284,8 +240,6 @@ async def route_message(
             # Store intent in memory (keyboard only carries model_id)
             memory_state.set(chat_id, user_id, {
                 "flow": "nlp_disambiguate",
-                "intent": intent.value,
-                "entities_raw": text,
                 "k": k,
             })
             await message.answer(
@@ -303,8 +257,6 @@ async def route_message(
             # Store intent in memory (keyboard only carries model_id)
             memory_state.set(chat_id, user_id, {
                 "flow": "nlp_disambiguate",
-                "intent": intent.value,
-                "entities_raw": text,
                 "k": k,
             })
             await message.answer(
@@ -366,13 +318,7 @@ async def route_message(
 
 def _intent_requires_model(intent: CommandIntent) -> bool:
     """Check if intent requires a model to be resolved."""
-    no_model_intents = {
-        CommandIntent.UNKNOWN,
-        CommandIntent.SHOW_ORDERS,
-        CommandIntent.SHOW_PLANNER,
-        CommandIntent.SHOW_ACCOUNT,
-    }
-    return intent not in no_model_intents
+    return intent != CommandIntent.UNKNOWN
 
 
 async def _execute_handler(
@@ -387,89 +333,6 @@ async def _execute_handler(
     recent_models: RecentModels,
 ) -> None:
     """Execute the appropriate handler based on intent."""
-
-    # ===== MENU COMMANDS (no model) =====
-
-    if intent == CommandIntent.SHOW_ORDERS:
-        from app.handlers.orders import show_orders_menu
-        await show_orders_menu(message, config)
-        return
-
-    if intent == CommandIntent.SHOW_PLANNER:
-        from app.handlers.planner import show_planner_menu
-        await show_planner_menu(message, config)
-        return
-
-    if intent == CommandIntent.SHOW_ACCOUNT:
-        from app.handlers.accounting import show_accounting_menu
-        await show_accounting_menu(message, config)
-        return
-
-    # ===== SHOOT DOMAIN (priority 100) =====
-
-    if intent == CommandIntent.SHOOT_CREATE:
-        await _handle_shoot_create(message, model, entities, config, notion, memory_state, recent_models)
-        return
-
-    if intent == CommandIntent.SHOOT_DONE:
-        await _handle_shoot_done(message, model, entities, config, notion, memory_state)
-        return
-
-    if intent == CommandIntent.SHOOT_RESCHEDULE:
-        await _handle_shoot_reschedule(message, model, entities, config, notion, memory_state)
-        return
-
-    # ===== FILES DOMAIN (priority 90) =====
-
-    if intent == CommandIntent.ADD_FILES:
-        from app.handlers.accounting import handle_add_files_nlp
-        await handle_add_files_nlp(message, model, entities, config, notion, recent_models)
-        return
-
-    # ===== ORDERS WITH TYPE (priority 80) =====
-
-    if intent == CommandIntent.CREATE_ORDERS:
-        from app.handlers.orders import handle_create_orders_nlp
-        await handle_create_orders_nlp(message, model, entities, config, notion, memory_state)
-        return
-
-    # ===== ORDERS GENERAL (priority 70) =====
-
-    if intent == CommandIntent.CREATE_ORDERS_GENERAL:
-        await _handle_create_orders_general(message, model, entities, config, memory_state)
-        return
-
-    # ===== ORDERS CLOSE (priority 60) =====
-
-    if intent == CommandIntent.CLOSE_ORDERS:
-        await _handle_close_orders(message, model, entities, config, notion, memory_state)
-        return
-
-    # ===== COMMENT (priority 55) =====
-
-    if intent == CommandIntent.ADD_COMMENT:
-        await _handle_add_comment(message, model, entities, config, notion, memory_state)
-        return
-
-    # ===== MODEL ACTIONS (priority 50) =====
-
-    if intent == CommandIntent.SHOW_MODEL_ORDERS:
-        await _handle_show_model_orders(message, model, config, notion)
-        return
-
-    # ===== FILES STATS (priority 35) =====
-
-    if intent == CommandIntent.FILES_STATS:
-        await _handle_files_stats(message, model, config, notion)
-        return
-
-    # ===== AMBIGUOUS (priority 30) =====
-
-    if intent == CommandIntent.AMBIGUOUS:
-        await _handle_ambiguous(message, model, entities, config, memory_state)
-        return
-
-    # ===== SEARCH MODEL (priority 0) =====
 
     if intent == CommandIntent.SEARCH_MODEL:
         if model:
@@ -506,495 +369,8 @@ async def _execute_handler(
 
 
 # ============================================================================
-#                         SHOOT HANDLERS
+#                    SHOOT COMMENT INPUT (button-driven nlp_shoot flow)
 # ============================================================================
-
-async def _handle_shoot_create(message, model, entities, config, notion, memory_state, recent_models):
-    """Handle shoot creation via NLP."""
-    from app.roles import is_editor
-    if not is_editor(message.from_user.id, config):
-        await message.answer("❌ Нет прав для создания съемок.")
-        return
-
-    model_id = model["id"]
-    model_name = model["name"]
-    chat_id = message.chat.id
-
-    if entities.date:
-        # Date provided — create or update shoot
-        try:
-            # Check for existing shoot on this date
-            existing = await notion.query_upcoming_shoots(
-                config.db_planner,
-                model_page_id=model_id,
-            )
-            existing_on_date = [
-                s for s in existing
-                if s.date and s.date == entities.date.isoformat()
-            ]
-
-            from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
-            if existing_on_date:
-                # Update existing shoot
-                shoot = existing_on_date[0]
-                await notion.update_shoot_status(shoot.page_id, "scheduled")
-                await message.answer(
-                    f"✅ Съемка обновлена на {entities.date.strftime('%d.%m')}",
-                    reply_markup=_nlp_action_complete_keyboard(model_id),
-                    parse_mode="HTML",
-                )
-            else:
-                # Create new shoot
-                title = f"{model_name} · {entities.date.strftime('%d.%m')}"
-                await notion.create_shoot(
-                    database_id=config.db_planner,
-                    model_page_id=model_id,
-                    shoot_date=entities.date,
-                    content=[],
-                    location="home",
-                    title=title,
-                )
-                await message.answer(
-                    f"✅ Съемка создана на {entities.date.strftime('%d.%m')}",
-                    reply_markup=_nlp_action_complete_keyboard(model_id),
-                    parse_mode="HTML",
-                )
-
-            recent_models.add(message.from_user.id, model_id, model_name)
-
-        except Exception as e:
-            LOGGER.exception("Failed to create shoot: %s", e)
-            await message.answer("❌ Ошибка при создании съемки.")
-    else:
-        # No date — ask for date
-        from app.keyboards.inline import nlp_shoot_date_keyboard
-        k = generate_token()
-        memory_state.set(chat_id, message.from_user.id, {
-            "flow": "nlp_shoot",
-            "step": "awaiting_date",
-            "model_id": model_id,
-            "model_name": model_name,
-            "k": k,
-        })
-        await _clear_previous_screen_keyboard(message, memory_state)
-        sent = await message.answer(
-            f"📅 <b>{html.escape(model_name)}</b> · Дата съемки:",
-            reply_markup=nlp_shoot_date_keyboard(model_id, k),
-            parse_mode="HTML",
-        )
-        _remember_screen_message(
-            memory_state,
-            chat_id,
-            message.from_user.id,
-            sent.message_id if sent else None,
-        )
-
-
-async def _handle_shoot_done(message, model, entities, config, notion, memory_state):
-    """Handle marking a shoot as done."""
-    from app.roles import is_editor
-    if not is_editor(message.from_user.id, config):
-        await message.answer("❌ Нет прав.")
-        return
-
-    model_id = model["id"]
-    model_name = model["name"]
-    chat_id = message.chat.id
-
-    try:
-        shoots = await notion.query_upcoming_shoots(
-            config.db_planner,
-            model_page_id=model_id,
-        )
-
-        if not shoots:
-            await message.answer(f"✅ Нет запланированных съемок для {html.escape(model_name)}", parse_mode="HTML")
-            return
-
-        # If date specified — find that specific shoot
-        if entities.date:
-            target = [s for s in shoots if s.date == entities.date.isoformat()]
-            if target:
-                await notion.update_shoot_status(target[0].page_id, "done")
-                from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
-                await message.answer(
-                    f"✅ Съемка на {entities.date.strftime('%d.%m')} выполнена",
-                    reply_markup=_nlp_action_complete_keyboard(model_id),
-                    parse_mode="HTML",
-                )
-                return
-            await message.answer(
-                f"❌ Съемка на {entities.date.strftime('%d.%m')} не найдена",
-                parse_mode="HTML",
-            )
-            return
-
-        # No date — disambiguate
-        if len(shoots) == 1:
-            from app.keyboards.inline import nlp_shoot_confirm_done_keyboard
-            shoot = shoots[0]
-            date_str = shoot.date[:10] if shoot.date else "?"
-            await _clear_previous_screen_keyboard(message, memory_state)
-            sent = await message.answer(
-                f"Отметить '{date_str}' как выполненную?",
-                reply_markup=nlp_shoot_confirm_done_keyboard(shoot.page_id),
-                parse_mode="HTML",
-            )
-            _remember_screen_message(
-                memory_state,
-                chat_id,
-                message.from_user.id,
-                sent.message_id if sent else None,
-            )
-        else:
-            from app.keyboards.inline import nlp_shoot_select_keyboard
-            await _clear_previous_screen_keyboard(message, memory_state)
-            sent = await message.answer(
-                f"📅 <b>{html.escape(model_name)}</b> · Выберите съемку:",
-                reply_markup=nlp_shoot_select_keyboard(shoots, "done", model_id),
-                parse_mode="HTML",
-            )
-            _remember_screen_message(
-                memory_state,
-                chat_id,
-                message.from_user.id,
-                sent.message_id if sent else None,
-            )
-
-    except Exception as e:
-        LOGGER.exception("Failed to handle shoot done: %s", e)
-        await message.answer("❌ Ошибка.")
-
-
-async def _handle_shoot_reschedule(message, model, entities, config, notion, memory_state):
-    """Handle shoot reschedule."""
-    from app.roles import is_editor
-    if not is_editor(message.from_user.id, config):
-        await message.answer("❌ Нет прав.")
-        return
-
-    model_id = model["id"]
-    model_name = model["name"]
-    chat_id = message.chat.id
-
-    try:
-        shoots = await notion.query_upcoming_shoots(
-            config.db_planner,
-            model_page_id=model_id,
-        )
-
-        if not shoots:
-            await message.answer(f"✅ Нет запланированных съемок для {html.escape(model_name)}", parse_mode="HTML")
-            return
-
-        # If only one shoot — start reschedule flow
-        if len(shoots) == 1:
-            shoot = shoots[0]
-            from app.keyboards.inline import nlp_shoot_date_keyboard
-            k = generate_token()
-            memory_state.set(chat_id, message.from_user.id, {
-                "flow": "nlp_shoot",
-                "step": "awaiting_new_date",
-                "shoot_id": shoot.page_id,
-                "model_id": model_id,
-                "model_name": model_name,
-                "old_date": shoot.date,
-                "k": k,
-            })
-            date_str = shoot.date[:10] if shoot.date else "?"
-            await _clear_previous_screen_keyboard(message, memory_state)
-            sent = await message.answer(
-                f"📅 Перенос съемки {date_str}\n\nНовая дата:",
-                reply_markup=nlp_shoot_date_keyboard(model_id, k),
-                parse_mode="HTML",
-            )
-            _remember_screen_message(
-                memory_state,
-                chat_id,
-                message.from_user.id,
-                sent.message_id if sent else None,
-            )
-        else:
-            from app.keyboards.inline import nlp_shoot_select_keyboard
-            await _clear_previous_screen_keyboard(message, memory_state)
-            sent = await message.answer(
-                f"📅 <b>{html.escape(model_name)}</b> · Какую съемку перенести?",
-                reply_markup=nlp_shoot_select_keyboard(shoots, "reschedule", model_id),
-                parse_mode="HTML",
-            )
-            _remember_screen_message(
-                memory_state,
-                chat_id,
-                message.from_user.id,
-                sent.message_id if sent else None,
-            )
-
-    except Exception as e:
-        LOGGER.exception("Failed to handle shoot reschedule: %s", e)
-        await message.answer("❌ Ошибка.")
-
-
-# ============================================================================
-#                      ORDER HANDLERS (General / Close)
-# ============================================================================
-
-async def _handle_create_orders_general(message, model, entities, config, memory_state):
-    """Handle general order creation (type not specified → ask)."""
-    from app.roles import is_editor
-    if not is_editor(message.from_user.id, config):
-        await message.answer("❌ Нет прав.")
-        return
-
-    from app.keyboards.inline import nlp_order_type_keyboard
-    k = generate_token()
-    chat_id = message.chat.id
-    memory_state.set(chat_id, message.from_user.id, {
-        "flow": "nlp_order",
-        "step": "awaiting_type",
-        "model_id": model["id"],
-        "model_name": model["name"],
-        "k": k,
-    })
-    await _clear_previous_screen_keyboard(message, memory_state)
-    sent = await message.answer(
-        f"📦 <b>{html.escape(model['name'])}</b> · Тип заказа:",
-        reply_markup=nlp_order_type_keyboard(model["id"], k),
-        parse_mode="HTML",
-    )
-    _remember_screen_message(
-        memory_state,
-        chat_id,
-        message.from_user.id,
-        sent.message_id if sent else None,
-    )
-
-
-async def _handle_close_orders(message, model, entities, config, notion, memory_state):
-    """Handle order closing."""
-    from app.roles import is_editor
-    if not is_editor(message.from_user.id, config):
-        await message.answer("❌ Нет прав.")
-        return
-
-    model_id = model["id"]
-    model_name = model["name"]
-    chat_id = message.chat.id
-
-    try:
-        # Query open orders, optionally filtered by type
-        orders = await notion.query_open_orders(
-            config.db_orders,
-            model_page_id=model_id,
-        )
-
-        # If order type specified, filter
-        if entities.order_type:
-            orders = [o for o in orders if o.order_type == entities.order_type]
-
-        if not orders:
-            type_label = get_order_type_display_name(entities.order_type) if entities.order_type else "заказов"
-            from app.keyboards.inline import nlp_back_keyboard
-            await _clear_previous_screen_keyboard(message, memory_state)
-            sent = await message.answer(
-                f"✅ Нет открытых {type_label} для {html.escape(model_name)}",
-                reply_markup=nlp_back_keyboard(model_id),
-                parse_mode="HTML",
-            )
-            _remember_screen_message(
-                memory_state,
-                chat_id,
-                message.from_user.id,
-                sent.message_id if sent else None,
-            )
-            return
-
-        orders.sort(key=lambda o: o.in_date or "9999-99-99")
-        total_pages = max(1, (len(orders) + PAGE_SIZE - 1) // PAGE_SIZE)
-        page = 1
-        page_orders = orders[:PAGE_SIZE]
-
-        from app.keyboards.inline import nlp_close_order_select_keyboard
-        memory_state.set(chat_id, message.from_user.id, {
-            "flow": "nlp_close_picker",
-            "step": "selecting",
-            "model_id": model_id,
-            "model_name": model_name,
-            "orders": orders,
-            "page": page,
-        })
-        await _clear_previous_screen_keyboard(message, memory_state)
-        sent = await message.answer(
-            f"📦 <b>{html.escape(model_name)}</b> · Выберите заказ:",
-            reply_markup=nlp_close_order_select_keyboard(
-                page_orders,
-                page,
-                total_pages,
-                model_id,
-            ),
-            parse_mode="HTML",
-        )
-        _remember_screen_message(
-            memory_state,
-            chat_id,
-            message.from_user.id,
-            sent.message_id if sent else None,
-        )
-
-    except Exception as e:
-        LOGGER.exception("Failed to handle close orders: %s", e)
-        await message.answer("❌ Ошибка при поиске заказов.")
-
-
-# ============================================================================
-#                      COMMENT / FILES STATS / AMBIGUOUS
-# ============================================================================
-
-async def _handle_add_comment(message, model, entities, config, notion, memory_state):
-    """Handle adding a comment."""
-    from app.roles import is_editor
-
-    if not is_editor(message.from_user.id, config):
-        await message.answer("❌ Нет доступа.")
-        return
-
-    if not entities.comment_text:
-        await message.answer("❌ Укажите текст комментария. Пример: 'мелиса заказ коммент: текст'")
-        return
-
-    if entities.comment_target:
-        # Target known — handle directly
-        if entities.comment_target == "order":
-            await _add_comment_to_order(message, model, entities, config, notion, memory_state)
-        elif entities.comment_target == "shoot":
-            await _add_comment_to_shoot(message, model, entities, config, notion, memory_state)
-        else:
-            await message.answer("❌ Комментарии к учету пока не поддержаны.")
-    else:
-        # Target unknown — ask
-        from app.keyboards.inline import nlp_comment_target_keyboard
-        k = generate_token()
-        chat_id = message.chat.id
-        memory_state.set(chat_id, message.from_user.id, {
-            "flow": "nlp_comment",
-            "step": "awaiting_target",
-            "model_id": model["id"],
-            "model_name": model["name"],
-            "comment_text": entities.comment_text,
-            "k": k,
-        })
-        await _clear_previous_screen_keyboard(message, memory_state)
-        sent = await message.answer(
-            "Что комментировать?",
-            reply_markup=nlp_comment_target_keyboard(model["id"], k),
-            parse_mode="HTML",
-        )
-        _remember_screen_message(
-            memory_state,
-            chat_id,
-            message.from_user.id,
-            sent.message_id if sent else None,
-        )
-
-
-async def _add_comment_to_order(message, model, entities, config, notion, memory_state):
-    """Add comment to an order."""
-    try:
-        orders = await notion.query_open_orders(config.db_orders, model_page_id=model["id"])
-        if not orders:
-            await message.answer("❌ Нет открытых заказов для этой модели.")
-            return
-
-        if len(orders) == 1:
-            order = orders[0]
-            existing = order.comments or ""
-            new_comment = format_appended_comment(existing, entities.comment_text, tz=config.timezone)
-            await notion.update_order_comment(order.page_id, new_comment)
-            model_name = model["name"]
-            comment_text = entities.comment_text
-            from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
-            await message.answer(
-                f"✅ Комментарий добавлен — <b>{html.escape(model_name)}</b>\n"
-                f"\"{comment_text[:40]}...\"",
-                reply_markup=_nlp_action_complete_keyboard(model["id"]),
-                parse_mode="HTML",
-            )
-        else:
-            from app.keyboards.inline import nlp_comment_order_select_keyboard
-            k = generate_token()
-            chat_id = message.chat.id
-            memory_state.set(chat_id, message.from_user.id, {
-                "flow": "nlp_comment",
-                "step": "awaiting_order_selection",
-                "model_id": model["id"],
-                "comment_text": entities.comment_text,
-                "k": k,
-            })
-            await _clear_previous_screen_keyboard(message, memory_state)
-            sent = await message.answer(
-                "Выберите заказ:",
-                reply_markup=nlp_comment_order_select_keyboard(orders, model["id"], k),
-                parse_mode="HTML",
-            )
-            _remember_screen_message(
-                memory_state,
-                chat_id,
-                message.from_user.id,
-                sent.message_id if sent else None,
-            )
-    except Exception as e:
-        LOGGER.exception("Failed to add comment to order: %s", e)
-        await message.answer("❌ Ошибка.")
-
-
-async def _add_comment_to_shoot(message, model, entities, config, notion, memory_state):
-    """Add comment to a shoot."""
-    try:
-        shoots = await notion.query_upcoming_shoots(config.db_planner, model_page_id=model["id"])
-        if not shoots:
-            await message.answer("❌ Нет запланированных съемок для этой модели.")
-            return
-
-        if len(shoots) == 1:
-            shoot = shoots[0]
-            existing = shoot.comments or ""
-            new_comment = format_appended_comment(existing, entities.comment_text, tz=config.timezone)
-            await notion.update_shoot_comment(shoot.page_id, new_comment)
-            model_name = model["name"]
-            comment_text = entities.comment_text
-            from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
-            await message.answer(
-                f"✅ Комментарий добавлен — <b>{html.escape(model_name)}</b>\n"
-                f"\"{comment_text[:40]}...\"",
-                reply_markup=_nlp_action_complete_keyboard(model["id"]),
-                parse_mode="HTML",
-            )
-        else:
-            from app.keyboards.inline import nlp_shoot_select_keyboard
-            k = generate_token()
-            chat_id = message.chat.id
-            memory_state.set(chat_id, message.from_user.id, {
-                "flow": "nlp_comment",
-                "step": "awaiting_shoot_selection",
-                "model_id": model["id"],
-                "comment_text": entities.comment_text,
-                "k": k,
-            })
-            await _clear_previous_screen_keyboard(message, memory_state)
-            sent = await message.answer(
-                "Выберите съемку:",
-                reply_markup=nlp_shoot_select_keyboard(shoots, "comment", model["id"], k),
-                parse_mode="HTML",
-            )
-            _remember_screen_message(
-                memory_state,
-                chat_id,
-                message.from_user.id,
-                sent.message_id if sent else None,
-            )
-    except Exception as e:
-        LOGGER.exception("Failed to add comment to shoot: %s", e)
-        await message.answer("❌ Ошибка.")
-
 
 async def _handle_shoot_comment_input(message, text, user_state, config, notion, memory_state):
     """Handle free-text comment input for a shoot (step: awaiting_shoot_comment)."""
@@ -1057,128 +433,6 @@ async def _handle_shoot_comment_input(message, text, user_state, config, notion,
         LOGGER.exception("SHOOT_COMMENT_INPUT FAIL user=%s shoot_id=%s: %s", user_id, shoot_id, e)
         memory_state.clear(chat_id, user_id)
         await message.answer("❌ Ошибка при сохранении комментария.")
-
-
-async def _handle_files_stats(message, model, config, notion):
-    """Handle files stats view (no number, just show stats)."""
-    if not model:
-        await message.answer("❌ Укажите модель. Пример: 'мелиса файлы'")
-        return
-
-    model_name = model["name"]
-    model_id = model["id"]
-
-    try:
-        yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
-        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
-
-        if record:
-            current = record.files
-            target, pct, over = calculate_accounting_progress(current, record.status)
-            remaining = max(0, target - current)
-            over_str = f"\nСверх лимита: +{over}" if over > 0 else ""
-
-            await message.answer(
-                f"📊 <b>{html.escape(model_name)}</b> | {yyyy_mm}\n\n"
-                f"Файлов: {current}/{target} ({pct}%)\n"
-                f"До {target}: {remaining} файлов{over_str}",
-                parse_mode="HTML",
-            )
-        else:
-            target, pct, _ = calculate_accounting_progress(0, None)
-            await message.answer(
-                f"📊 <b>{html.escape(model_name)}</b> | {yyyy_mm}\n\n"
-                f"Файлов: 0/{target} ({pct}%)\n"
-                f"До {target}: {target} файлов",
-                parse_mode="HTML",
-            )
-
-    except Exception as e:
-        LOGGER.exception("Failed to get files stats: %s", e)
-        await message.answer("❌ Ошибка Notion — попробуй позже")
-
-
-async def _handle_ambiguous(message, model, entities, config, memory_state):
-    """Handle ambiguous intent (model + number, no marker)."""
-    if not model or not entities.numbers:
-        await _show_help_message(message)
-        return
-
-    number = entities.first_number
-    from app.keyboards.inline import nlp_disambiguate_keyboard
-
-    k = generate_token()
-    # Store model_id in memory for disambiguation callbacks
-    memory_state.set(message.chat.id, message.from_user.id, {
-        "flow": "nlp_disambiguate",
-        "model_id": model["id"],
-        "model_name": model["name"],
-        "k": k,
-    })
-
-    await message.answer(
-        f"Что сделать с {number}?",
-        reply_markup=nlp_disambiguate_keyboard(number, k),
-        parse_mode="HTML",
-    )
-
-
-async def _handle_show_model_orders(message, model, config, notion):
-    """Show open orders for a specific model."""
-    if not model:
-        from app.handlers.orders import show_orders_menu
-        await show_orders_menu(message, config)
-        return
-
-    try:
-        orders = await notion.query_open_orders(config.db_orders, model_page_id=model["id"])
-
-        if not orders:
-            await message.answer(
-                f"📋 <b>{html.escape(model['name'])}</b>\n\nНет открытых заказов.",
-                parse_mode="HTML",
-            )
-            return
-
-        text = f"📋 <b>{html.escape(model['name'])}</b> · Открытые заказы:\n\n"
-        for order in orders[:10]:
-            days = _calc_days_open(order.in_date)
-            text += f"• {order.order_type or '?'} · {_format_date_short(order.in_date)} ({days}d)\n"
-
-        if len(orders) > 10:
-            text += f"\n...и ещё {len(orders) - 10}"
-
-        await message.answer(text, parse_mode="HTML")
-
-    except Exception as e:
-        LOGGER.exception("Failed to show model orders: %s", e)
-        await message.answer("❌ Ошибка при загрузке заказов.")
-
-
-# ============================================================================
-#                              HELPERS
-# ============================================================================
-
-def _calc_days_open(in_date_str: str | None) -> int:
-    """Calculate number of days since order was opened."""
-    if not in_date_str:
-        return 0
-    try:
-        in_date = date.fromisoformat(in_date_str[:10])
-        return (date.today() - in_date).days
-    except (ValueError, TypeError):
-        return 0
-
-
-def _format_date_short(date_str: str | None) -> str:
-    """Format date string to DD.MM."""
-    if not date_str:
-        return "?"
-    try:
-        d = date.fromisoformat(date_str[:10])
-        return d.strftime("%d.%m")
-    except (ValueError, TypeError):
-        return "?"
 
 
 async def _handle_custom_date_input(message, text, user_state, config, notion, memory_state):
@@ -1525,19 +779,10 @@ def _parse_files_count(text: str) -> int | None:
 
 
 async def _show_help_message(message: Message) -> None:
-    """Show help message when intent is unknown."""
+    """Show help message when no model was recognized in the message."""
     await message.answer(
-        "🤔 Не понял запрос. Примеры:\n\n"
-        "📦 <b>Заказы:</b>\n"
-        "• мелиса кастом\n"
-        "• мелиса 3 шорта\n"
-        "• мелиса кастом закрыт\n\n"
-        "📅 <b>Съемки:</b>\n"
-        "• мелиса съемка на 13.02\n"
-        "• мелиса съемка выполнена\n\n"
-        "📁 <b>Файлы:</b>\n"
-        "• мелиса 30 файлов\n"
-        "• мелиса + 20\n\n"
+        "🤔 Не нашёл модель в сообщении.\n\n"
+        "Просто напишите имя модели, например: <b>мелиса</b>\n\n"
         "Или /start",
         parse_mode="HTML",
     )

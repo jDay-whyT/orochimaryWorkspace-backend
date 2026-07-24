@@ -58,19 +58,15 @@ app/
 │   └── topic_access.py      # TopicAccessMessageFilter
 ├── handlers/
 │   ├── start.py             # /start, NLP fallback
-│   ├── orders.py            # Orders CRUD
-│   ├── planner.py           # Planner flow
-│   ├── accounting.py        # Accounting flow
-│   ├── reports.py           # Report cards
+│   ├── nlp_callbacks.py     # CRM action UI: orders/shoots/files/notes via model-card buttons
 │   ├── reddit.py            # /reddit борд
 │   ├── notifications.py     # /shoots борд
-│   ├── nlp_callbacks.py     # inline keyboard callbacks
+│   ├── tango.py             # /tango расписание
 │   └── group_manager.py     # group triggers
 ├── router/
-│   ├── dispatcher.py        # NLP routing pipeline
-│   ├── intent_v2.py         # Intent classification
-│   ├── entities_v2.py       # Entity extraction
-│   ├── command_filters.py   # Intent + order type mapping
+│   ├── dispatcher.py        # NLP routing pipeline (model-name search only)
+│   ├── entities_v2.py       # Entity extraction (model name)
+│   ├── command_filters.py   # IGNORE_KEYWORDS + CommandIntent (SEARCH_MODEL/UNKNOWN)
 │   ├── model_resolver.py    # Fuzzy model matching
 │   └── prefilter.py         # Pre-filter (gibberish, length)
 ├── services/
@@ -92,17 +88,20 @@ app/
 
 ## NLP команды
 
+Free-text intent recognition used to have ~13 keyword-based intents (кастом/шорт/
+съемка/файлы/etc). Usage data (30 days, July 2026) showed 99% of real traffic was
+just a bare model name, so the keyword classifier was removed. Now:
+
 | Фраза | Что делает |
 |---|---|
-| `стейдж` | CRM карточка модели |
-| `скаут стейдж` | Скаут карточка |
-| `три кастома стейдж` | Создать 3 заказа custom |
-| `вериф реддит стейдж` | Заказ верификации (10 шт по умолчанию) |
-| `стейдж 30 файлов` | Добавить 30 файлов в учёт месяца |
-| `шут стейдж` | Создать съёмку в планере |
-| `репорт стейдж` | Отчёт за месяц |
+| `стейдж` (любое имя модели) | CRM карточка модели — с неё кнопками создаются заказы, съёмки, файлы, заметки |
 | `/shoots` | Борд съёмок на 7 дней |
 | `/reddit` | Reddit борд по всем моделям |
+
+Старые keyword-команды (`три кастома стейдж`, `стейдж 30 файлов`, `шут стейдж` и
+т.п.) больше не выполняют действие напрямую — слова из старого словаря просто
+игнорируются при поиске имени модели (`IGNORE_KEYWORDS`), так что "стейдж 30
+файлов" по-прежнему находит модель "стейдж" и показывает карточку.
 
 ## Типы заказов (Orders)
 
