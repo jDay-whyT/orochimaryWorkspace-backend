@@ -399,11 +399,6 @@ async def handle_nlp_callback(
             await _handle_shoot_date(query, parts, config, notion, memory_state, recent_models)
         elif action == "sl":
             await _handle_shoot_location(query, parts, config, notion, memory_state, recent_models)
-        elif action == "sdc":
-            await _handle_shoot_done_confirm(query, parts, config, notion, memory_state)
-        elif action == "ss":
-            await _handle_shoot_select(query, parts, config, notion, memory_state)
-
         # ===== Order Callbacks =====
         elif action == "ot":
             await _handle_order_type(query, parts, config, memory_state)
@@ -1521,118 +1516,6 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
         current_state = memory_state.get(chat_id, user_id)
         if current_state:
             memory_state.update(chat_id, user_id, shoot_location_processing=False)
-
-
-async def _handle_shoot_done_confirm(query, parts, config, notion, memory_state):
-    """Handle shoot done confirmation. Callback: nlp:sdc:{shoot_id}[:{k}]"""
-    if len(parts) < 3:
-        return
-
-    shoot_id = parts[2]
-    chat_id, user_id = _state_ids_from_query(query)
-
-    if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа")
-        return
-
-    try:
-        await notion.update_shoot_status(shoot_id, "done")
-        from app.keyboards.inline import nlp_action_complete_keyboard
-        shoot = await notion.get_shoot(shoot_id)
-        model_id = shoot.model_id if shoot else ""
-        model_name = shoot.model_title if shoot else ""
-        content_str = ", ".join(shoot.content) if shoot and shoot.content else "—"
-        date_str = _format_date_short(shoot.date if shoot else None)
-        planner_cache.clear_cache(model_id)
-        await _clear_previous_screen_keyboard(query, memory_state)
-        await _safe_confirm(
-            query,
-            f"✅ Съёмка выполнена — <b>{html.escape(model_name)}</b>\n{date_str} · {content_str}",
-            reply_markup=nlp_action_complete_keyboard(model_id),
-        )
-        memory_state.clear(chat_id, user_id)
-    except Exception as e:
-        LOGGER.exception("Failed to mark shoot as done: %s", e)
-        await safe_edit_message(query, "❌ Ошибка", parse_mode=None)
-
-
-async def _handle_shoot_select(query, parts, config, notion, memory_state):
-    """Handle shoot selection. Callback: nlp:ss:{action}:{shoot_id}[:{k}]"""
-    if len(parts) < 4:
-        return
-
-    action = parts[2]
-    shoot_id = parts[3]
-    chat_id, user_id = _state_ids_from_query(query)
-
-    if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа")
-        return
-
-    if action == "done":
-        await notion.update_shoot_status(shoot_id, "done")
-        shoot = await notion.get_shoot(shoot_id)
-        model_id = shoot.model_id if shoot else ""
-        model_name = shoot.model_title if shoot else ""
-        content_str = ", ".join(shoot.content) if shoot and shoot.content else "—"
-        date_str = _format_date_short(shoot.date if shoot else None)
-        planner_cache.clear_cache(model_id)
-        from app.keyboards.inline import nlp_action_complete_keyboard
-        await _clear_previous_screen_keyboard(query, memory_state)
-        await _safe_confirm(
-            query,
-            f"✅ Съёмка выполнена — <b>{html.escape(model_name)}</b>\n{date_str} · {content_str}",
-            reply_markup=nlp_action_complete_keyboard(model_id),
-        )
-        memory_state.clear(chat_id, user_id)
-
-    elif action == "reschedule":
-        shoot = await notion.get_shoot(shoot_id)
-        model_name = shoot.model_title if shoot else ""
-        from app.keyboards.inline import nlp_shoot_date_keyboard
-        model_id = shoot.model_id if shoot else ""
-        k = generate_token()
-        memory_state.set(chat_id, user_id, {
-            "flow": "nlp_shoot",
-            "step": "awaiting_new_date",
-            "shoot_id": shoot_id,
-            "model_id": model_id,
-            "model_name": model_name,
-            "old_date": shoot.date if shoot else None,
-            "k": k,
-        })
-        date_str = shoot.date[:10] if shoot and shoot.date else "?"
-        await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
-            f"📅 Перенос съемки {date_str}\n\nНовая дата:",
-            reply_markup=nlp_shoot_date_keyboard(model_id, k),
-            parse_mode="HTML",
-        )
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-
-    elif action == "comment":
-        state = memory_state.get(chat_id, user_id)
-        if not state:
-            await _session_expired(query, memory_state)
-            return
-        comment_text = state.get("comment_text")
-        model_id = state.get("model_id", "")
-        if comment_text:
-            shoot = await notion.get_shoot(shoot_id)
-            existing = shoot.comments if shoot else ""
-            new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
-            await notion.update_shoot_comment(shoot_id, new_comment)
-            from app.keyboards.inline import nlp_action_complete_keyboard
-            await _clear_previous_screen_keyboard(query, memory_state)
-            msg = await query.message.edit_text(
-                f"✅ Комментарий добавлен — <b>{html.escape(model_name)}</b>\n\"{(comment_text or '')[:40]}...\"",
-                reply_markup=nlp_action_complete_keyboard(model_id),
-                parse_mode="HTML",
-            )
-            memory_state.clear(chat_id, user_id)
-        else:
-            await query.message.edit_text("Текст комментария не найден.")
-            memory_state.clear(chat_id, user_id)
 
 
 # ============================================================================

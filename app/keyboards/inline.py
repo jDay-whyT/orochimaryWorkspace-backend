@@ -358,48 +358,6 @@ def nlp_shoot_location_keyboard(
     ])
 
 
-def nlp_shoot_confirm_done_keyboard(shoot_id: str, k: str = "") -> InlineKeyboardMarkup:
-    """Confirm marking a shoot as done."""
-    cb = f"nlp:sdc:{shoot_id}"
-    if k:
-        cb += f":{k}"
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Да", callback_data=cb),
-            InlineKeyboardButton(text="❌ Нет", callback_data="nlp:x:c"),
-        ],
-    ])
-
-
-def nlp_shoot_select_keyboard(
-    shoots: list,
-    action: str,
-    model_id: str,
-    k: str = "",
-) -> InlineKeyboardMarkup:
-    """Select a shoot. action: done|reschedule|comment"""
-    builder = InlineKeyboardBuilder()
-    for shoot in shoots[:5]:
-        date_str = shoot.date[:10] if shoot.date else "?"
-        try:
-            from datetime import date as _date
-            d = _date.fromisoformat(date_str)
-            label = d.strftime("%d.%m")
-        except (ValueError, TypeError):
-            label = date_str
-        cb = f"nlp:ss:{action}:{shoot.page_id}"
-        if k:
-            cb += f":{k}"
-        builder.row(InlineKeyboardButton(text=f"📅 {label}", callback_data=cb))
-    if len(shoots) > 5:
-        builder.row(InlineKeyboardButton(
-            text=f"Показать ещё ({len(shoots) - 5})",
-            callback_data=f"nlp:shm:{action}:5",
-        ))
-    builder.row(nlp_back_button(model_id))
-    return builder.as_markup()
-
-
 # ==================== NLP Shoot Content Types ====================
 
 def nlp_shoot_content_keyboard(
