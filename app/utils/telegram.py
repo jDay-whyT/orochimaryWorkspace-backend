@@ -7,6 +7,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError, Telegra
 
 _MAX_NETWORK_RETRIES = 2
 _NETWORK_RETRY_DELAY = 1.0
+_MAX_FLOOD_RETRIES = 3
 
 
 async def safe_edit_message(
@@ -18,7 +19,7 @@ async def safe_edit_message(
     if not query.message or isinstance(query.message, InaccessibleMessage):
         return None
 
-    retried_after_flood = False
+    flood_retries = 0
     network_retries = 0
     while True:
         try:
@@ -28,9 +29,9 @@ async def safe_edit_message(
                 parse_mode=parse_mode,
             )
         except TelegramRetryAfter as e:
-            if retried_after_flood:
+            if flood_retries >= _MAX_FLOOD_RETRIES:
                 raise
-            retried_after_flood = True
+            flood_retries += 1
             await asyncio.sleep(e.retry_after)
         except TelegramNetworkError:
             if network_retries >= _MAX_NETWORK_RETRIES:
@@ -51,7 +52,7 @@ async def safe_answer(
     reply_markup=None,
     parse_mode: str = "HTML",
 ) -> Message:
-    retried_after_flood = False
+    flood_retries = 0
     network_retries = 0
     while True:
         try:
@@ -61,9 +62,9 @@ async def safe_answer(
                 parse_mode=parse_mode,
             )
         except TelegramRetryAfter as e:
-            if retried_after_flood:
+            if flood_retries >= _MAX_FLOOD_RETRIES:
                 raise
-            retried_after_flood = True
+            flood_retries += 1
             await asyncio.sleep(e.retry_after)
         except TelegramNetworkError:
             if network_retries >= _MAX_NETWORK_RETRIES:
