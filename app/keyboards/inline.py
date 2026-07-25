@@ -121,11 +121,6 @@ def nlp_confirm_model_keyboard(model_id: str, model_name: str, k: str = "") -> I
     ])
 
 
-def nlp_model_actions_keyboard(k: str = "") -> InlineKeyboardMarkup:
-    """CRM action card shown after model context is set. model_id in memory."""
-    return model_card_keyboard(k)
-
-
 def nlp_back_keyboard(model_id: str) -> InlineKeyboardMarkup:
     """Single back button to return to model card."""
     return InlineKeyboardMarkup(inline_keyboard=[[nlp_back_button(model_id)]])
@@ -187,25 +182,6 @@ def nlp_orders_view_keyboard(page: int, total_pages: int, model_id: str) -> Inli
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def nlp_order_view_keyboard(
-    order_id: str,
-    order_type: str,
-    model_id: str,
-    k: str = "",
-) -> InlineKeyboardMarkup:
-    """Per-order action keyboard in orders view.  pr = plus received."""
-    s = f":{k}" if k else ""
-    rows: list[list[InlineKeyboardButton]] = []
-    if order_type in ("short", "Verif Reddit"):
-        rows.append([
-            InlineKeyboardButton(text="📥 +получено", callback_data=f"nlp:pr:{order_id}{s}"),
-        ])
-    rows.append([
-        InlineKeyboardButton(text="⬅ Назад", callback_data=f"nlp:bk:{model_id}"),
-    ])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
 def nlp_files_menu_keyboard(can_edit: bool, model_id: str, k: str = "") -> InlineKeyboardMarkup:
     """Files (accounting) module menu for a model."""
     s = f":{k}" if k else ""
@@ -239,22 +215,6 @@ def nlp_shoot_menu_keyboard(
             ])
     rows.append([nlp_back_button(model_id)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def nlp_shoot_post_create_keyboard(
-    shoot_id: str,
-    model_id: str,
-    k: str = "",
-) -> InlineKeyboardMarkup:
-    """Post-create shoot actions."""
-    s = f":{k}" if k else ""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🗂 Content", callback_data=f"nlp:sctm:{shoot_id}{s}"),
-            InlineKeyboardButton(text="💬 Коммент", callback_data=f"nlp:scm:{shoot_id}{s}"),
-        ],
-        [nlp_back_button(model_id)],
-    ])
 
 
 # ==================== NLP Order Keyboards ====================
@@ -538,21 +498,6 @@ def nlp_files_extras_type_keyboard() -> InlineKeyboardMarkup:
 
 
 # ==================== NLP Flow Control ====================
-
-def nlp_flow_waiting_keyboard() -> InlineKeyboardMarkup:
-    """Shown when user sends text while in nlp_* flow expecting buttons."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="\U0001f3e0 Меню", callback_data="nlp:x:m"),
-            InlineKeyboardButton(text="✕ Сброс", callback_data="nlp:x:c"),
-        ],
-    ])
-
-
-def nlp_stale_keyboard() -> InlineKeyboardMarkup:
-    """Shown when a stale/invalid callback is detected."""
-    return InlineKeyboardMarkup(inline_keyboard=[])
-
 
 def nlp_action_complete_keyboard(model_id: str) -> InlineKeyboardMarkup:
     """Post-action keyboard shown after every successful NLP action.

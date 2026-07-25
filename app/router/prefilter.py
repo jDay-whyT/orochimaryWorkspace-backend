@@ -30,11 +30,6 @@ STOP_WORDS: set[str] = {
 }
 
 
-def is_stop_word(text: str) -> bool:
-    """Check if the whole message is a single stop-word."""
-    return text.strip().lower() in STOP_WORDS
-
-
 def is_gibberish(text: str) -> bool:
     """
     Check if text is gibberish (no vowels in any language).
@@ -66,32 +61,6 @@ def is_too_short(text: str) -> bool:
     # Also check if the non-whitespace content is too short
     content = re.sub(r'\s+', '', stripped)
     return len(content) < MIN_QUERY_LENGTH
-
-
-def looks_like_model_name(text: str) -> bool:
-    """
-    Heuristic: does this single token look like it *could* be a model name?
-
-    Requirements:
-    - At least 3 characters (letters only)
-    - Contains at least 1 vowel (rules out random consonant spam)
-    - Not a stop-word
-    - Contains only Cyrillic or Latin letters (+ optional digits/hyphens)
-    """
-    t = text.strip().lower()
-    if not t:
-        return False
-    if t in STOP_WORDS:
-        return False
-    letters = re.sub(r'[^a-zа-яё]', '', t)
-    if len(letters) < 3:
-        return False
-    if not any(ch in _VOWELS for ch in letters):
-        return False
-    # Must be mostly letters (allow hyphens/digits but mostly alphabetic)
-    if not re.search(r'[a-zа-яё]', t):
-        return False
-    return True
 
 
 def prefilter_message(text: str) -> tuple[bool, str | None]:

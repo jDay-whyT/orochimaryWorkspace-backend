@@ -1,6 +1,3 @@
-# Order types
-ORDER_TYPES = ["short", "verif reddit", "ad request", "call", "custom"]
-
 # Order statuses
 ORDER_STATUS_OPEN = "Open"
 ORDER_STATUS_DONE = "Done"
@@ -20,22 +17,6 @@ PLANNER_ACTIVE_STATUSES = [
     PLANNER_STATUS_SCHEDULED,
     PLANNER_STATUS_RESCHEDULED,
 ]
-
-# Planner content options
-PLANNER_CONTENT_OPTIONS = [
-    "new main",
-    "posting",
-    "main pack",
-    "sfs",
-    "twitter",
-    "snapchat",
-    "fansly",
-    "reddit",
-    "event",
-]
-
-# Planner location options
-PLANNER_LOCATION_OPTIONS = ["home", "rent"]
 
 # Accounting content options
 ACCOUNTING_CONTENT_OPTIONS = [

@@ -26,10 +26,8 @@ from app.keyboards.inline import (
     nlp_order_qty_keyboard,
     nlp_order_date_keyboard,
     nlp_order_confirm_keyboard,
-    nlp_model_actions_keyboard,
     nlp_shoot_date_keyboard,
     nlp_close_order_date_keyboard,
-    nlp_stale_keyboard,
     nlp_files_qty_keyboard,
     nlp_report_keyboard,
     nlp_confirm_model_keyboard,
@@ -313,14 +311,6 @@ class TestKeyboardTokenEmbedding:
         for cb in od_callbacks:
             assert cb.endswith(":t3st"), f"Missing token in {cb}"
 
-    def test_model_actions_keyboard_has_token(self):
-        """nlp_model_actions_keyboard should include token."""
-        kb = nlp_model_actions_keyboard("zz99")
-        callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row]
-        act_callbacks = [c for c in callbacks if c.startswith("nlp:act:")]
-        for cb in act_callbacks:
-            assert cb.endswith(":zz99"), f"Missing token in {cb}"
-
     def test_back_button_has_no_token(self):
         """Back button should NOT have a token (always allowed)."""
         kb = nlp_order_type_keyboard("model-1", "ab12")
@@ -347,7 +337,6 @@ class TestKeyboardTokenEmbedding:
             nlp_order_qty_keyboard("model-1", long_token),
             nlp_order_date_keyboard("model-1", long_token),
             nlp_order_confirm_keyboard("model-1", long_token),
-            nlp_model_actions_keyboard(long_token),
             nlp_shoot_date_keyboard("model-1", long_token),
             nlp_close_order_date_keyboard("model-1", long_token),
             nlp_files_qty_keyboard("model-1", long_token),
@@ -509,11 +498,6 @@ class TestStaleTokenScenario:
 
 class TestKeyboardStructure:
     """Tests for keyboard structural properties."""
-
-    def test_stale_keyboard_has_menu_and_reset(self):
-        """Stale keyboard should be empty (handled by stateless back in handlers)."""
-        kb = nlp_stale_keyboard()
-        assert kb.inline_keyboard == []
 
     def test_order_type_ad_request_has_underscore(self):
         """Ad Request button should use 'ad_request' (no space) in callback."""

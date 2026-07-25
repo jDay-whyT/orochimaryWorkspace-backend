@@ -13,7 +13,6 @@ from app.utils.formatting import (
     format_appended_comment,
 )
 from app.utils.constants import (
-    ORDER_TYPES,
     ORDER_STATUS_OPEN,
     ORDER_STATUS_DONE,
     ORDER_STATUS_CANCELED,
@@ -35,7 +34,6 @@ __all__ = [
     "format_percent",
     "calculate_percent",
     "escape_html",
-    "ORDER_TYPES",
     "ORDER_STATUS_OPEN",
     "ORDER_STATUS_DONE",
     "ORDER_STATUS_CANCELED",

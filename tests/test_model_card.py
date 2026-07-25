@@ -22,7 +22,6 @@ from app.state.memory import MemoryState
 from app.state.token import generate_token
 from app.keyboards.inline import (
     model_card_keyboard,
-    nlp_model_actions_keyboard,
     nlp_files_qty_keyboard,
 )
 from app.handlers.nlp_callbacks import (
@@ -128,15 +127,6 @@ class TestModelCardKeyboard:
                 byte_len = len(data.encode("utf-8"))
                 assert byte_len < 64, \
                     f"callback_data too long ({byte_len} bytes): {data}"
-
-    def test_nlp_model_actions_keyboard_delegates_to_model_card(self):
-        """nlp_model_actions_keyboard should produce same result as model_card_keyboard."""
-        kb1 = nlp_model_actions_keyboard("test1")
-        kb2 = model_card_keyboard("test1")
-        # Compare all callback_data
-        cbs1 = [btn.callback_data for row in kb1.inline_keyboard for btn in row]
-        cbs2 = [btn.callback_data for row in kb2.inline_keyboard for btn in row]
-        assert cbs1 == cbs2
 
 
 # ============================================================================

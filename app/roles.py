@@ -14,8 +14,3 @@ def can_edit(user_id: int, config: Config) -> bool:
 def is_editor(user_id: int, config: Config) -> bool:
     """Backward-compatible alias for edit checks."""
     return can_edit(user_id, config)
-
-
-def is_editor_or_admin(user_id: int, config: Config) -> bool:
-    """Backward-compatible alias for edit checks."""
-    return can_edit(user_id, config)

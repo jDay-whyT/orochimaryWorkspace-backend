@@ -7,7 +7,6 @@ from app.keyboards.inline import (
     nlp_orders_menu_keyboard,
     nlp_files_menu_keyboard,
     nlp_shoot_menu_keyboard,
-    nlp_shoot_post_create_keyboard,
     nlp_order_date_keyboard,
     nlp_order_confirm_keyboard,
 )
@@ -238,12 +237,3 @@ class TestShootContentAndComment:
         )
 
         assert notion.update_shoot_comment.called
-
-
-class TestShootPostCreateKeyboard:
-    def test_post_create_has_content_comment_back(self):
-        kb = nlp_shoot_post_create_keyboard("s1", "m1")
-        texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "🗂 Content" in texts
-        assert "💬 Коммент" in texts
-        assert any("Назад" in t for t in texts)

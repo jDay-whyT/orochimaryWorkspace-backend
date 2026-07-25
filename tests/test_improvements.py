@@ -1,6 +1,6 @@
 """
 Tests for the 5 improvements:
-1. SEARCH_MODEL garbage protection (stop-words, looks_like_model_name)
+1. SEARCH_MODEL garbage protection (stop-words)
 2. TTL cache for build_model_card_text
 3. Model card shows only 3 module buttons
 4. Strict manual files input parsing
@@ -11,7 +11,6 @@ import time
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from app.router.prefilter import STOP_WORDS, is_stop_word, looks_like_model_name
 from app.router.entities_v2 import extract_entities_v2, validate_model_name
 from app.state.memory import MemoryState
 from app.state.token import generate_token
@@ -46,50 +45,11 @@ class TestStopWordsNotSearchModel:
         assert entities.has_model is False, \
             f"'{word}' was treated as a model"
 
-    def test_is_stop_word_function(self):
-        """is_stop_word should detect stop-words."""
-        assert is_stop_word("ок") is True
-        assert is_stop_word("Привет") is True
-        assert is_stop_word("мелиса") is False
-        assert is_stop_word("клещ") is False
-
     def test_validate_model_name_rejects_stop_words(self):
         """validate_model_name should reject stop-words."""
         assert validate_model_name("ок") is False
         assert validate_model_name("привет") is False
         assert validate_model_name("мелиса") is True
-
-
-class TestLooksLikeModelName:
-    """Tests for the looks_like_model_name heuristic."""
-
-    def test_valid_model_names(self):
-        """Real model names should pass."""
-        assert looks_like_model_name("мелиса") is True
-        assert looks_like_model_name("polik") is True
-        assert looks_like_model_name("anastasia") is True
-
-    def test_stop_words_rejected(self):
-        """Stop-words should not look like model names."""
-        assert looks_like_model_name("ок") is False
-        assert looks_like_model_name("да") is False
-        assert looks_like_model_name("привет") is False
-
-    def test_too_short_rejected(self):
-        """Very short tokens (< 3 letters) should not pass."""
-        assert looks_like_model_name("ab") is False
-        assert looks_like_model_name("о") is False
-
-    def test_no_vowels_rejected(self):
-        """Tokens with no vowels should not pass."""
-        assert looks_like_model_name("бкдфг") is False
-        assert looks_like_model_name("bcdfg") is False
-
-    def test_real_model_name_is_still_search_model(self):
-        """A real model name like 'мелиса' should still resolve as a model."""
-        entities = extract_entities_v2("мелиса")
-        assert entities.has_model is True
-        assert entities.model_name == "мелиса"
 
 
 # ============================================================================

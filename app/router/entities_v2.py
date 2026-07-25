@@ -5,7 +5,7 @@ Model-name entity extraction using centralized command filters.
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional
 
 from app.router.command_filters import IGNORE_KEYWORDS, normalize_text
 from app.router.prefilter import STOP_WORDS
@@ -88,34 +88,6 @@ def extract_entities_v2(text: str) -> EntitiesV2:
 
     LOGGER.info("Extracted entities from text=%r: %s", text, entities)
     return entities
-
-
-def extract_model_names(text: str, max_count: int = 3) -> List[str]:
-    """Extract multiple potential model names from text."""
-    if not text or not text.strip():
-        return []
-
-    text_normalized = normalize_text(text)
-    words = text_normalized.split()
-
-    model_names = []
-
-    for word in words:
-        if len(model_names) >= max_count:
-            break
-
-        if re.match(r'^\d+$', word):
-            continue
-
-        if word in IGNORE_KEYWORDS:
-            continue
-
-        if word in ("и", "or", "and", ","):
-            continue
-
-        model_names.append(word)
-
-    return model_names
 
 
 def validate_model_name(model_name: Optional[str]) -> bool:

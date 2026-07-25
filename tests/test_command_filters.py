@@ -6,7 +6,6 @@ import pytest
 
 from app.router.entities_v2 import (
     extract_entities_v2,
-    extract_model_names,
     validate_model_name,
     get_order_type_display_name,
 )
@@ -41,33 +40,6 @@ class TestEntityExtraction:
         """Test multi-word model name extraction."""
         entities = extract_entities_v2("мона лиза")
         assert entities.model_name == "мона лиза"
-
-
-class TestExtractMultipleModels:
-    """Test extracting multiple model names."""
-
-    def test_extract_two_models(self):
-        """Test extracting two model names."""
-        models = extract_model_names("мелиса и софи")
-        assert models == ["мелиса", "софи"]
-
-    def test_extract_three_models(self):
-        """Test extracting three model names."""
-        models = extract_model_names("кастом для мелиса софи анна")
-        assert models == ["мелиса", "софи", "анна"]
-
-    def test_extract_with_max_count(self):
-        """Test max_count limit."""
-        models = extract_model_names("мелиса софи анна лиза", max_count=2)
-        assert len(models) == 2
-        assert models == ["мелиса", "софи"]
-
-    def test_extract_with_conjunctions(self):
-        """Test that conjunctions are skipped."""
-        models = extract_model_names("мелиса и софи or анна")
-        # "и" and "or" should be skipped
-        assert "и" not in models
-        assert "or" not in models
 
 
 class TestValidateModelName:
