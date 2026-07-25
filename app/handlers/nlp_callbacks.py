@@ -87,10 +87,13 @@ _oc_in_progress: set[tuple[int, int] | tuple[int, str]] = set()
 _cd_in_progress: set[tuple[int, int]] = set()
 
 # Deduplication for callback_query events: Telegram sometimes retries the same
-# button press with a new update_id. We silently drop identical (user_id,
-# callback_data) pairs arriving within _CALLBACK_DEDUP_TTL seconds of the first.
+# button press with a new update_id, but redelivers of the same click carry the
+# same query.id. Keying on query.id (not (user_id, callback_data)) is required -
+# buttons like "Назад"/"Отмена" have identical callback_data on every screen, so
+# keying on data would wrongly collapse two distinct presses of the same button
+# within the TTL into one, silently dropping the later legitimate press.
 _CALLBACK_DEDUP_TTL = 5.0
-_callback_dedup: dict[tuple, float] = {}
+_callback_dedup: dict[str, float] = {}
 router.callback_query.filter(TopicAccessCallbackFilter())
 
 
@@ -289,9 +292,9 @@ async def handle_nlp_callback(
         await query.answer("❌ Нет доступа", show_alert=True)
         return
 
-    # Dedup: silently drop Telegram retries with same (user_id, callback_data)
-    # arriving within _CALLBACK_DEDUP_TTL seconds of the first delivery.
-    _dedup_key = (query.from_user.id, query.data)
+    # Dedup: silently drop Telegram's own redelivery of the same callback query
+    # (same query.id) arriving within _CALLBACK_DEDUP_TTL seconds of the first.
+    _dedup_key = query.id
     _now = time.monotonic()
     if _now - _callback_dedup.get(_dedup_key, 0) < _CALLBACK_DEDUP_TTL:
         await safe_query_answer(query)
