@@ -54,13 +54,6 @@ def _format_day_mon(date_str: str | None) -> str:
     return f"{d.day:02d} {_MONTHS_RU_SHORT[d.month - 1]}"
 
 
-def _format_shoot(date_str: str | None, status: str | None) -> str:
-    if not date_str:
-        return "—"
-    status_text = status or "—"
-    return f"{_format_day_mon(date_str)} · {status_text}"
-
-
 _MONTHS_STRIP = (
     "январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь|"
     "января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря"

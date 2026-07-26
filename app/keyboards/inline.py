@@ -364,28 +364,6 @@ def nlp_shoot_content_keyboard(
     return builder.as_markup()
 
 
-# ==================== NLP Shoot Manage Keyboard ====================
-
-def nlp_shoot_manage_keyboard(
-    shoot_id: str,
-    model_id: str,
-    k: str = "",
-) -> InlineKeyboardMarkup:
-    """Manage nearest shoot: Done / Reschedule / Comment."""
-    s = f":{k}" if k else ""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✓ Закрыть", callback_data=f"nlp:sdc:{shoot_id}{s}"),
-            InlineKeyboardButton(text="↩️ Перенести", callback_data=f"nlp:srs:{shoot_id}{s}"),
-        ],
-        [
-            InlineKeyboardButton(text="🗂 Content", callback_data=f"nlp:sctm:{shoot_id}{s}"),
-            InlineKeyboardButton(text="💬 Коммент", callback_data=f"nlp:scm:{shoot_id}{s}"),
-        ],
-        [nlp_back_button(model_id)],
-    ])
-
-
 # ==================== NLP Close Order Keyboards ====================
 
 def nlp_close_order_date_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:

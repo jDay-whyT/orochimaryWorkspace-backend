@@ -81,13 +81,6 @@ def _extract_multi_select(prop: dict[str, Any] | None) -> list[str]:
     return [item.get("name", "").strip() for item in values if item.get("name", "").strip()]
 
 
-def _extract_relation_ids(prop: dict[str, Any] | None) -> list[str]:
-    if not prop:
-        return []
-    relation = prop.get("relation", [])
-    return [item.get("id", "") for item in relation if item.get("id")]
-
-
 def _extract_date(prop: dict[str, Any] | None) -> str | None:
     if not prop:
         return None
