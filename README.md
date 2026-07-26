@@ -80,7 +80,7 @@ app/
 │   ├── redis_state.py       # Redis-backed state (primary)
 │   └── redis_recent.py      # Redis recent models
 └── utils/
-├── constants.py         # Константы (ORDER_TYPES и др.)
+├── constants.py         # Константы (статусы заказов/планера/аккаунтинга и др.)
 ├── formatting.py        # Форматирование дат, текста
 ├── accounting.py        # Прогресс файлов
 ├── content_mapping.py   # content type → DB field
