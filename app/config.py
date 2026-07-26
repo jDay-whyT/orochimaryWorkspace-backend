@@ -38,7 +38,6 @@ class Config:
     reddit_board_message_id: int | None = None
     reddit_board_topic_thread_id: int | None = None
     internal_secret: str = ""
-    rent_topic_thread_id: int = 0
     redis_url: str | None = None
     archive_page_id: str = ""
     db_notes: str = ""
@@ -204,11 +203,6 @@ def load_config(validate: bool = True) -> Config:
 
     internal_secret = os.getenv("INTERNAL_SECRET", "").strip()
 
-    try:
-        rent_topic_thread_id = int(os.getenv("RENT_TOPIC_THREAD_ID", "0"))
-    except ValueError:
-        rent_topic_thread_id = 0
-
     redis_url = os.getenv("REDIS_URL", "").strip() or None
     mini_app_viewer_ids, mini_app_viewer_handles = _parse_mini_app_viewers(os.getenv("MINI_APP_VIEWERS", ""))
     db_notes = os.getenv("DB_NOTES", "").strip()
@@ -256,7 +250,6 @@ def load_config(validate: bool = True) -> Config:
         reddit_board_message_id=reddit_board_message_id,
         reddit_board_topic_thread_id=reddit_board_topic_thread_id,
         internal_secret=internal_secret,
-        rent_topic_thread_id=rent_topic_thread_id,
         redis_url=redis_url,
         db_notes=db_notes,
         owner_telegram_id=owner_telegram_id,
