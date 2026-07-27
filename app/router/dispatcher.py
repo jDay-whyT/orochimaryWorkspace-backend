@@ -22,6 +22,8 @@ from aiogram.types import Message
 from app.config import Config
 from app.services import NotionClient
 from app.services import orders as orders_cache
+from app.services import planner as planner_cache
+from app.services import accounting as accounting_cache
 from app.state import MemoryState, RecentModels, generate_token
 
 from app.router.prefilter import prefilter_message
@@ -435,6 +437,7 @@ async def _handle_shoot_comment_input(message, text, user_state, config, notion,
         existing = shoot.comments or ""
         new_comment = format_appended_comment(existing, comment_text, tz=config.timezone)
         await notion.update_shoot_comment(shoot_id, new_comment)
+        planner_cache.clear_cache(user_state.get("model_id", ""))
         await _clear_previous_screen_keyboard(message, memory_state)
         await _cleanup_prompt_message(message, memory_state)
         memory_state.clear(chat_id, user_id)
@@ -500,6 +503,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
                 memory_state.clear(chat_id, user_id)
                 return
             await notion.reschedule_shoot(shoot_id, parsed_date)
+            planner_cache.clear_cache(model_id)
             old_label = old_date[:10] if old_date else "?"
             await _clear_previous_screen_keyboard(message, memory_state)
             await _cleanup_prompt_message(message, memory_state)
@@ -750,6 +754,8 @@ async def _handle_accounting_comment_input(message, text, user_state, config, no
 
     try:
         await notion.update_accounting_comment(record_id, comment_text)
+        yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
+        accounting_cache.clear_cache(user_state.get("model_id", ""), yyyy_mm)
         await _clear_previous_screen_keyboard(message, memory_state)
         await _cleanup_prompt_message(message, memory_state)
         memory_state.clear(chat_id, user_id)

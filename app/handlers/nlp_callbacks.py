@@ -2386,6 +2386,7 @@ async def _handle_shoot_content_done(query, parts, config, notion, memory_state,
             return
         try:
             await notion.update_shoot_content(shoot_id, content_types)
+            planner_cache.clear_cache(state.get("model_id", ""))
             from app.keyboards.inline import nlp_action_complete_keyboard
             ct_str = ", ".join(content_types) if content_types else "—"
             await _clear_previous_screen_keyboard(query, memory_state)
@@ -2585,6 +2586,8 @@ async def _handle_accounting_content_save(query, parts, config, notion, memory_s
 
     try:
         await notion.update_accounting_content(accounting_id, selected)
+        yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
+        accounting_cache.clear_cache(model_id_for_kb, yyyy_mm)
         LOGGER.info(
             "Accounting content saved: user=%s accounting_id=%s content=%s",
             user_id, accounting_id, selected,
