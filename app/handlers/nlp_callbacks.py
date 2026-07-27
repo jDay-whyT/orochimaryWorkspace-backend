@@ -49,6 +49,7 @@ from app.utils.formatting import format_appended_comment
 from app.utils.accounting import format_accounting_progress
 from app.utils import PAGE_SIZE
 from app.utils.telegram import safe_edit_message, safe_answer, safe_query_answer
+from app.utils.locks import get_user_lock
 
 
 async def _safe_confirm(
@@ -287,7 +288,24 @@ async def handle_nlp_callback(
     memory_state: MemoryState,
     recent_models: RecentModels,
 ) -> None:
-    """Handle all NLP-related callbacks."""
+    """Handle all NLP-related callbacks.
+
+    Serialized per (chat, user) on the same lock as route_message — a
+    callback press and a text message for the same user must not run
+    concurrently (see app.utils.locks for why).
+    """
+    chat_id, user_id = _state_ids_from_query(query)
+    async with get_user_lock(chat_id, user_id):
+        await _handle_nlp_callback_impl(query, config, notion, memory_state, recent_models)
+
+
+async def _handle_nlp_callback_impl(
+    query: CallbackQuery,
+    config: Config,
+    notion: NotionClient,
+    memory_state: MemoryState,
+    recent_models: RecentModels,
+) -> None:
     if not is_authorized(query.from_user.id, config):
         await query.answer("❌ Нет доступа", show_alert=True)
         return
