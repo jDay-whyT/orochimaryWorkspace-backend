@@ -1,3 +1,4 @@
+import html
 import logging
 from datetime import date, timedelta
 
@@ -17,6 +18,19 @@ router = Router()
 SHOOTS_DAYS = 7
 
 WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+
+
+_STATUS_EMOJI = {
+    "scheduled": "🗓",
+    "rescheduled": "🔄",
+    "done": "✅",
+    "planned": "📌",
+}
+
+_LOCATION_EMOJI = {
+    "home": "🏠",
+    "rent": "🏢",
+}
 
 
 def _format_day_header(d: date) -> str:
@@ -43,16 +57,24 @@ def _format_board(shoots: list) -> str:
 
     day_blocks = []
     for d, day_shoots in days.items():
-        day_lines = [f"<b>┌ {_format_day_header(d)}</b>"]
+        lines = [f"<b>{_format_day_header(d)}</b>"]
         for shoot in day_shoots:
-            model = shoot.model_title or shoot.title or "?"
-            status = shoot.status or "—"
-            day_lines.append(f"├ <b>{model}</b> — {status}")
+            model = html.escape(shoot.model_title or shoot.title or "?")
+            status = shoot.status or ""
+            emoji = _STATUS_EMOJI.get(status, "⚪")
+            done = status == "done"
+            model_html = f"<s>{model}</s>" if done else f"<b>{model}</b>"
+            lines.append(f"\n{model_html}  {emoji} {status or '—'}")
+
+            details = []
             if shoot.content:
-                day_lines.append(f"│  ▸ {' | '.join(shoot.content)}")
+                details.append(html.escape(" | ".join(shoot.content)))
             if shoot.location:
-                day_lines.append(f"│  • {shoot.location}")
-        day_blocks.append("\n".join(day_lines))
+                loc_emoji = _LOCATION_EMOJI.get(shoot.location, "📍")
+                details.append(f"{loc_emoji} {html.escape(shoot.location)}")
+            if details:
+                lines.append("<i>" + " · ".join(details) + "</i>")
+        day_blocks.append("<blockquote>" + "\n".join(lines) + "</blockquote>")
 
     return header + "\n\n" + "\n\n".join(day_blocks)
 
