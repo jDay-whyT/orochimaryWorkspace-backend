@@ -13,16 +13,10 @@ LOGGER = logging.getLogger(__name__)
 async def search_model_by_name_or_alias(
     name: str, db_id: str, notion: NotionClient
 ) -> list[dict[str, Any]]:
-    """
-    Search models by name or alias (case-insensitive).
-
-    Returns:
-        List of models: [{"id": str, "name": str, "aliases": list[str]}, ...]
-    """
+    """Search models by name or alias (case-insensitive); returns [{"id", "name", "aliases"}, ...]."""
     name_lower = name.lower()
 
-    # Notion API query with filter (case-insensitive search)
-    # Note: Notion API filters are case-insensitive by default for "contains"
+    # Notion filters are case-insensitive by default for "contains"
     payload = {
         "filter": {
             "or": [

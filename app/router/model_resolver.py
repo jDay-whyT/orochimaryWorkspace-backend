@@ -42,12 +42,7 @@ def normalize_model_name(name: str) -> str:
 
 
 def fuzzy_score(query: str, target: str) -> float:
-    """
-    Calculate fuzzy match score between query and target.
-    Uses difflib.SequenceMatcher.
-
-    Returns: float 0.0 - 1.0
-    """
+    """Fuzzy match score (0.0-1.0) between query and target via difflib.SequenceMatcher."""
     query_norm = normalize_model_name(query)
     target_norm = normalize_model_name(target)
     return SequenceMatcher(None, query_norm, target_norm).ratio()
@@ -57,16 +52,7 @@ def match_recent_models(
     query: str,
     recent: list[tuple[str, str]],
 ) -> list[dict]:
-    """
-    Search query against recent models list.
-
-    Args:
-        query: User's model query
-        recent: [(model_id, title), ...] from RecentModels
-
-    Returns:
-        List of matches: [{"id": str, "name": str, "score": float, "match_type": str}, ...]
-    """
+    """Match query against recent [(model_id, title), ...]; returns [{"id", "name", "score", "match_type"}, ...]."""
     if not query or not recent:
         return []
 
@@ -101,16 +87,7 @@ def match_notion_results(
     query: str,
     models: list[dict],
 ) -> list[dict]:
-    """
-    Apply fuzzy matching to Notion search results.
-
-    Args:
-        query: User's model query
-        models: [{"id": str, "name": str, "aliases": list[str]}, ...]
-
-    Returns:
-        Sorted list with scores: [{"id": str, "name": str, "score": float, "match_type": str}, ...]
-    """
+    """Fuzzy-match query against models [{"id", "name", "aliases"}, ...], sorted by score descending."""
     if not query or not models:
         return models
 
@@ -164,18 +141,7 @@ async def resolve_model(
     notion,
     recent_models,
 ) -> dict:
-    """
-    Full model resolution pipeline.
-
-    Returns:
-        {
-            "status": "found" | "confirm" | "multiple" | "not_found",
-            "model": {...} or None,           # Single match
-            "models": [...] or [],             # Multiple matches
-        }
-
-    "confirm" status: fuzzy-only match that needs user confirmation.
-    """
+    """Full model resolution pipeline; returns {"status": found|confirm|multiple|not_found, "model", "models"}."""
     if not query or len(query) < MIN_QUERY_LENGTH:
         return {"status": "not_found", "model": None, "models": []}
 

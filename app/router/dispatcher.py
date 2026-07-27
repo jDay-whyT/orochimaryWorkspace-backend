@@ -778,13 +778,7 @@ async def _handle_accounting_comment_input(message, text, user_state, config, no
 
 
 def _parse_files_count(text: str) -> int | None:
-    """
-    Parse a positive integer file count from free-text input.
-
-    Accepted: "30", "+30", "30 файлов", "30ф", "файлы 30"
-    Rejected: "0", "-5", "99999", text without number
-    Returns: int 1..MAX_FILES_INPUT or None on invalid input.
-    """
+    """Parse a positive file count (1..MAX_FILES_INPUT) from text like "30", "+30", "30 файлов", "файлы 30"."""
     import re
     t = text.strip().lower()
 

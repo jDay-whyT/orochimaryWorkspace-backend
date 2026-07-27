@@ -64,14 +64,7 @@ def is_too_short(text: str) -> bool:
 
 
 def prefilter_message(text: str) -> tuple[bool, str | None]:
-    """
-    Pre-filter message before NLP routing.
-
-    Returns:
-        (passed, error_message)
-        - (True, None) if message passes all filters
-        - (False, error_str) if message should be rejected
-    """
+    """Pre-filter message before NLP routing; returns (passed, error_message_or_None)."""
     if not text or not text.strip():
         return False, None  # Silently ignore empty
 

@@ -74,13 +74,7 @@ async def build_model_card(
     config: Config,
     notion: NotionClient,
 ) -> tuple[str, int]:
-    """
-    Build model card text AND return open_orders count.
-
-    Returns:
-        (card_text, open_orders_count)
-        open_orders_count is -1 if Notion failed.
-    """
+    """Build model card text; returns (card_text, open_orders_count), count is -1 if Notion failed."""
     cache_key = model_id.lower()
     cached = _cache_get(cache_key)
     cached_orders = _orders_count_cache.get(cache_key)

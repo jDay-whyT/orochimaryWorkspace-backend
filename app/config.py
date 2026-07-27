@@ -140,15 +140,7 @@ def _validate_config(config: Config) -> None:
 
 
 def load_config(validate: bool = True) -> Config:
-    """
-    Load configuration from environment variables.
-    
-    Args:
-        validate: If True, validate configuration and fail fast on errors
-    
-    Raises:
-        ConfigValidationError: If validate=True and configuration is invalid
-    """
+    """Load configuration from environment variables; raises ConfigValidationError if validate=True and invalid."""
     telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     telegram_webhook_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
     notion_token = os.getenv("NOTION_TOKEN", "").strip()

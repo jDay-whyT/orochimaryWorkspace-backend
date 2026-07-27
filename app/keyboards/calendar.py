@@ -19,16 +19,7 @@ def calendar_keyboard(
     min_date: date | None = None,
     max_date: date | None = None,
 ) -> InlineKeyboardMarkup:
-    """
-    Generate inline calendar keyboard.
-    
-    Args:
-        prefix: Callback prefix (e.g., "planner")
-        year: Year to display
-        month: Month to display (1-12)
-        min_date: Minimum selectable date (inclusive)
-        max_date: Maximum selectable date (inclusive)
-    """
+    """Generate inline calendar keyboard for year/month, with an optional selectable date range."""
     builder = InlineKeyboardBuilder()
     
     # Header: Month Year
