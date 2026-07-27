@@ -37,6 +37,24 @@ from app.utils.telegram import safe_answer
 
 LOGGER = logging.getLogger(__name__)
 
+# Serializes route_message per (chat_id, user_id). Without this, two messages
+# from the same user arriving close together (e.g. an impatient retry while
+# the bot is still inside a flood-control retry sleep) are handled by
+# concurrent coroutines that both call memory_state.set() with fresh tokens —
+# whichever finishes last silently invalidates the other's screen, and the
+# user sees "Сессия устарела" on a card they just opened.
+_route_locks: dict[tuple[int, int], asyncio.Lock] = {}
+
+
+def _get_route_lock(chat_id: int, user_id: int) -> asyncio.Lock:
+    key = (chat_id, user_id)
+    lock = _route_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _route_locks[key] = lock
+    return lock
+
+
 async def _safe_edit_reply_markup(bot, chat_id: int, message_id: int) -> None:
     try:
         await bot.edit_message_reply_markup(
@@ -124,6 +142,19 @@ async def _cleanup_prompt_message(message: Message, memory_state: MemoryState) -
 
 
 async def route_message(
+    message: Message,
+    config: Config,
+    notion: NotionClient,
+    memory_state: MemoryState,
+    recent_models: RecentModels,
+) -> None:
+    """Serialize per (chat, user) around the actual routing pipeline."""
+    lock = _get_route_lock(message.chat.id, message.from_user.id)
+    async with lock:
+        await _route_message_impl(message, config, notion, memory_state, recent_models)
+
+
+async def _route_message_impl(
     message: Message,
     config: Config,
     notion: NotionClient,
@@ -340,6 +371,7 @@ async def _execute_handler(
             from app.keyboards.inline import model_card_keyboard
             from app.services.model_card import build_model_card
             k = generate_token()
+            await _clear_previous_screen_keyboard(message, memory_state)
             memory_state.set(message.chat.id, message.from_user.id, {
                 "flow": "nlp_actions",
                 "model_id": model["id"],
