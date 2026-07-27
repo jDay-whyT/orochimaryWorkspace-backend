@@ -48,43 +48,69 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `REDIS_URL` | ⚠️ | Redis URL, например `redis://localhost:6379/0` |
 
 ## Структура проекта
+
+```
 app/
 ├── bot.py                   # Dispatcher setup, роутеры
 ├── config.py                # Конфиг из ENV
 ├── roles.py                 # Role-based access control
-├── server.py                # aiohttp webhook server
+├── server.py                # aiohttp webhook server + mini-app + internal endpoints
+├── api/
+│   ├── auth.py               # Telegram Mini App initData HMAC-SHA256 валидация
+│   └── scout.py               # Scout Mini App API handlers
 ├── filters/
-│   ├── flow.py              # FlowFilter
-│   └── topic_access.py      # TopicAccessMessageFilter
+│   ├── flow.py               # FlowFilter
+│   └── topic_access.py        # TopicAccessMessageFilter / TopicAccessCallbackFilter
 ├── handlers/
-│   ├── start.py             # /start, NLP fallback
-│   ├── nlp_callbacks.py     # CRM action UI: orders/shoots/files/notes via model-card buttons
-│   ├── reddit.py            # /reddit борд
-│   ├── notifications.py     # /shoots борд
-│   ├── tango.py             # /tango расписание
-│   └── group_manager.py     # group triggers
+│   ├── start.py               # /start, NLP fallback
+│   ├── models.py              # Model search handlers для NLP роутинга
+│   ├── nlp_callbacks.py       # CRM action UI: orders/shoots/files/notes через кнопки карточки модели
+│   ├── reddit.py               # /reddit борд
+│   ├── notifications.py        # /shoots борд
+│   ├── tango.py                # /tango расписание (Google Sheets)
+│   └── group_manager.py        # group triggers
 ├── router/
-│   ├── dispatcher.py        # NLP routing pipeline (model-name search only)
-│   ├── entities_v2.py       # Entity extraction (model name)
-│   ├── command_filters.py   # IGNORE_KEYWORDS + CommandIntent (SEARCH_MODEL/UNKNOWN)
-│   ├── model_resolver.py    # Fuzzy model matching
-│   └── prefilter.py         # Pre-filter (gibberish, length)
+│   ├── dispatcher.py          # NLP routing pipeline (model-name search only)
+│   ├── entities_v2.py          # Entity extraction (model name)
+│   ├── command_filters.py      # IGNORE_KEYWORDS + CommandIntent (SEARCH_MODEL/UNKNOWN)
+│   ├── model_resolver.py       # Fuzzy model matching
+│   └── prefilter.py            # Pre-filter (gibberish, length)
 ├── services/
-│   ├── notion.py            # Notion API client
-│   ├── model_card.py        # CRM карточка модели
-│   ├── scout_card.py        # Скаут карточка
-│   └── accounting.py        # Accounting service
+│   ├── notion.py               # Notion API client
+│   ├── models.py                # Models service (поиск/чтение карточек моделей)
+│   ├── orders.py                 # Orders: TTL-кеш открытых заказов
+│   ├── planner.py                # Planner: TTL-кеш съёмок
+│   ├── accounting.py              # Accounting: TTL-кеш месячных записей
+│   ├── model_card.py             # CRM карточка модели
+│   ├── scout_card.py              # Скаут карточка
+│   ├── sheets.py                   # Google Sheets client (для /tango)
+│   └── tango_schedule.py            # Парсинг расписания из Sheets
+├── keyboards/
+│   ├── inline.py               # Все inline-клавиатуры NLP-флоу
+│   └── calendar.py              # Календарь для выбора дат
 ├── state/
-│   ├── memory.py            # In-memory state (fallback)
-│   ├── recent.py            # Recent models (in-memory)
-│   ├── redis_state.py       # Redis-backed state (primary)
-│   └── redis_recent.py      # Redis recent models
+│   ├── memory.py                # In-memory state (fallback)
+│   ├── recent.py                 # Recent models (in-memory)
+│   ├── redis_state.py            # Redis-backed state (primary)
+│   ├── redis_recent.py            # Redis recent models
+│   └── token.py                   # Anti-stale token helpers (k) для NLP-клавиатур
 └── utils/
-├── constants.py         # Константы (статусы заказов/планера/аккаунтинга и др.)
-├── formatting.py        # Форматирование дат, текста
-├── accounting.py        # Прогресс файлов
-├── content_mapping.py   # content type → DB field
-└── patterns.py          # Regex паттерны
+    ├── constants.py             # Константы (статусы заказов/планера/аккаунтинга и др.)
+    ├── formatting.py             # Форматирование дат, текста
+    ├── accounting.py              # Прогресс файлов
+    ├── content_mapping.py          # content type → DB field
+    ├── patterns.py                 # Regex паттерны
+    ├── telegram.py                  # safe_answer/safe_edit_message — flood-control retry
+    └── locks.py                      # per-(chat,user) asyncio.Lock, общий для текста и callback
+```
+
+## Архитектура: state, локи, кеш
+
+Это не просто справочник — это инварианты, которые ловили реальные продовые баги (2026-07-27), так что при добавлении нового флоу их нужно соблюдать:
+
+1. **Один lock на пользователя для текста и callback.** `route_message` (текстовые сообщения) и `handle_nlp_callback` (нажатия inline-кнопок) — два разных роутера, но оба читают/пишут один и тот же `memory_state` для данного `(chat_id, user_id)`. Без общего лока (`app/utils/locks.get_user_lock`) быстрое сообщение + нажатие кнопки от одного юзера обрабатываются параллельными корутинами и могут перезаписать состояние друг друга — например, подтверждение заказа читает `model_id`, который параллельный текстовый поиск уже заменил на другую модель (или очистил). Оба хендлера оборачивают всё тело в `async with get_user_lock(chat_id, user_id):`.
+2. **Каждая запись в Notion → clear_cache.** `orders.py` / `planner.py` / `accounting.py` держат in-memory TTL-кеш (60с) на модель. Любой `notion.create_/update_/close_/reschedule_*` вызов обязан сопровождаться соответствующим `*_cache.clear_cache(model_id, ...)` сразу после успешной записи — иначе бот до 60 секунд показывает старые данные (заказ, помеченный закрытым, всё ещё выглядит открытым).
+3. **Новая клавиатура — гаси старую.** Перед тем как открыть новый экран (`memory_state.set(...)` с новым токеном `k`), вызови `_clear_previous_screen_keyboard(...)`, читая текущий `screen_message_id` из состояния **до** его перезаписи. Иначе старая клавиатура остаётся кликабельной, а нажатие на неё после смены токена валится в "Сессия устарела, откройте модель заново".
 
 ## NLP команды
 
@@ -118,12 +144,15 @@ just a bare model name, so the keyword classifier was removed. Now:
 ## Reddit борд (`/reddit`)
 
 Показывает карточки по всем Reddit-моделям (источник: Accounting `Content=reddit`, `status=work`):
+
+```
 Reddit · апр 2026 — 14 моделей
 ШАНЕЛЬ  28 апр (Пт)
 └ scheduled
 | last: 15 апр
 ▸ reddit: 90 | вериф: 7/20
 💬 комментарий
+```
 
 Автообновление каждые 3 часа через Cloud Scheduler → `POST /internal/update-reddit-board`.
 
@@ -132,6 +161,8 @@ Reddit · апр 2026 — 14 моделей
 Показывает съёмки на 7 дней вперёд. Автообновление через Cloud Scheduler → `POST /internal/update-board`.
 
 ## Скаут карточка
+
+```
 ШАНЕЛЬ · work · СБОРНАЯ
 └ @scout → @assist
 | es, eng < b1
@@ -143,6 +174,7 @@ Reddit · апр 2026 — 14 моделей
 ▸ next shoot: 28 апр · twitter
 orders
 | done: 11  |  open: 5
+```
 
 ## Accounting
 
@@ -226,6 +258,10 @@ gcloud scheduler jobs create http update-reddit-board \
 | `POST /tg/webhook` | Telegram webhook |
 | `POST /internal/update-board` | Обновление борда съёмок |
 | `POST /internal/update-reddit-board` | Обновление Reddit борда |
+| `POST /api/scout/models` | Mini App: список моделей для скаута |
+| `GET /api/scout/model/{name}` | Mini App: карточка модели по имени |
+| `POST /api/scout/verify` | Mini App: HMAC-валидация Telegram initData (`app/api/auth.py`) |
+| `GET /` `GET /{tail:.*}` | Раздача Scout Mini App (статика + SPA fallback), если собран `frontend/dist` (или `/app/static` в Docker) |
 
 ## Troubleshooting
 
