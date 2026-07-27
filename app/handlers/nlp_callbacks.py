@@ -97,6 +97,17 @@ _CALLBACK_DEDUP_TTL = 5.0
 _callback_dedup: dict[str, float] = {}
 router.callback_query.filter(TopicAccessCallbackFilter())
 
+# Tracks the last message a user's callback successfully advanced through
+# validation on. A second real tap on the same (still-visible) button,
+# processed after the first already moved flow/step/token forward, is not
+# staleness — it's the user's own action having already succeeded once. Key
+# on message_id (not query.id, which differs per tap) so _reject_stale can
+# tell "you double-tapped a button that already worked" from "this session
+# is genuinely gone" and skip the destructive memory_state.clear() + scary
+# message for the former.
+_RECENT_ACTION_TTL = 4.0
+_recently_advanced: dict[tuple[int, int], tuple[int, float]] = {}
+
 
 def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
     if not query.message:
@@ -248,6 +259,21 @@ async def _reject_stale(
 ) -> None:
     """Reject a callback with a stale/invalid message."""
     chat_id, user_id = _state_ids_from_query(query)
+
+    if query.message and not isinstance(query.message, InaccessibleMessage):
+        last = _recently_advanced.get((chat_id, user_id))
+        if (
+            last
+            and last[0] == query.message.message_id
+            and time.monotonic() - last[1] < _RECENT_ACTION_TTL
+        ):
+            LOGGER.info(
+                "NLP callback DUPLICATE tap ignored (already advanced): user=%s reason=%s data=%s",
+                user_id, reason, query.data,
+            )
+            await safe_query_answer(query)
+            return
+
     LOGGER.info(
         "NLP callback REJECTED: user=%s reason=%s data=%s",
         user_id, reason, query.data,
@@ -396,6 +422,13 @@ async def _handle_nlp_callback_impl(
         if not _validate_flow_step(state, action):
             await _reject_stale(query, f"flow_step_mismatch(action={action})", memory_state)
             return
+
+        _recently_advanced[(chat_id, user_id)] = (query.message.message_id, time.monotonic())
+        if len(_recently_advanced) > 1000:
+            _cutoff = time.monotonic() - _RECENT_ACTION_TTL
+            for _k, _v in list(_recently_advanced.items()):
+                if _v[1] < _cutoff:
+                    del _recently_advanced[_k]
 
         # ===== Model Selection =====
         if action == "sm":
