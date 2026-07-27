@@ -35,25 +35,29 @@ def _format_board(shoots: list) -> str:
         return f"✅ Съёмок в ближайшие {SHOOTS_DAYS} дн. нет"
 
     total = len(dated)
-    header = f"📷 График съёмок на {SHOOTS_DAYS} дн. ({total} шт)"
+    header = f"📷 <b>График съёмок на {SHOOTS_DAYS} дн.</b> ({total} шт)"
 
-    segments = []
+    days: dict[date, list] = {}
     for d, shoot in dated:
-        model = shoot.model_title or shoot.title or "?"
-        status = shoot.status or "—"
-        lines = [f"<b>{model}</b>  {_format_day_header(d)}"]
-        lines.append(f"└ {status}")
-        if shoot.content:
-            lines.append(f"▸ <b>{' | '.join(shoot.content)}</b>")
-        if shoot.location:
-            lines.append(f"• {shoot.location}")
-        segments.append("\n".join(lines))
+        days.setdefault(d, []).append(shoot)
 
-    return header + "\n\n" + "\n\n".join(segments)
+    day_blocks = []
+    for d, day_shoots in days.items():
+        day_lines = [f"<b>┌ {_format_day_header(d)}</b>"]
+        for shoot in day_shoots:
+            model = shoot.model_title or shoot.title or "?"
+            status = shoot.status or "—"
+            day_lines.append(f"├ <b>{model}</b> — {status}")
+            if shoot.content:
+                day_lines.append(f"│  ▸ {' | '.join(shoot.content)}")
+            if shoot.location:
+                day_lines.append(f"│  • {shoot.location}")
+        day_blocks.append("\n".join(day_lines))
+
+    return header + "\n\n" + "\n\n".join(day_blocks)
 
 
-async def update_board(bot, config: Config, notion: NotionClient) -> None:
-    """Fetch upcoming shoots and post/edit the board message in managers chat."""
+async def _fetch_board_text(config: Config, notion: NotionClient) -> str:
     tz = config.timezone
     today_date = today(tz)
     date_to = today_date + timedelta(days=SHOOTS_DAYS - 1)
@@ -63,8 +67,12 @@ async def update_board(bot, config: Config, notion: NotionClient) -> None:
         date_from=today_date,
         date_to=date_to,
     )
+    return _format_board(shoots)
 
-    text = _format_board(shoots)
+
+async def update_board(bot, config: Config, notion: NotionClient) -> None:
+    """Fetch upcoming shoots and post/edit the board message in managers chat."""
+    text = await _fetch_board_text(config, notion)
 
     message_id = config.board_message_id
     chat_id = config.managers_chat_id
@@ -127,4 +135,8 @@ async def cmd_upcoming_shoots(
     notion: NotionClient,
 ) -> None:
     """Show upcoming shoots board for the next 5 days (/shoots)."""
+    if message.chat.type == "private":
+        text = await _fetch_board_text(config, notion)
+        await message.answer(text, parse_mode="HTML")
+        return
     await update_board(message.bot, config, notion)
