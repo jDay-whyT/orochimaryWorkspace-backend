@@ -605,5 +605,86 @@ class TestMessageEditErrorHandling:
         assert True
 
 
+# ============================================================================
+#              DUPLICATE-TAP SUPPRESSION TESTS (_reject_stale)
+# ============================================================================
+
+class TestRejectStaleDuplicateSuppression:
+    """A second real tap on the exact same button, arriving after the first
+    already advanced flow/step/token, should be silently swallowed instead
+    of wiping memory_state and showing "session expired". But a *different*
+    button pressed on the same message shortly after must still get the
+    normal stale/expired treatment.
+    """
+
+    def setup_method(self):
+        from app.handlers import nlp_callbacks
+        nlp_callbacks._recently_advanced.clear()
+
+    def _make_query(self, message_id=200, data="nlp:act:orders:tok1", chat_id=100, user_id=42):
+        from unittest.mock import AsyncMock
+        query = MagicMock()
+        query.from_user.id = user_id
+        query.data = data
+        query.message = MagicMock()
+        query.message.chat.id = chat_id
+        query.message.message_id = message_id
+        query.message.edit_text = AsyncMock()
+        query.answer = AsyncMock()
+        return query
+
+    @pytest.mark.asyncio
+    async def test_exact_duplicate_tap_is_swallowed_without_clearing_state(self):
+        from app.handlers import nlp_callbacks
+        import time as time_module
+
+        memory_state = MemoryState(ttl_seconds=60)
+        memory_state.set(100, 42, {"flow": "nlp_actions", "model_id": "page-123"})
+
+        query = self._make_query()
+        nlp_callbacks._recently_advanced[(100, 42)] = (200, "nlp:act:orders:tok1", time_module.monotonic())
+
+        await nlp_callbacks._reject_stale(query, "flow_step_mismatch(action=act)", memory_state)
+
+        assert memory_state.get(100, 42) is not None, \
+            "duplicate of the same click must not wipe the session"
+        query.message.edit_text.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_different_button_same_message_still_rejected(self):
+        from app.handlers import nlp_callbacks
+        import time as time_module
+
+        memory_state = MemoryState(ttl_seconds=60)
+        memory_state.set(100, 42, {"flow": "nlp_actions", "model_id": "page-123"})
+
+        # Previous successful tap was a *different* callback on the same message.
+        nlp_callbacks._recently_advanced[(100, 42)] = (200, "nlp:act:orders:tok1", time_module.monotonic())
+        query = self._make_query(data="nlp:act:shoot:tok1")
+
+        await nlp_callbacks._reject_stale(query, "flow_step_mismatch(action=act)", memory_state)
+
+        assert memory_state.get(100, 42) is None, \
+            "a genuinely different stale press must still expire the session"
+        query.message.edit_text.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_duplicate_outside_ttl_still_rejected(self):
+        from app.handlers import nlp_callbacks
+        import time as time_module
+
+        memory_state = MemoryState(ttl_seconds=60)
+        memory_state.set(100, 42, {"flow": "nlp_actions", "model_id": "page-123"})
+
+        old_ts = time_module.monotonic() - (nlp_callbacks._RECENT_ACTION_TTL + 1)
+        nlp_callbacks._recently_advanced[(100, 42)] = (200, "nlp:act:orders:tok1", old_ts)
+        query = self._make_query()
+
+        await nlp_callbacks._reject_stale(query, "flow_step_mismatch(action=act)", memory_state)
+
+        assert memory_state.get(100, 42) is None
+        query.message.edit_text.assert_called_once()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

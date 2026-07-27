@@ -97,16 +97,16 @@ _CALLBACK_DEDUP_TTL = 5.0
 _callback_dedup: dict[str, float] = {}
 router.callback_query.filter(TopicAccessCallbackFilter())
 
-# Tracks the last message a user's callback successfully advanced through
-# validation on. A second real tap on the same (still-visible) button,
-# processed after the first already moved flow/step/token forward, is not
-# staleness — it's the user's own action having already succeeded once. Key
-# on message_id (not query.id, which differs per tap) so _reject_stale can
-# tell "you double-tapped a button that already worked" from "this session
-# is genuinely gone" and skip the destructive memory_state.clear() + scary
-# message for the former.
+# Tracks the last (message_id, callback_data) pair a user's callback
+# successfully advanced through validation on. A second real tap on the
+# *exact same* button, processed after the first already moved
+# flow/step/token forward, is not staleness — it's the user's own action
+# having already succeeded once. Key on query.data too (not just
+# message_id) so a genuinely different — and genuinely invalid — button
+# press on the same message within the window still gets a proper
+# session-expired response instead of being silently swallowed.
 _RECENT_ACTION_TTL = 4.0
-_recently_advanced: dict[tuple[int, int], tuple[int, float]] = {}
+_recently_advanced: dict[tuple[int, int], tuple[int, str, float]] = {}
 
 
 def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
@@ -265,7 +265,8 @@ async def _reject_stale(
         if (
             last
             and last[0] == query.message.message_id
-            and time.monotonic() - last[1] < _RECENT_ACTION_TTL
+            and last[1] == query.data
+            and time.monotonic() - last[2] < _RECENT_ACTION_TTL
         ):
             LOGGER.info(
                 "NLP callback DUPLICATE tap ignored (already advanced): user=%s reason=%s data=%s",
@@ -423,11 +424,14 @@ async def _handle_nlp_callback_impl(
             await _reject_stale(query, f"flow_step_mismatch(action={action})", memory_state)
             return
 
-        _recently_advanced[(chat_id, user_id)] = (query.message.message_id, time.monotonic())
+        if query.message:
+            _recently_advanced[(chat_id, user_id)] = (
+                query.message.message_id, query.data, time.monotonic(),
+            )
         if len(_recently_advanced) > 1000:
             _cutoff = time.monotonic() - _RECENT_ACTION_TTL
             for _k, _v in list(_recently_advanced.items()):
-                if _v[1] < _cutoff:
+                if _v[2] < _cutoff:
                     del _recently_advanced[_k]
 
         # ===== Model Selection =====
