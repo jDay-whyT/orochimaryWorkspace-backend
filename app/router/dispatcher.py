@@ -550,6 +550,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             return
         try:
             await notion.close_order(order_id, parsed_date)
+            orders_cache.clear_cache(model_id_for_kb)
             await _clear_previous_screen_keyboard(message, memory_state)
             await _cleanup_prompt_message(message, memory_state)
             memory_state.clear(chat_id, user_id)
