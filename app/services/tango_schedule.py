@@ -6,12 +6,14 @@ LOGGER = logging.getLogger(__name__)
 
 # Sheet authors sometimes paste a date/time entry using a different dash
 # character (en dash "–", plain hyphen "-") instead of the em dash "—" the
-# rest of the sheet uses. A row using the "wrong" dash silently vanishes from
-# every digest with no error — accept all common dash variants so a stray
-# character doesn't drop a model's whole schedule (incident: "Танго 28"'s
-# row used "–" and produced zero entries, 2026-07-28).
-ENTRY_RE = re.compile(r"(\d{2}\.\d{2})\s*[—–-]\s*(\d{2}:\d{2})")
-_DATE_TOKEN_RE = re.compile(r"\d{2}\.\d{2}")
+# rest of the sheet uses, or type a day/month/hour without the leading zero
+# (e.g. "5.07" or "9:00"). Either slip silently drops that entry (or, with a
+# bad dash, the row's *entire* schedule) with no error anywhere — accept all
+# common dash variants and missing leading zeros so a stray keystroke doesn't
+# cost a model its whole week (incident: "Танго 28"'s row used "–" and
+# produced zero entries, 2026-07-28).
+ENTRY_RE = re.compile(r"(\d{1,2}\.\d{1,2})\s*[—–-]\s*(\d{1,2}:\d{2})")
+_DATE_TOKEN_RE = re.compile(r"\d{1,2}\.\d{1,2}")
 
 # Heuristic thresholds for Google Sheets colors (0..1 float channels).
 _WHITE_MIN_CHANNEL = 0.95
@@ -42,11 +44,14 @@ def find_entries(cell_text: str) -> list[dict]:
     """Extract all 'ДД.ММ — ЧЧ:ММ' entries with character offsets from a cell's text."""
     entries = []
     for m in ENTRY_RE.finditer(cell_text):
-        date_str, time_str = m.group(1), m.group(2)
-        hour = int(time_str[:2])
+        day, month = m.group(1).split(".")
+        hour_str, minute_str = m.group(2).split(":")
+        hour = int(hour_str)
         entries.append({
-            "date": date_str,
-            "time": time_str,
+            # Zero-padded so this always compares equal to strftime("%d.%m")
+            # regardless of how the sheet's author typed the day/month.
+            "date": f"{int(day):02d}.{int(month):02d}",
+            "time": f"{hour:02d}:{minute_str}",
             "hour": hour,
             "start": m.start(),
         })
@@ -106,6 +111,7 @@ def build_tomorrow_schedule(
     result: list[TangoScheduleEntry] = []
     for row in rows:
         if is_paused_row(row.name_background):
+            LOGGER.info("Tango schedule: %r skipped (paused/gray row)", row.name)
             continue
         entries = find_entries(row.week_text)
         date_tokens = len(_DATE_TOKEN_RE.findall(row.week_text))
@@ -124,8 +130,16 @@ def build_tomorrow_schedule(
                 continue
             fmt = _format_at(entry["start"], row.week_text_format_runs)
             if fmt.get("strikethrough"):
+                LOGGER.info(
+                    "Tango schedule: %r %s %s skipped (strikethrough)",
+                    row.name, entry["date"], entry["time"],
+                )
                 continue
             if is_cancelled_red(fmt):
+                LOGGER.info(
+                    "Tango schedule: %r %s %s skipped (red/cancelled text)",
+                    row.name, entry["date"], entry["time"],
+                )
                 continue
             result.append(TangoScheduleEntry(
                 model_name=row.name,
