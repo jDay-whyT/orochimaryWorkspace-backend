@@ -105,7 +105,15 @@ router.callback_query.filter(TopicAccessCallbackFilter())
 # message_id) so a genuinely different — and genuinely invalid — button
 # press on the same message within the window still gets a proper
 # session-expired response instead of being silently swallowed.
-_RECENT_ACTION_TTL = 4.0
+#
+# TTL must cover the *slowest* realistic Notion round trip, not just a
+# human double-tap gap: a duplicate tap queues behind the per-user lock
+# and isn't evaluated until the first tap's handler finishes, so if that
+# handler takes longer than the TTL the duplicate arrives already outside
+# the window and gets wrongly treated as genuinely stale (prod-observed
+# "Добавление файлов" writes taking 6-7s). Requiring an exact message_id +
+# callback_data match keeps a generous TTL safe — see docstring above.
+_RECENT_ACTION_TTL = 20.0
 _recently_advanced: dict[tuple[int, int], tuple[int, str, float]] = {}
 
 
