@@ -1,7 +1,17 @@
+import logging
 import re
 from dataclasses import dataclass
 
-ENTRY_RE = re.compile(r"(\d{2}\.\d{2})\s*—\s*(\d{2}:\d{2})")
+LOGGER = logging.getLogger(__name__)
+
+# Sheet authors sometimes paste a date/time entry using a different dash
+# character (en dash "–", plain hyphen "-") instead of the em dash "—" the
+# rest of the sheet uses. A row using the "wrong" dash silently vanishes from
+# every digest with no error — accept all common dash variants so a stray
+# character doesn't drop a model's whole schedule (incident: "Танго 28"'s
+# row used "–" and produced zero entries, 2026-07-28).
+ENTRY_RE = re.compile(r"(\d{2}\.\d{2})\s*[—–-]\s*(\d{2}:\d{2})")
+_DATE_TOKEN_RE = re.compile(r"\d{2}\.\d{2}")
 
 # Heuristic thresholds for Google Sheets colors (0..1 float channels).
 _WHITE_MIN_CHANNEL = 0.95
@@ -97,7 +107,15 @@ def build_tomorrow_schedule(
     for row in rows:
         if is_paused_row(row.name_background):
             continue
-        for entry in find_entries(row.week_text):
+        entries = find_entries(row.week_text)
+        date_tokens = len(_DATE_TOKEN_RE.findall(row.week_text))
+        if date_tokens > len(entries):
+            LOGGER.warning(
+                "Tango schedule: %r has %d date-like token(s) but only %d parsed "
+                "as full entries — check dash character/format: %r",
+                row.name, date_tokens, len(entries), row.week_text,
+            )
+        for entry in entries:
             if entry["date"] == tomorrow_ddmm and entry["hour"] >= 6:
                 pass
             elif entry["date"] == day_after_ddmm and entry["hour"] < 6:
