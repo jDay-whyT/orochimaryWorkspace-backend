@@ -610,11 +610,13 @@ class TestMessageEditErrorHandling:
 # ============================================================================
 
 class TestRejectStaleDuplicateSuppression:
-    """A second real tap on the exact same button, arriving after the first
-    already advanced flow/step/token, should be silently swallowed instead
-    of wiping memory_state and showing "session expired". But a *different*
-    button pressed on the same message shortly after must still get the
-    normal stale/expired treatment.
+    """A second tap on a button sharing the same anti-stale token as the one
+    that just advanced flow/step/token — whether it's an exact repeat or a
+    *different* button rendered on that same screen (e.g. "today" then
+    "custom" on the same close-date picker) — should be silently swallowed
+    instead of wiping memory_state and showing "session expired". Only a
+    press tied to a genuinely different screen (different token) must still
+    get the normal stale/expired treatment.
     """
 
     def setup_method(self):
@@ -642,7 +644,7 @@ class TestRejectStaleDuplicateSuppression:
         memory_state.set(100, 42, {"flow": "nlp_actions", "model_id": "page-123"})
 
         query = self._make_query()
-        nlp_callbacks._recently_advanced[(100, 42)] = (200, "nlp:act:orders:tok1", time_module.monotonic())
+        nlp_callbacks._recently_advanced[(100, 42)] = (200, "tok1", time_module.monotonic())
 
         await nlp_callbacks._reject_stale(query, "flow_step_mismatch(action=act)", memory_state)
 
@@ -651,16 +653,39 @@ class TestRejectStaleDuplicateSuppression:
         query.message.edit_text.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_different_button_same_message_still_rejected(self):
+    async def test_different_button_same_token_is_swallowed(self):
+        """Reproduces the prod incident: "cd:today:tok1" advances the flow,
+        then "cd:custom:tok1" — a different button from the same rendered
+        close-date screen — arrives after state already moved on. Both
+        share token "tok1", so this must be swallowed, not shown as a
+        false "session expired".
+        """
+        from app.handlers import nlp_callbacks
+        import time as time_module
+
+        memory_state = MemoryState(ttl_seconds=60)
+        memory_state.set(100, 42, {"flow": "nlp_close", "model_id": "page-123"})
+
+        nlp_callbacks._recently_advanced[(100, 42)] = (200, "tok1", time_module.monotonic())
+        query = self._make_query(data="nlp:cd:custom:tok1")
+
+        await nlp_callbacks._reject_stale(query, "stale_token", memory_state)
+
+        assert memory_state.get(100, 42) is not None, \
+            "a different button sharing the same screen token must not wipe the session"
+        query.message.edit_text.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_different_token_same_message_still_rejected(self):
         from app.handlers import nlp_callbacks
         import time as time_module
 
         memory_state = MemoryState(ttl_seconds=60)
         memory_state.set(100, 42, {"flow": "nlp_actions", "model_id": "page-123"})
 
-        # Previous successful tap was a *different* callback on the same message.
-        nlp_callbacks._recently_advanced[(100, 42)] = (200, "nlp:act:orders:tok1", time_module.monotonic())
-        query = self._make_query(data="nlp:act:shoot:tok1")
+        # Previous successful tap was on a genuinely different screen render.
+        nlp_callbacks._recently_advanced[(100, 42)] = (200, "tok1", time_module.monotonic())
+        query = self._make_query(data="nlp:act:shoot:tok2")
 
         await nlp_callbacks._reject_stale(query, "flow_step_mismatch(action=act)", memory_state)
 
@@ -677,12 +702,34 @@ class TestRejectStaleDuplicateSuppression:
         memory_state.set(100, 42, {"flow": "nlp_actions", "model_id": "page-123"})
 
         old_ts = time_module.monotonic() - (nlp_callbacks._RECENT_ACTION_TTL + 1)
-        nlp_callbacks._recently_advanced[(100, 42)] = (200, "nlp:act:orders:tok1", old_ts)
+        nlp_callbacks._recently_advanced[(100, 42)] = (200, "tok1", old_ts)
         query = self._make_query()
 
         await nlp_callbacks._reject_stale(query, "flow_step_mismatch(action=act)", memory_state)
 
         assert memory_state.get(100, 42) is None
+        query.message.edit_text.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_token_exempt_action_falls_back_to_full_data_match(self):
+        """Token-exempt actions (see _NO_TOKEN_ACTIONS) have no shared token
+        in their last segment, so dedup must fall back to comparing the
+        full callback_data — a different exempt sub-action must still be
+        treated as a genuinely different, rejectable press.
+        """
+        from app.handlers import nlp_callbacks
+        import time as time_module
+
+        memory_state = MemoryState(ttl_seconds=60)
+        memory_state.set(100, 42, {"flow": "nlp_orders_menu", "step": "menu"})
+
+        nlp_callbacks._recently_advanced[(100, 42)] = (200, "nlp:om:close", time_module.monotonic())
+        query = self._make_query(data="nlp:om:new")
+
+        await nlp_callbacks._reject_stale(query, "flow_step_mismatch(action=om)", memory_state)
+
+        assert memory_state.get(100, 42) is None, \
+            "a different exempt-action press must still expire the session"
         query.message.edit_text.assert_called_once()
 
 

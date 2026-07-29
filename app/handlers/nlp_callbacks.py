@@ -97,14 +97,18 @@ _CALLBACK_DEDUP_TTL = 5.0
 _callback_dedup: dict[str, float] = {}
 router.callback_query.filter(TopicAccessCallbackFilter())
 
-# Tracks the last (message_id, callback_data) pair a user's callback
-# successfully advanced through validation on. A second real tap on the
-# *exact same* button, processed after the first already moved
-# flow/step/token forward, is not staleness — it's the user's own action
-# having already succeeded once. Key on query.data too (not just
-# message_id) so a genuinely different — and genuinely invalid — button
-# press on the same message within the window still gets a proper
-# session-expired response instead of being silently swallowed.
+# Tracks the last (message_id, dedup_key) pair a user's callback
+# successfully advanced through validation on. A second tap processed
+# after the first already moved flow/step/token forward is not staleness
+# — it's the user's own action having already succeeded once. This
+# includes a *different* button on the very same rendered screen (e.g.
+# "cd:today" then "cd:custom" sharing one anti-stale token): the user
+# fired both before the first tap's slow Notion write finished and the
+# screen changed, so the second is a leftover of the same screen, not a
+# genuinely stale/invalid press. See _dedup_key() for how the key is
+# derived. Key on message_id too so a different message within the window
+# still gets a proper session-expired response instead of being silently
+# swallowed.
 #
 # TTL must cover the *slowest* realistic Notion round trip, not just a
 # human double-tap gap: a duplicate tap queues behind the per-user lock
@@ -112,9 +116,26 @@ router.callback_query.filter(TopicAccessCallbackFilter())
 # handler takes longer than the TTL the duplicate arrives already outside
 # the window and gets wrongly treated as genuinely stale (prod-observed
 # "Добавление файлов" writes taking 6-7s). Requiring an exact message_id +
-# callback_data match keeps a generous TTL safe — see docstring above.
+# dedup_key match keeps a generous TTL safe — see docstring above.
 _RECENT_ACTION_TTL = 20.0
 _recently_advanced: dict[tuple[int, int], tuple[int, str, float]] = {}
+
+
+def _dedup_key(query: CallbackQuery) -> str:
+    """Key identifying "this screen" for duplicate-tap suppression.
+
+    Token-validated actions share one anti-stale token across every
+    button rendered on the same screen (see module docstring), so keying
+    on the token — not the full callback_data — catches a second,
+    *different* button pressed on the same screen after the first already
+    advanced the flow. Token-exempt actions (_NO_TOKEN_ACTIONS) have no
+    such shared token, so fall back to the full callback_data.
+    """
+    parts = query.data.split(":")
+    action = parts[1] if len(parts) > 1 else ""
+    if action in _NO_TOKEN_ACTIONS:
+        return query.data
+    return parts[-1]
 
 
 def _state_ids_from_query(query: CallbackQuery) -> tuple[int, int]:
@@ -273,7 +294,7 @@ async def _reject_stale(
         if (
             last
             and last[0] == query.message.message_id
-            and last[1] == query.data
+            and last[1] == _dedup_key(query)
             and time.monotonic() - last[2] < _RECENT_ACTION_TTL
         ):
             LOGGER.info(
@@ -434,7 +455,7 @@ async def _handle_nlp_callback_impl(
 
         if query.message:
             _recently_advanced[(chat_id, user_id)] = (
-                query.message.message_id, query.data, time.monotonic(),
+                query.message.message_id, _dedup_key(query), time.monotonic(),
             )
         if len(_recently_advanced) > 1000:
             _cutoff = time.monotonic() - _RECENT_ACTION_TTL
