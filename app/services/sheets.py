@@ -9,7 +9,7 @@ from app.services.tango_schedule import TangoRawRow
 
 LOGGER = logging.getLogger(__name__)
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 GRID_FIELDS = "sheets.data.rowData.values(formattedValue,userEnteredFormat.backgroundColor,textFormatRuns,hyperlink)"
 
 
@@ -92,3 +92,65 @@ class SheetsClient:
                 url=url_cell.get("hyperlink") or url_cell.get("formattedValue") or "",
             ))
         return rows
+
+    async def get_sheet_tabs(self, spreadsheet_id: str) -> dict[str, int]:
+        """Return {tab_title: sheetId} for every tab in the spreadsheet."""
+        token = await self._access_token()
+        session = await self._get_session()
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
+        params = {"fields": "sheets.properties"}
+        headers = {"Authorization": f"Bearer {token}"}
+        async with session.get(url, params=params, headers=headers) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+        return {
+            s["properties"]["title"]: s["properties"]["sheetId"]
+            for s in data.get("sheets", [])
+        }
+
+    async def add_sheet_tab(self, spreadsheet_id: str, title: str) -> int:
+        """Create a new tab and return its sheetId."""
+        token = await self._access_token()
+        session = await self._get_session()
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}:batchUpdate"
+        payload = {"requests": [{"addSheet": {"properties": {"title": title}}}]}
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        async with session.post(url, json=payload, headers=headers) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+        return data["replies"][0]["addSheet"]["properties"]["sheetId"]
+
+    async def get_tab_grid(self, spreadsheet_id: str, tab_name: str, last_column: str = "L") -> list[list[str]]:
+        """Return every row's formatted values (column A..last_column) for a tab."""
+        token = await self._access_token()
+        session = await self._get_session()
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/'{tab_name}'!A:{last_column}"
+        params = {"valueRenderOption": "FORMATTED_VALUE"}
+        headers = {"Authorization": f"Bearer {token}"}
+        async with session.get(url, params=params, headers=headers) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+        return data.get("values", [])
+
+    async def update_values(self, spreadsheet_id: str, updates: list[tuple[str, list[list]]]) -> None:
+        """
+        Write values into specific ranges.
+
+        `updates` is a list of (a1_range, rows) pairs, e.g.
+        ("'ИЮЛЬ'!B5:F5", [[ "work", "twitter, reddit", 120, 3, 5 ]]).
+        USER_ENTERED so formula strings (e.g. "=SUM(I3:K9)") are parsed as
+        formulas rather than stored as literal text.
+        """
+        if not updates:
+            return
+        token = await self._access_token()
+        session = await self._get_session()
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchUpdate"
+        payload = {
+            "valueInputOption": "USER_ENTERED",
+            "data": [{"range": a1_range, "values": rows} for a1_range, rows in updates],
+        }
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        async with session.post(url, json=payload, headers=headers) as resp:
+            resp.raise_for_status()
+            await resp.json()

@@ -4,7 +4,7 @@ from typing import Any
 from aiogram import Bot, Dispatcher
 
 from app.config import Config
-from app.handlers import start, nlp_callbacks, notifications, group_manager, reddit, tango
+from app.handlers import start, nlp_callbacks, notifications, group_manager, reddit, reports, tango
 from app.services import NotionClient
 from app.services.sheets import SheetsClient
 from app.state import MemoryState, RecentModels
@@ -21,6 +21,7 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, An
     dp.include_router(notifications.router) # /shoots command
     dp.include_router(reddit.router)       # /reddit command
     dp.include_router(tango.router)        # /tango command
+    dp.include_router(reports.router)      # /reports command (salary report)
     # NLP callback router (handles nlp: prefixed callbacks, including report detail)
     dp.include_router(nlp_callbacks.router)
     # Group manager triggers (must run before NLP fallback)

@@ -45,6 +45,7 @@ class Config:
     mini_app_url: str = ""
     sheet_id: str = ""
     sheet_tab_name: str = "Аркуш1"
+    salary_sheet_id: str = ""
     google_service_account_info: dict | None = None
 
 
@@ -218,6 +219,7 @@ def load_config(validate: bool = True) -> Config:
 
     sheet_id = os.getenv("SHEET_ID", "").strip()
     sheet_tab_name = os.getenv("SHEET_TAB_NAME", "Аркуш1").strip() or "Аркуш1"
+    salary_sheet_id = os.getenv("SALARY_SHEET_ID", "").strip()
     google_service_account_info = _parse_google_service_account(os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", ""))
 
     config = Config(
@@ -248,6 +250,7 @@ def load_config(validate: bool = True) -> Config:
         mini_app_url=mini_app_url,
         sheet_id=sheet_id,
         sheet_tab_name=sheet_tab_name,
+        salary_sheet_id=salary_sheet_id,
         google_service_account_info=google_service_account_info,
     )
     

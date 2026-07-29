@@ -19,6 +19,7 @@ class NotionModel:
     status: str | None = None
     winrate: str | None = None
     scout: str | None = None
+    scoutname: str | None = None
 
 
 @dataclass
@@ -36,6 +37,7 @@ class NotionOrder:
     comments: str | None = None
     from_project: str | None = None
     received: int | None = None
+    pay: int | None = None
 
 
 @dataclass
@@ -295,10 +297,49 @@ class NotionClient:
                 project=_extract_select(data, "project"),
                 status=_extract_status(data, "status"),
                 winrate=_extract_select(data, "winrate"),
+                scoutname=_extract_select(data, "scoutname"),
             )
         except Exception:
             LOGGER.exception("Failed to get model %s", page_id)
             return None
+
+    async def query_all_models(self, database_id: str) -> list[NotionModel]:
+        """
+        Fetch every model (page_id, title, status, scout, scoutname), paginated.
+
+        Used as an auxiliary lookup (e.g. model_id -> manager/scoutname) when
+        the primary source of truth for a report is a different database
+        (Accounting) that only stores a model relation, not the manager name.
+        """
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        results: list[NotionModel] = []
+        cursor: str | None = None
+
+        while True:
+            payload: dict[str, Any] = {"page_size": 100}
+            if cursor:
+                payload["start_cursor"] = cursor
+            data = await self._request("POST", url, json=payload)
+
+            for item in data.get("results", []):
+                title = await self._extract_model_title(item)
+                if not title:
+                    continue
+                results.append(NotionModel(
+                    page_id=item["id"],
+                    title=title,
+                    project=_extract_select(item, "project"),
+                    status=_extract_status(item, "status"),
+                    winrate=_extract_select(item, "winrate"),
+                    scout=_extract_select(item, "scout") or _extract_rich_text(item, "scout"),
+                    scoutname=_extract_select(item, "scoutname"),
+                ))
+
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
+
+        return results
 
     async def _extract_model_title(self, page: dict[str, Any]) -> str | None:
         """
@@ -641,6 +682,43 @@ class NotionClient:
         data = await self._request("POST", url, json=payload)
         return [_parse_accounting(item) for item in data.get("results", [])]
 
+    async def query_accounting_for_month(
+        self,
+        database_id: str,
+        yyyy_mm: str,
+    ) -> list[NotionAccounting]:
+        """
+        Fetch every accounting record (across all models) for a given month.
+
+        Matches the same Title convention as query_monthly_records
+        ("{model} {month_ru} {year}"), but without a model filter — this is
+        the primary source of truth for the monthly salary report (one row
+        per model per month), paginated until exhausted.
+        """
+        from app.utils.formatting import MONTHS_RU_LOWER
+
+        year, month_str = yyyy_mm.split("-")
+        month_idx = int(month_str) - 1
+        month_label = MONTHS_RU_LOWER[month_idx]
+        title_contains = f"{month_label} {year}"
+
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        base_filter = {"property": "Title", "title": {"contains": title_contains}}
+
+        results: list[NotionAccounting] = []
+        cursor: str | None = None
+        while True:
+            payload: dict[str, Any] = {"page_size": 100, "filter": base_filter}
+            if cursor:
+                payload["start_cursor"] = cursor
+            data = await self._request("POST", url, json=payload)
+            results.extend(_parse_accounting(item) for item in data.get("results", []))
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
+
+        return results
+
     async def find_archive_accounting_db(
         self,
         archive_page_id: str,
@@ -753,6 +831,47 @@ class NotionClient:
         }
         data = await self._request("POST", url, json=payload)
         return [_parse_order(item) for item in data.get("results", [])]
+
+    async def query_orders_closed_in_month(
+        self,
+        database_id: str,
+        yyyy_mm: str,
+    ) -> list[NotionOrder]:
+        """
+        Query every Done order across all models closed (out date) in the given month.
+
+        Paginates until all matching orders are fetched. Each result includes
+        the model relation id, order type/count, and the precomputed 'pay'
+        formula value — used to aggregate per-model salary-report figures.
+        """
+        import calendar as _calendar
+        year, month = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
+        first_day = date(year, month, 1).isoformat()
+        last_day_num = _calendar.monthrange(year, month)[1]
+        last_day = date(year, month, last_day_num).isoformat()
+
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        base_filter = {
+            "and": [
+                {"property": "status", "select": {"equals": "Done"}},
+                {"property": "out", "date": {"on_or_after": first_day}},
+                {"property": "out", "date": {"on_or_before": last_day}},
+            ],
+        }
+
+        results: list[NotionOrder] = []
+        cursor: str | None = None
+        while True:
+            payload: dict[str, Any] = {"page_size": 100, "filter": base_filter}
+            if cursor:
+                payload["start_cursor"] = cursor
+            data = await self._request("POST", url, json=payload)
+            results.extend(_parse_order(item) for item in data.get("results", []))
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
+
+        return results
 
     async def get_monthly_record(
         self,
@@ -1240,6 +1359,17 @@ def _extract_number(page: dict[str, Any], property_name: str) -> float | None:
     return prop.get("number")
 
 
+def _extract_formula_number(page: dict[str, Any], property_name: str) -> float | None:
+    """Extract the computed number from a formula property (e.g. Orders.pay)."""
+    prop = page.get("properties", {}).get(property_name)
+    if not prop or prop.get("type") != "formula":
+        return None
+    formula = prop.get("formula") or {}
+    if formula.get("type") != "number":
+        return None
+    return formula.get("number")
+
+
 def _extract_relation_id(page: dict[str, Any], property_name: str) -> str | None:
     """Extract first relation ID."""
     prop = page.get("properties", {}).get(property_name)
@@ -1255,6 +1385,7 @@ def _parse_order(item: dict[str, Any]) -> NotionOrder:
     """Parse order from Notion API response."""
     count = _extract_number(item, "count")
     received_val = _extract_number(item, "received")
+    pay_val = _extract_formula_number(item, "pay")
     return NotionOrder(
         page_id=item["id"],
         title=_extract_any_title(item) or "(no title)",
@@ -1267,6 +1398,7 @@ def _parse_order(item: dict[str, Any]) -> NotionOrder:
         comments=_extract_rich_text(item, "comments"),
         from_project=_extract_select(item, "from"),
         received=int(received_val) if received_val is not None else None,
+        pay=int(pay_val) if pay_val is not None else None,
     )
 
 
