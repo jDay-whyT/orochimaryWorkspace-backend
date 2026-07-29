@@ -368,12 +368,12 @@ async def _handle_nlp_callback_impl(
 
     # Dedup: silently drop Telegram's own redelivery of the same callback query
     # (same query.id) arriving within _CALLBACK_DEDUP_TTL seconds of the first.
-    _dedup_key = query.id
+    _query_id_key = query.id
     _now = time.monotonic()
-    if _now - _callback_dedup.get(_dedup_key, 0) < _CALLBACK_DEDUP_TTL:
+    if _now - _callback_dedup.get(_query_id_key, 0) < _CALLBACK_DEDUP_TTL:
         await safe_query_answer(query)
         return
-    _callback_dedup[_dedup_key] = _now
+    _callback_dedup[_query_id_key] = _now
     if len(_callback_dedup) > 1000:
         _cutoff = _now - _CALLBACK_DEDUP_TTL
         for _k in [_k for _k, _v in _callback_dedup.items() if _v < _cutoff]:
