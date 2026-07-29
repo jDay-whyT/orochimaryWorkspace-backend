@@ -78,12 +78,17 @@ def build_salary_report(
         )
         orders_pay = sum((o.pay or 0) for o in model_orders)
 
+        content = record.content or []
+        is_tango = bool(model and (model.project or "").strip().upper() == "TANGO")
+        if not content and is_tango:
+            content = ["Tango"]
+
         by_manager[manager].append(ModelSalaryRow(
             model_id=record.model_id,
             model_name=(model.title if model else record.title),
             manager=manager,
             status=record.status,
-            content=record.content or [],
+            content=content,
             total_files=record.files,
             custom_count=custom_count,
             other_count=other_count,

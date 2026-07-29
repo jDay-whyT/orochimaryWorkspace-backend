@@ -7,8 +7,8 @@ from app.services.salary_report import (
 )
 
 
-def _model(page_id, title, scoutname=None):
-    return NotionModel(page_id=page_id, title=title, scoutname=scoutname)
+def _model(page_id, title, scoutname=None, project=None):
+    return NotionModel(page_id=page_id, title=title, scoutname=scoutname, project=project)
 
 
 def _accounting(model_id, title, status="work", files=0, content=None):
@@ -56,6 +56,24 @@ class TestBuildSalaryReport:
         assert row.other_count == 33  # 18 + 15
         assert row.orders_pay == 5  # 2 + 1 + 0 + 2
         assert row.total_files == 500
+
+    def test_tango_model_with_no_content_shows_tango_placeholder(self):
+        models = [_model("m1", "ТангоКубалибра", "калибра", project="TANGO")]
+        accounting = [_accounting("m1", "ТангоКубалибра июль 2026", files=0, content=[])]
+        report = build_salary_report(accounting, [], models)
+        assert report["Калибра"][0].content == ["Tango"]
+
+    def test_tango_model_with_real_content_keeps_it(self):
+        models = [_model("m1", "МОДЕЛЬ", "рони", project="TANGO")]
+        accounting = [_accounting("m1", "МОДЕЛЬ июль 2026", content=["reddit"])]
+        report = build_salary_report(accounting, [], models)
+        assert report["Рони"][0].content == ["reddit"]
+
+    def test_non_tango_model_with_no_content_stays_empty(self):
+        models = [_model("m1", "МОДЕЛЬ", "рони")]
+        accounting = [_accounting("m1", "МОДЕЛЬ июль 2026", content=[])]
+        report = build_salary_report(accounting, [], models)
+        assert report["Рони"][0].content == []
 
     def test_model_with_stop_status_excluded(self):
         models = [_model("m1", "ШАНХАЙ", "вангог")]
