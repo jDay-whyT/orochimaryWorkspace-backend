@@ -26,13 +26,14 @@ def _order(model_id, order_type, count=1, pay=0):
 
 
 class TestNormalizeManagerName:
-    def test_known_alias_normalizes_to_display_name(self):
+    def test_scoutname_capitalized_to_sheet_display_name(self):
         assert normalize_manager_name("рони") == "Рони"
-        assert normalize_manager_name("МАСОНОВ") == "Артем Массонов"
-        assert normalize_manager_name("принц") == "Prince"
+        assert normalize_manager_name("массонов") == "Массонов"
+        assert normalize_manager_name("принц") == "Принц"
 
-    def test_unknown_value_passed_through_stripped(self):
-        assert normalize_manager_name("  какой-то ник  ") == "какой-то ник"
+    def test_stripped_and_capitalized(self):
+        assert normalize_manager_name("  ярик  ") == "Ярик"
+        assert normalize_manager_name("FLAIR") == "Flair"
 
     def test_empty_or_none_becomes_unassigned(self):
         assert normalize_manager_name(None) == UNASSIGNED_MANAGER

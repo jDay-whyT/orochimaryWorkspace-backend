@@ -10,33 +10,21 @@ from dataclasses import dataclass, field
 
 from app.services.notion import NotionAccounting, NotionModel, NotionOrder
 
-# Notion's `scoutname` select stores lowercase working nicknames; the report
-# groups by the display name actually used in the salary spreadsheet.
-MANAGER_DISPLAY_NAMES: dict[str, str] = {
-    "рони": "Рони",
-    "вангог": "Вангог",
-    "калибра": "Калибра",
-    "бармалей": "Бармалей",
-    "днепр": "Днепр",
-    "ева": "Ева",
-    "пабло": "Пабло",
-    "марик": "Марик",
-    "какаси": "Какаси",
-    "берлин": "Берлин",
-    "шмель": "Шмель",
-    "принц": "Prince",
-    "масонов": "Артем Массонов",
-    "flair": "Flair",
-}
-
 UNASSIGNED_MANAGER = "Без менеджера"
 
 
 def normalize_manager_name(scoutname: str | None) -> str:
+    """
+    Notion's `scoutname` select stores lowercase working nicknames
+    (e.g. "рони", "массонов"); the salary sheet's manager header rows use
+    the same word capitalized (e.g. "Рони", "Массонов") — so display name
+    is just scoutname with its first letter capitalized. Manager-block
+    matching against an existing tab is case-insensitive (see
+    salary_sheet_writer), so this only needs to be consistent, not exact.
+    """
     if not scoutname or not scoutname.strip():
         return UNASSIGNED_MANAGER
-    key = scoutname.strip().lower()
-    return MANAGER_DISPLAY_NAMES.get(key, scoutname.strip())
+    return scoutname.strip().capitalize()
 
 
 @dataclass

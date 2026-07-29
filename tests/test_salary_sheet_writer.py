@@ -113,6 +113,20 @@ class TestPlanUpdatesForExistingTab:
         assert ranges["'ИЮЛЬ'!B3:F3"] == [["work", "—", 80, "—", "—"]]
         assert ranges["'ИЮЛЬ'!K3"] == [[3]]
 
+    def test_manager_block_lookup_is_case_insensitive(self):
+        """Sheet has 'FLAIR' as the manager header, report groups as 'Flair'
+        (Title-cased scoutname) — must still match (Jul 29 prod incident)."""
+        grid = [
+            ["Модель", "Статус"],
+            ["FLAIR", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["Maria Kai", "work"],
+            [],
+        ]
+        report = {"Flair": [_row("Maria Kai", "Flair", status="work")]}
+        updates, unmatched = plan_updates_for_existing_tab(grid, report, "ИЮЛЬ")
+        assert unmatched == []
+        assert dict(updates)["'ИЮЛЬ'!B3:F3"][0][0] == "work"
+
     def test_model_not_found_in_sheet_is_reported_unmatched(self):
         grid = [["Модель", "Статус"], ["Рони"], []]
         report = {"Рони": [_row("НОВИЧОК", "Рони")]}

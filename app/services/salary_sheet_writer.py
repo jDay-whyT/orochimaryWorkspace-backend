@@ -118,11 +118,15 @@ def plan_updates_for_existing_tab(
     (Оплата), which stay manual/formula-owned.
     """
     index = index_existing_tab(grid)
+    # Manager block lookup is case-insensitive: report managers are
+    # Title-cased from Notion's scoutname, but existing tabs may spell
+    # a manager's header row differently (e.g. "FLAIR" vs "Flair").
+    by_manager_lower = {name.lower(): rows for name, rows in index.rows_by_manager.items()}
     updates: list[tuple[str, list[list]]] = []
     unmatched: list[ModelSalaryRow] = []
 
     for manager, rows in report.items():
-        model_rows = index.rows_by_manager.get(manager, {})
+        model_rows = by_manager_lower.get(manager.lower(), {})
         for row in rows:
             row_num = model_rows.get(row.model_name.strip().lower())
             if row_num is None:
