@@ -719,6 +719,34 @@ class NotionClient:
 
         return results
 
+    async def query_tango_accounting(self, database_id: str) -> list[NotionAccounting]:
+        """
+        Fetch persistent Tango accounting records (Content contains "Tango").
+
+        Unlike regular monthly records, Tango slots ("Танго 3", "ТангоКлещ",
+        ...) are a single ongoing Notion page per slot, hand-updated in
+        place each month rather than recreated — their Title never contains
+        a month/year, so query_accounting_for_month's title filter never
+        matches them. This is the only reliable way to pull them for the
+        salary report.
+        """
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        base_filter = {"property": "Content", "multi_select": {"contains": "Tango"}}
+
+        results: list[NotionAccounting] = []
+        cursor: str | None = None
+        while True:
+            payload: dict[str, Any] = {"page_size": 100, "filter": base_filter}
+            if cursor:
+                payload["start_cursor"] = cursor
+            data = await self._request("POST", url, json=payload)
+            results.extend(_parse_accounting(item) for item in data.get("results", []))
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
+
+        return results
+
     async def find_archive_accounting_db(
         self,
         archive_page_id: str,

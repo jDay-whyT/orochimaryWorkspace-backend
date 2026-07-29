@@ -52,6 +52,9 @@ async def cmd_reports(
 
     try:
         accounting_records = await notion.query_accounting_for_month(config.db_accounting, yyyy_mm)
+        tango_records = await notion.query_tango_accounting(config.db_accounting)
+        seen_ids = {r.page_id for r in accounting_records}
+        accounting_records += [r for r in tango_records if r.page_id not in seen_ids]
         orders = await notion.query_orders_closed_in_month(config.db_orders, yyyy_mm)
         models = await notion.query_all_models(config.db_models)
     except Exception:
