@@ -46,6 +46,8 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `BOARD_MESSAGE_ID` | ⚠️ | message_id закреплённого борда съёмок |
 | `REDDIT_BOARD_MESSAGE_ID` | ⚠️ | message_id закреплённого Reddit борда |
 | `REDIS_URL` | ⚠️ | Redis URL, например `redis://localhost:6379/0` |
+| `WML_USERNAME` | ⚠️ | Логин WML CRM (для /internal/scrape-wml) |
+| `WML_PASSWORD` | ⚠️ | Пароль WML CRM (для /internal/scrape-wml) |
 
 ## Структура проекта
 
@@ -241,6 +243,17 @@ gcloud scheduler jobs create http update-reddit-board \
   --schedule="0 */3 * * *" \
   --time-zone="UTC" \
   --uri="https://YOUR_CLOUD_RUN_URL/internal/update-reddit-board" \
+  --http-method=POST \
+  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
+```
+
+WML CRM sync (новые модели + Fansly-даты, частота настраивается — например раз в час):
+```bash
+gcloud scheduler jobs create http wml-crm-sync \
+  --location=europe-west1 \
+  --schedule="0 * * * *" \
+  --time-zone="UTC" \
+  --uri="https://YOUR_CLOUD_RUN_URL/internal/scrape-wml" \
   --http-method=POST \
   --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
 ```

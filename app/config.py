@@ -47,6 +47,8 @@ class Config:
     sheet_tab_name: str = "Аркуш1"
     salary_sheet_id: str = ""
     google_service_account_info: dict | None = None
+    wml_username: str = ""
+    wml_password: str = ""
 
 
 def _parse_mini_app_viewers(value: str) -> tuple[set[int], set[str]]:
@@ -221,6 +223,8 @@ def load_config(validate: bool = True) -> Config:
     sheet_tab_name = os.getenv("SHEET_TAB_NAME", "Аркуш1").strip() or "Аркуш1"
     salary_sheet_id = os.getenv("SALARY_SHEET_ID", "").strip()
     google_service_account_info = _parse_google_service_account(os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", ""))
+    wml_username = os.getenv("WML_USERNAME", "").strip()
+    wml_password = os.getenv("WML_PASSWORD", "").strip()
 
     config = Config(
         telegram_bot_token=telegram_bot_token,
@@ -252,6 +256,8 @@ def load_config(validate: bool = True) -> Config:
         sheet_tab_name=sheet_tab_name,
         salary_sheet_id=salary_sheet_id,
         google_service_account_info=google_service_account_info,
+        wml_username=wml_username,
+        wml_password=wml_password,
     )
     
     if validate:

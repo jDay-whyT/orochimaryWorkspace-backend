@@ -12,6 +12,7 @@ from app.bot import create_dispatcher
 from app.config import load_config
 from app.handlers.notifications import update_board
 from app.handlers.reddit import update_reddit_board
+from app.services.wml_sync import run_wml_sync
 
 logging.basicConfig(
     level=logging.INFO,
@@ -84,6 +85,13 @@ async def create_app() -> web.Application:
         await update_reddit_board(bot, config, notion)
         return web.Response(status=200, text="ok")
 
+    async def internal_scrape_wml(request: web.Request) -> web.Response:
+        secret = config.internal_secret
+        if not secret or request.headers.get("X-Internal-Secret", "") != secret:
+            return web.json_response({"ok": False}, status=403)
+        await run_wml_sync(request.app["bot"], request.app["config"], request.app["notion"])
+        return web.json_response({"ok": True})
+
     async def telegram_webhook(request: web.Request) -> web.Response:
         # Validate secret first (before parsing body, to fail fast on bad actors).
         secret = config.telegram_webhook_secret
@@ -139,6 +147,7 @@ async def create_app() -> web.Application:
     app.router.add_post("/tg/webhook", telegram_webhook)
     app.router.add_post("/internal/update-board", internal_update_board)
     app.router.add_post("/internal/update-reddit-board", internal_update_reddit_board)
+    app.router.add_post("/internal/scrape-wml", internal_scrape_wml)
 
     # Scout Mini App API
     app.router.add_post("/api/scout/models", api_scout_models)
@@ -172,6 +181,7 @@ async def create_app() -> web.Application:
     LOGGER.info(
         "HTTP endpoints registered: GET /, GET /healthz, "
         "POST /tg/webhook, POST /internal/update-board, POST /internal/update-reddit-board, "
+        "POST /internal/scrape-wml, "
         "POST /api/scout/models, GET /api/scout/model/{name}, POST /api/scout/verify"
     )
     return app

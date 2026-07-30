@@ -20,6 +20,8 @@ class NotionModel:
     winrate: str | None = None
     scout: str | None = None
     scoutname: str | None = None
+    fansly: str | None = None
+    location: str | None = None
 
 
 @dataclass
@@ -333,6 +335,8 @@ class NotionClient:
                     winrate=_extract_select(item, "winrate"),
                     scout=_extract_select(item, "scout") or _extract_rich_text(item, "scout"),
                     scoutname=_extract_select(item, "scoutname"),
+                    fansly=_extract_date(item, "fansly"),
+                    location=_extract_rich_text(item, "location"),
                 ))
 
             if not data.get("has_more"):
@@ -446,6 +450,54 @@ class NotionClient:
         url = "https://api.notion.com/v1/pages"
         data = await self._request("POST", url, json=payload)
         return data["id"]
+
+    async def create_model_from_wml(
+        self,
+        database_id: str,
+        title: str,
+        scoutname: str | None = None,
+        project: str | None = None,
+        language: str | None = None,
+        location: str | None = None,
+        comment: str | None = None,
+    ) -> str:
+        """Create a new Model page from a WML CRM profile. Returns page ID."""
+        properties: dict[str, Any] = {
+            "model": {"title": [{"text": {"content": title}}]},
+            "status": {"status": {"name": "new"}},
+        }
+
+        if scoutname:
+            properties["scoutname"] = {"select": {"name": scoutname}}
+
+        if project:
+            properties["project"] = {"select": {"name": project}}
+
+        if language:
+            tokens = [t.strip() for t in language.split(",") if t.strip()]
+            if tokens:
+                properties["language"] = {"multi_select": [{"name": t} for t in tokens]}
+
+        if location:
+            properties["location"] = {"rich_text": [{"text": {"content": location}}]}
+
+        if comment:
+            properties["Comment"] = {"rich_text": [{"text": {"content": comment}}]}
+
+        payload = {
+            "parent": {"database_id": database_id},
+            "properties": properties,
+        }
+
+        url = "https://api.notion.com/v1/pages"
+        data = await self._request("POST", url, json=payload)
+        return data["id"]
+
+    async def update_model_fansly(self, page_id: str, fansly_date: date) -> None:
+        """Update the fansly date on a model page."""
+        payload = {"properties": {"fansly": {"date": {"start": fansly_date.isoformat()}}}}
+        url = f"https://api.notion.com/v1/pages/{page_id}"
+        await self._request("PATCH", url, json=payload)
 
     async def close_order(self, page_id: str, out_date: date) -> None:
         """Close an order by setting out date and status to Done."""
