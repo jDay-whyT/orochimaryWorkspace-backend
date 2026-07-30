@@ -178,9 +178,10 @@ async def _notify_new_profile(bot, config: Config, session: requests.Session, pr
 
     keyboard = None
     if profile.wml_id:
+        tango_flag = "1" if profile.tango_date else "0"
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[[
-                InlineKeyboardButton(text="➕ Додати в Notion", callback_data=f"wml_add:{profile.wml_id}"),
+                InlineKeyboardButton(text="➕ Додати в Notion", callback_data=f"wml_add:{profile.wml_id}:{tango_flag}"),
                 InlineKeyboardButton(text="❌ Відхилити", callback_data=f"wml_reject:{profile.wml_id}"),
             ]]
         )

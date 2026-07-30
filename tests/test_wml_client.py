@@ -118,4 +118,19 @@ def test_parse_profile_detail():
     assert detail.location == "Argentina"
     assert detail.language == "eng, esp"
     assert detail.tg_content_manager == "@orochimary"
-    assert detail.model_telegram == "OnlyDakaria"
+    assert detail.model_telegram == "@OnlyDakaria"
+
+
+def test_parse_profile_detail_telegram_already_has_at():
+    html = '<html><body><a href="https://t.me/foo">@foo</a></body></html>'
+    detail = parse_profile_detail(html)
+    assert detail.model_telegram == "@foo"  # not double-prefixed
+
+
+def test_parse_statistics_tango_date_column():
+    row = _grid_row(
+        "1134", "ТАНГО 47_1134", "/profile/1134", "25.07.2026", "", "ДНЕПР",
+        "", "21.07.2026", "", "", "", "26.07.2026",
+    )
+    profiles = parse_statistics(_grid_html(row))
+    assert profiles[0].tango_date == "26.07.2026"

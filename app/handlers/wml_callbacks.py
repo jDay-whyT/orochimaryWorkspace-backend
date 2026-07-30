@@ -24,7 +24,9 @@ router = Router()
 @router.callback_query(F.data.startswith("wml_add:"))
 async def cb_wml_add(query: CallbackQuery, config: Config, notion: NotionClient) -> None:
     await safe_query_answer(query, "Додаю...")
-    wml_id = query.data.split(":", 1)[1]
+    parts = query.data.split(":")
+    wml_id = parts[1]
+    has_tango_date = len(parts) > 2 and parts[2] == "1"
 
     if not config.wml_username or not config.wml_password:
         await safe_edit_message(query, "⚠️ WML креди не налаштовані.")
@@ -54,11 +56,15 @@ async def cb_wml_add(query: CallbackQuery, config: Config, notion: NotionClient)
         await safe_edit_message(query, f"ℹ️ {title} вже є в Notion.")
         return
 
+    project = detail.office or None
+    if not project and has_tango_date:
+        project = "TANGO"
+
     await notion.create_model_from_wml(
         database_id=config.db_models,
         title=title,
         scoutname=detail.scout.strip().lower() if detail.scout else None,
-        project=detail.office or None,
+        project=project,
         language=detail.language,
         location=detail.location,
         comment=detail.comment,

@@ -39,6 +39,7 @@ class WmlProfile:
     office: str
     scout: str
     fansly_date: str | None
+    tango_date: str | None
 
 
 @dataclass
@@ -166,6 +167,7 @@ def parse_statistics(html: str) -> list[WmlProfile]:
         scout = tds[3].get_text(strip=True)
         office = tds[4].get_text(strip=True)
         fansly_date = tds[8].get_text(strip=True) or None
+        tango_date = tds[9].get_text(strip=True) or None
 
         name = strip_wml_suffix(wml_name)
         if name is None:
@@ -180,6 +182,7 @@ def parse_statistics(html: str) -> list[WmlProfile]:
             office=office,
             scout=scout,
             fansly_date=fansly_date,
+            tango_date=tango_date,
         ))
 
     return profiles
@@ -211,7 +214,11 @@ def parse_profile_detail(html: str) -> WmlProfileDetail:
     model_telegram = None
     tg_link = soup.find("a", href=re.compile(r"^https?://t\.me/"))
     if tg_link:
-        model_telegram = tg_link.get_text(strip=True) or tg_link["href"]
+        username = tg_link.get_text(strip=True)
+        if username:
+            model_telegram = username if username.startswith("@") else f"@{username}"
+        else:
+            model_telegram = tg_link["href"]
 
     return WmlProfileDetail(
         wml_name=wml_name,
