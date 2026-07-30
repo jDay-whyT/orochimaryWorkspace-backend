@@ -6,6 +6,7 @@ Telegram instead of the job just quietly doing nothing.
 """
 import asyncio
 import logging
+import re
 from datetime import date, datetime
 
 import requests
@@ -20,6 +21,24 @@ LOGGER = logging.getLogger(__name__)
 
 def _normalize_title(title: str) -> str:
     return title.strip().lower()
+
+
+_TANGO_SLOT_RE = re.compile(r"^танго\s+(\d+)")
+
+
+def _tango_fallback_key(key: str) -> str | None:
+    """WML sometimes glues a "Танго" annotation onto an already-onboarded
+    model's name: "ХанамиТанго"/"Смайл Танго" (base name + Tango suffix) or
+    "Танго 26 ( сигма)"/"Танго 16 (Бьякуя)" (slot number + free-text note).
+    Both forms fail an exact title match; this recovers the base identity
+    so real duplicates aren't flagged as new. Returns None if no Tango
+    annotation is present (nothing to fall back to)."""
+    slot_match = _TANGO_SLOT_RE.match(key)
+    if slot_match:
+        return f"танго {slot_match.group(1)}"
+    if key.endswith("танго") and len(key) > len("танго"):
+        return key[: -len("танго")].strip()
+    return None
 
 
 def _parse_wml_date(raw: str | None) -> date | None:
@@ -98,6 +117,14 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient, redis) 
             continue
 
         model = by_title.get(key)
+        if model is None:
+            fallback_key = _tango_fallback_key(key)
+            if fallback_key and fallback_key not in ambiguous:
+                model = by_title.get(fallback_key)
+                if model:
+                    LOGGER.info("WML profile matched via Tango-annotation fallback (%r -> %r): %s",
+                                key, fallback_key, profile.name)
+
         if model is None:
             if profile.wml_id and profile.wml_id in seen_ids:
                 LOGGER.info("WML profile new but already notified before, skipping: %s (id=%s)",
