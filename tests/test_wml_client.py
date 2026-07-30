@@ -23,6 +23,11 @@ def test_strip_wml_suffix_no_number():
     assert strip_wml_suffix("СОМЕNAME") == "СОМЕNAME"
 
 
+def test_strip_wml_suffix_leading_paren_id():
+    assert strip_wml_suffix("(2119) СУКУНА") == "СУКУНА"
+    assert strip_wml_suffix("(2056) Black Pearl") == "Black Pearl"
+
+
 # ---------------------------------------------------------------------------
 # parse_statistics
 # ---------------------------------------------------------------------------

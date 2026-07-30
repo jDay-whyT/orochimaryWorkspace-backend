@@ -20,6 +20,10 @@ STATS_URL = f"{BASE_URL}/profile/statistics"
 # "ДАХ ИИ_1035" -> name="ДАХ", excluded=True ; "ТАНГО 47_1134" -> name="ТАНГО 47", excluded=False
 _SUFFIX_RE = re.compile(r"^(?P<name>.*?)(?P<ii>\s+ИИ)?_(?P<num>\d+)\s*$")
 
+# WML has a second, older numbering convention: a leading "(NNNN) " id prefix
+# instead of a trailing "_NNNN" suffix, e.g. "(2119) СУКУНА" -> "СУКУНА".
+_LEADING_ID_RE = re.compile(r"^\(\d+\)\s*")
+
 
 _PROFILE_ID_RE = re.compile(r"/profile/(\d+)")
 
@@ -53,11 +57,14 @@ class WmlProfileDetail:
 
 
 def strip_wml_suffix(wml_name: str) -> str | None:
-    """Strip the trailing "_NNNN" id suffix. Returns None if the profile
-    carries the " ИИ" token (excluded from sync entirely)."""
-    match = _SUFFIX_RE.match(wml_name.strip())
+    """Strip WML's id decoration — either a trailing "_NNNN" suffix or a
+    leading "(NNNN) " prefix (two different numbering conventions used by
+    different cohorts of profiles). Returns None if the profile carries the
+    " ИИ" token (excluded from sync entirely)."""
+    name = _LEADING_ID_RE.sub("", wml_name.strip())
+    match = _SUFFIX_RE.match(name)
     if not match:
-        return wml_name.strip()
+        return name.strip()
     if match.group("ii"):
         return None
     return match.group("name").strip()
