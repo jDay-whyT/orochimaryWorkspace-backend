@@ -72,3 +72,9 @@ async def cb_wml_add(query: CallbackQuery, config: Config, notion: NotionClient)
     extra = ("\n" + "\n".join(extra_lines)) if extra_lines else ""
 
     await safe_edit_message(query, f"✅ {title} додано в Notion.{extra}")
+
+
+@router.callback_query(F.data.startswith("wml_reject:"))
+async def cb_wml_reject(query: CallbackQuery) -> None:
+    await safe_query_answer(query, "Відхилено")
+    await safe_edit_message(query, "❌ Відхилено.")

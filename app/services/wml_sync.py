@@ -42,14 +42,17 @@ def _parse_notion_date(raw: str | None) -> date | None:
         return None
 
 
-async def run_wml_sync(bot, config: Config, notion: NotionClient) -> None:
+WML_SEEN_REDIS_KEY = "wml:seen_ids"
+
+
+async def run_wml_sync(bot, config: Config, notion: NotionClient, redis=None) -> None:
     """Scrape WML, diff against Notion, notify the owner. Never raises."""
     if not config.owner_telegram_id:
         LOGGER.warning("WML sync skipped: OWNER_TELEGRAM_ID not configured")
         return
 
     try:
-        await _run_wml_sync_inner(bot, config, notion)
+        await _run_wml_sync_inner(bot, config, notion, redis)
     except Exception as e:
         LOGGER.exception("WML sync failed")
         try:
@@ -61,7 +64,7 @@ async def run_wml_sync(bot, config: Config, notion: NotionClient) -> None:
             LOGGER.exception("Failed to notify owner of WML sync failure")
 
 
-async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient) -> None:
+async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient, redis) -> None:
     if not config.wml_username or not config.wml_password:
         raise RuntimeError("WML_USERNAME/WML_PASSWORD not configured")
 
@@ -81,6 +84,13 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient) -> None
         else:
             by_title[key] = m
 
+    LOGGER.info("WML sync: %d WML profiles, %d Notion models (%d ambiguous titles)",
+                len(profiles), len(existing), len(ambiguous))
+
+    seen_ids: set[str] = set()
+    if redis is not None:
+        seen_ids = await redis.smembers(WML_SEEN_REDIS_KEY)
+
     for profile in profiles:
         key = _normalize_title(profile.name)
         if key in ambiguous:
@@ -89,8 +99,16 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient) -> None
 
         model = by_title.get(key)
         if model is None:
-            await _notify_new_profile(bot, config, session, profile)
+            if profile.wml_id and profile.wml_id in seen_ids:
+                LOGGER.info("WML profile new but already notified before, skipping: %s (id=%s)",
+                            profile.name, profile.wml_id)
+                continue
+            LOGGER.info("WML profile NOT matched in Notion (treated as new): %r (key=%r)",
+                        profile.name, key)
+            await _notify_new_profile(bot, config, session, profile, redis)
             continue
+
+        LOGGER.info("WML profile matched Notion page %s: %r", model.page_id, profile.name)
 
         wml_fansly = _parse_wml_date(profile.fansly_date)
         notion_fansly = _parse_notion_date(model.fansly)
@@ -103,7 +121,7 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient) -> None
             )
 
 
-async def _notify_new_profile(bot, config: Config, session: requests.Session, profile: WmlProfile) -> None:
+async def _notify_new_profile(bot, config: Config, session: requests.Session, profile: WmlProfile, redis) -> None:
     detail: WmlProfileDetail | None = None
     if profile.profile_url:
         try:
@@ -135,7 +153,8 @@ async def _notify_new_profile(bot, config: Config, session: requests.Session, pr
     if profile.wml_id:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[[
-                InlineKeyboardButton(text="➕ Додати в Notion", callback_data=f"wml_add:{profile.wml_id}")
+                InlineKeyboardButton(text="➕ Додати в Notion", callback_data=f"wml_add:{profile.wml_id}"),
+                InlineKeyboardButton(text="❌ Відхилити", callback_data=f"wml_reject:{profile.wml_id}"),
             ]]
         )
 
@@ -145,3 +164,6 @@ async def _notify_new_profile(bot, config: Config, session: requests.Session, pr
         parse_mode="HTML",
         reply_markup=keyboard,
     )
+
+    if redis is not None and profile.wml_id:
+        await redis.sadd(WML_SEEN_REDIS_KEY, profile.wml_id)

@@ -89,7 +89,7 @@ async def create_app() -> web.Application:
         secret = config.internal_secret
         if not secret or request.headers.get("X-Internal-Secret", "") != secret:
             return web.json_response({"ok": False}, status=403)
-        await run_wml_sync(request.app["bot"], request.app["config"], request.app["notion"])
+        await run_wml_sync(request.app["bot"], request.app["config"], request.app["notion"], request.app.get("redis"))
         return web.json_response({"ok": True})
 
     async def telegram_webhook(request: web.Request) -> web.Response:
