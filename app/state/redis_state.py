@@ -6,6 +6,7 @@ from concurrent.futures import Future
 from dataclasses import dataclass, field
 from threading import Event, Thread
 from typing import Any
+from urllib.parse import urlsplit
 
 LOGGER = logging.getLogger(__name__)
 
@@ -14,6 +15,13 @@ def _default_serializer(obj: Any) -> Any:
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         return dataclasses.asdict(obj)
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def _redact_redis_url(url: str) -> str:
+    """scheme://host:port only — strips any embedded username/password."""
+    parts = urlsplit(url)
+    port = f":{parts.port}" if parts.port else ""
+    return f"{parts.scheme}://{parts.hostname or ''}{port}"
 
 
 @dataclass
@@ -42,7 +50,7 @@ class RedisMemoryState:
             kwargs.setdefault("retry_on_error", [ConnectionError, TimeoutError])
             kwargs.setdefault("retry", Retry(ExponentialBackoff(), 2))
             self.redis_client = Redis.from_url(self.redis_url, decode_responses=True, **kwargs)
-            LOGGER.info("RedisMemoryState initialized: url=%s ttl=%s", self.redis_url[:30], self.ttl_seconds)
+            LOGGER.info("RedisMemoryState initialized: url=%s ttl=%s", _redact_redis_url(self.redis_url), self.ttl_seconds)
 
         self._thread = Thread(target=self._run_loop, daemon=True)
         self._thread.start()
