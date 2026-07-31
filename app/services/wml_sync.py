@@ -219,8 +219,9 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient, redis) 
 
         model = resolve_wml_match(key, index)
         if model and key not in index.by_title:
+            fallback_key = _tango_fallback_key(key) or _tango_prefix_collapse_key(key)
             LOGGER.info("WML profile matched via Tango-annotation fallback (%r -> %r): %s",
-                        key, _tango_fallback_key(key), profile.name)
+                        key, fallback_key, profile.name)
 
         if model is None:
             if profile.wml_id and profile.wml_id in seen_ids:
