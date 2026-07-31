@@ -40,6 +40,7 @@ async def create_app() -> web.Application:
         from redis.asyncio import Redis as AioRedis
         app["redis"] = AioRedis.from_url(config.redis_url, decode_responses=True)
         LOGGER.info("Scout Redis client initialized")
+    dp["redis"] = app.get("redis")  # exposes the same client to aiogram handler DI
 
     # Deduplication: track last 200 update_ids to skip Telegram re-deliveries.
     # deque(maxlen=200) keeps insertion order so we can evict the oldest ID

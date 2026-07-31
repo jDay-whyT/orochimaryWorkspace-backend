@@ -2,12 +2,18 @@
 report rows (models whose manager block exists in the sheet but who don't
 have a row yet — see app.services.salary_sheet_writer.insert_new_model_row).
 
-Re-runs the same Notion aggregation used by /reports for the single model on
-button press, rather than trusting a snapshot from whenever the button was
-sent, so the written row reflects current data and there's no separate
-token/state store to expire or lose across a Cloud Run restart (mirrors the
-wml_add callback's re-fetch pattern).
+The row is read from the Redis cache /reports populated when it sent the
+button (see salary_pending_redis_key) — NOT re-fetched from Notion. A button
+press used to re-run the full month's Accounting/Orders/Models query just to
+recover one row's data; in prod (2026-07-31) that took 90-250s per press
+(Notion was under load) and once left the shared Sheets aiohttp session
+stale enough to fail with a broken-pipe error on the eventual Sheets call.
+Falls back to a full re-fetch only if the cache entry is missing/expired or
+Redis isn't configured, so a stale/cold cache degrades to "slow" rather than
+"broken".
 """
+import dataclasses
+import json
 import logging
 
 from aiogram import F, Router
@@ -15,7 +21,7 @@ from aiogram.types import CallbackQuery
 
 from app.config import Config
 from app.services.notion import NotionClient
-from app.services.salary_report import build_salary_report
+from app.services.salary_report import ModelSalaryRow, build_salary_report, salary_pending_redis_key
 from app.services.salary_sheet_writer import insert_new_model_row, tab_title_for_month
 from app.services.sheets import SheetsClient
 from app.utils.telegram import safe_edit_message, safe_query_answer
@@ -24,12 +30,29 @@ LOGGER = logging.getLogger(__name__)
 router = Router()
 
 
+async def _load_row(redis, notion: NotionClient, config: Config, yyyy_mm: str, model_id: str) -> ModelSalaryRow | None:
+    if redis is not None:
+        cached = await redis.get(salary_pending_redis_key(yyyy_mm, model_id))
+        if cached:
+            return ModelSalaryRow(**json.loads(cached))
+
+    accounting_records = await notion.query_accounting_for_month(config.db_accounting, yyyy_mm)
+    tango_records = await notion.query_tango_accounting(config.db_accounting)
+    seen_ids = {r.page_id for r in accounting_records}
+    accounting_records += [r for r in tango_records if r.page_id not in seen_ids]
+    orders = await notion.query_orders_closed_in_month(config.db_orders, yyyy_mm)
+    models = await notion.query_all_models(config.db_models)
+    report = build_salary_report(accounting_records, orders, models)
+    return next((r for rows in report.values() for r in rows if r.model_id == model_id), None)
+
+
 @router.callback_query(F.data.startswith("salary_add:"))
 async def cb_salary_add(
     query: CallbackQuery,
     config: Config,
     notion: NotionClient,
     sheets: SheetsClient | None,
+    redis=None,
 ) -> None:
     await safe_query_answer(query, "Добавляю...")
     _, yyyy_mm, model_id = query.data.split(":", 2)
@@ -39,19 +62,12 @@ async def cb_salary_add(
         return
 
     try:
-        accounting_records = await notion.query_accounting_for_month(config.db_accounting, yyyy_mm)
-        tango_records = await notion.query_tango_accounting(config.db_accounting)
-        seen_ids = {r.page_id for r in accounting_records}
-        accounting_records += [r for r in tango_records if r.page_id not in seen_ids]
-        orders = await notion.query_orders_closed_in_month(config.db_orders, yyyy_mm)
-        models = await notion.query_all_models(config.db_models)
+        row = await _load_row(redis, notion, config, yyyy_mm, model_id)
     except Exception:
         LOGGER.exception("Failed to fetch salary data for %s add of %s", yyyy_mm, model_id)
         await safe_edit_message(query, "⚠️ Не удалось получить данные из Notion, попробуй позже.")
         return
 
-    report = build_salary_report(accounting_records, orders, models)
-    row = next((r for rows in report.values() for r in rows if r.model_id == model_id), None)
     if row is None:
         await safe_edit_message(query, "⚠️ Модель больше не найдена в отчёте за этот месяц.")
         return
@@ -77,6 +93,9 @@ async def cb_salary_add(
             query, f"⚠️ Менеджер {row.manager} не найден в табе {tab_name} — добавь вручную."
         )
         return
+
+    if redis is not None:
+        await redis.delete(salary_pending_redis_key(yyyy_mm, model_id))
 
     await safe_edit_message(
         query,

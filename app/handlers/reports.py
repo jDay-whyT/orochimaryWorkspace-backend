@@ -1,4 +1,6 @@
+import dataclasses
 import html
+import json
 import logging
 import re
 
@@ -8,7 +10,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.config import Config
 from app.services import NotionClient
-from app.services.salary_report import build_salary_report
+from app.services.salary_report import build_salary_report, salary_pending_redis_key
 from app.services.salary_sheet_writer import write_salary_report
 from app.services.sheets import SheetsClient
 from app.utils.formatting import today
@@ -17,6 +19,7 @@ LOGGER = logging.getLogger(__name__)
 router = Router()
 
 _YYYY_MM_RE = re.compile(r"^\d{4}-\d{2}$")
+_PENDING_ROW_TTL_SECONDS = 24 * 3600
 
 
 def _resolve_month(arg: str | None, config: Config) -> str | None:
@@ -33,6 +36,7 @@ async def cmd_reports(
     config: Config,
     notion: NotionClient,
     sheets: SheetsClient | None,
+    redis=None,
 ) -> None:
     if message.chat.type != "private":
         return
@@ -93,6 +97,9 @@ async def cmd_reports(
     await message.answer("\n".join(lines), parse_mode="HTML")
 
     for row in result.unmatched[:20]:
+        if redis is not None:
+            key = salary_pending_redis_key(yyyy_mm, row.model_id)
+            await redis.set(key, json.dumps(dataclasses.asdict(row)), ex=_PENDING_ROW_TTL_SECONDS)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
                 text="➕ Добавить в таблицу",

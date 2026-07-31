@@ -41,6 +41,14 @@ class ModelSalaryRow:
     orders_pay: int = 0
 
 
+def salary_pending_redis_key(yyyy_mm: str, model_id: str) -> str:
+    """Cache key for a single unmatched row's data between /reports sending
+    its "Добавить в таблицу" button and the button being pressed — avoids
+    re-running the full month's Accounting/Orders/Models Notion query (slow,
+    ~90-250s observed in prod 2026-07-31) just to add one row."""
+    return f"salary:pending:{yyyy_mm}:{model_id}"
+
+
 def build_salary_report(
     accounting_records: list[NotionAccounting],
     orders: list[NotionOrder],
