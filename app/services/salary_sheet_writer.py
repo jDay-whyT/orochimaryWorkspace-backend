@@ -41,11 +41,24 @@ def _count_cell(value: int) -> str | int:
     return value if value else "—"
 
 
+_FORMULA_PREFIXES = ("=", "+", "-", "@")
+
+
+def _safe_cell(value):
+    """Prefix a leading formula-trigger char with `'` so Sheets (USER_ENTERED)
+    stores Notion/WML-sourced strings as literal text instead of executing
+    them as a formula (e.g. a scraped profile field of "=HYPERLINK(...)").
+    Never apply this to the `=SUM(...)` strings the writer generates itself."""
+    if isinstance(value, str) and value[:1] in _FORMULA_PREFIXES:
+        return "'" + value
+    return value
+
+
 def _model_row_cells(row: ModelSalaryRow) -> list:
     return [
-        row.model_name,
-        row.status or "",
-        _content_cell(row.content),
+        _safe_cell(row.model_name),
+        _safe_cell(row.status or ""),
+        _safe_cell(_content_cell(row.content)),
         _count_cell(row.total_files),
         _count_cell(row.custom_count),
         _count_cell(row.other_count),
@@ -53,7 +66,7 @@ def _model_row_cells(row: ModelSalaryRow) -> list:
         "",  # (unnamed spacer column)
         "",  # Lord — manual
         "",  # Managers — manual
-        row.orders_pay if row.orders_pay else "",
+        _safe_cell(row.orders_pay) if row.orders_pay else "",
         "",  # Оплата — manual/formula, only set on manager rows
     ]
 
@@ -67,7 +80,7 @@ def build_new_tab_grid(report: dict[str, list[ModelSalaryRow]]) -> list[list]:
         header_row_num = len(grid) + 1  # 1-based sheet row
         first_model_row = header_row_num + 1
         last_model_row = first_model_row + len(rows) - 1
-        grid.append([manager] + [""] * 10 + [f"=SUM(I{first_model_row}:K{last_model_row})"])
+        grid.append([_safe_cell(manager)] + [""] * 10 + [f"=SUM(I{first_model_row}:K{last_model_row})"])
         manager_header_rows.append(header_row_num)
         for row in rows:
             grid.append(_model_row_cells(row))

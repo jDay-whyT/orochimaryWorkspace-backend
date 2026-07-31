@@ -181,14 +181,36 @@ class TestWithStaticDir:
 
     @pytest.mark.asyncio
     async def test_post_webhook_accepted(self, frontend_dist):
-        """POST /tg/webhook must still return 200 (fire-and-forget)."""
+        """POST /tg/webhook with a valid secret token must return 200 (fire-and-forget)."""
+        from app.server import create_app
+        from unittest.mock import patch as _patch
+
+        cfg = _make_config()
+        cfg.telegram_webhook_secret = "testsecret"
+        with (
+            _patch("app.server.load_config", return_value=cfg),
+            _patch("app.server.create_dispatcher", return_value=_make_dispatcher_tuple()),
+            _patch("app.server.setup_application"),
+        ):
+            app = await create_app()
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.post(
+                "/tg/webhook",
+                json={"update_id": 99, "message": {"text": "hi"}},
+                headers={"X-Telegram-Bot-Api-Secret-Token": "testsecret"},
+            )
+            assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_post_webhook_rejected_without_secret(self, frontend_dist):
+        """POST /tg/webhook must be rejected when no webhook secret is configured (fail closed)."""
         app = await _build_app()
         async with TestClient(TestServer(app)) as client:
             resp = await client.post(
                 "/tg/webhook",
                 json={"update_id": 99, "message": {"text": "hi"}},
             )
-            assert resp.status == 200
+            assert resp.status == 403
 
     @pytest.mark.asyncio
     async def test_get_webhook_served_as_spa(self, frontend_dist):

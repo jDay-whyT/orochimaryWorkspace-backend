@@ -24,7 +24,8 @@ from app.services.notion import NotionClient
 from app.services.salary_report import ModelSalaryRow, build_salary_report, salary_pending_redis_key
 from app.services.salary_sheet_writer import insert_new_model_row, tab_title_for_month
 from app.services.sheets import SheetsClient
-from app.utils.telegram import safe_edit_message, safe_query_answer
+from app.utils.locks import release_write_lock, try_acquire_write_lock
+from app.utils.telegram import is_owner_callback, safe_edit_message, safe_query_answer
 
 LOGGER = logging.getLogger(__name__)
 router = Router()
@@ -54,57 +55,77 @@ async def cb_salary_add(
     sheets: SheetsClient | None,
     redis=None,
 ) -> None:
-    await safe_query_answer(query, "Добавляю...")
-    _, yyyy_mm, model_id = query.data.split(":", 2)
+    if not is_owner_callback(query, config):
+        await safe_query_answer(query, "⛔ Нет доступа", show_alert=True)
+        return
 
-    if sheets is None or not config.salary_sheet_id:
-        await safe_edit_message(query, "⚠️ Google Sheets для ЗП не настроен.")
+    parts = query.data.split(":", 2)
+    if len(parts) != 3:
+        await safe_query_answer(query, "⚠️ Некорректные данные", show_alert=True)
+        return
+    _, yyyy_mm, model_id = parts
+
+    lock_key = f"salary_add_lock:{yyyy_mm}:{model_id}"
+    if not await try_acquire_write_lock(redis, lock_key):
+        await safe_query_answer(query, "⏳ Уже добавляется...", show_alert=True)
         return
 
     try:
-        row = await _load_row(redis, notion, config, yyyy_mm, model_id)
-    except Exception:
-        LOGGER.exception("Failed to fetch salary data for %s add of %s", yyyy_mm, model_id)
-        await safe_edit_message(query, "⚠️ Не удалось получить данные из Notion, попробуй позже.")
-        return
+        await safe_query_answer(query, "Добавляю...")
 
-    if row is None:
-        await safe_edit_message(query, "⚠️ Модель больше не найдена в отчёте за этот месяц.")
-        return
-
-    tab_name = tab_title_for_month(yyyy_mm)
-    try:
-        tabs = await sheets.get_sheet_tabs(config.salary_sheet_id)
-        sheet_id = tabs.get(tab_name)
-        if sheet_id is None:
-            await safe_edit_message(query, f"⚠️ Таб {tab_name} не найден.")
+        if sheets is None or not config.salary_sheet_id:
+            await safe_edit_message(query, "⚠️ Google Sheets для ЗП не настроен.")
             return
-        grid = await sheets.get_tab_grid(config.salary_sheet_id, tab_name)
-        new_row = await insert_new_model_row(
-            sheets, config.salary_sheet_id, tab_name, sheet_id, grid, row.manager, row,
-        )
-    except Exception:
-        LOGGER.exception("Failed to insert salary row for %s in %s", model_id, tab_name)
-        await safe_edit_message(query, "⚠️ Не удалось записать в Google Sheets, попробуй позже.")
-        return
 
-    if new_row is None:
+        try:
+            row = await _load_row(redis, notion, config, yyyy_mm, model_id)
+        except Exception:
+            LOGGER.exception("Failed to fetch salary data for %s add of %s", yyyy_mm, model_id)
+            await safe_edit_message(query, "⚠️ Не удалось получить данные из Notion, попробуй позже.")
+            return
+
+        if row is None:
+            await safe_edit_message(query, "⚠️ Модель больше не найдена в отчёте за этот месяц.")
+            return
+
+        tab_name = tab_title_for_month(yyyy_mm)
+        try:
+            tabs = await sheets.get_sheet_tabs(config.salary_sheet_id)
+            sheet_id = tabs.get(tab_name)
+            if sheet_id is None:
+                await safe_edit_message(query, f"⚠️ Таб {tab_name} не найден.")
+                return
+            grid = await sheets.get_tab_grid(config.salary_sheet_id, tab_name)
+            new_row = await insert_new_model_row(
+                sheets, config.salary_sheet_id, tab_name, sheet_id, grid, row.manager, row,
+            )
+        except Exception:
+            LOGGER.exception("Failed to insert salary row for %s in %s", model_id, tab_name)
+            await safe_edit_message(query, "⚠️ Не удалось записать в Google Sheets, попробуй позже.")
+            return
+
+        if new_row is None:
+            await safe_edit_message(
+                query, f"⚠️ Менеджер {row.manager} не найден в табе {tab_name} — добавь вручную."
+            )
+            return
+
+        if redis is not None:
+            await redis.delete(salary_pending_redis_key(yyyy_mm, model_id))
+
         await safe_edit_message(
-            query, f"⚠️ Менеджер {row.manager} не найден в табе {tab_name} — добавь вручную."
+            query,
+            f"✅ {row.model_name} добавлена в таб {tab_name} (строка {new_row}).\n"
+            f"⚠️ Формулу Оплаты у {row.manager} бот не трогал — поправь диапазон SUM вручную.",
         )
-        return
-
-    if redis is not None:
-        await redis.delete(salary_pending_redis_key(yyyy_mm, model_id))
-
-    await safe_edit_message(
-        query,
-        f"✅ {row.model_name} добавлена в таб {tab_name} (строка {new_row}).\n"
-        f"⚠️ Формулу Оплаты у {row.manager} бот не трогал — поправь диапазон SUM вручную.",
-    )
+    finally:
+        await release_write_lock(redis, lock_key)
 
 
 @router.callback_query(F.data.startswith("salary_reject:"))
-async def cb_salary_reject(query: CallbackQuery) -> None:
+async def cb_salary_reject(query: CallbackQuery, config: Config) -> None:
+    if not is_owner_callback(query, config):
+        await safe_query_answer(query, "⛔ Нет доступа", show_alert=True)
+        return
     await safe_query_answer(query, "Отклонено")
     await safe_edit_message(query, "❌ Отклонено.")

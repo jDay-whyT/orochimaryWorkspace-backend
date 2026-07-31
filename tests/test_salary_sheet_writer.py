@@ -3,6 +3,8 @@ import pytest
 
 from app.services.salary_report import ModelSalaryRow
 from app.services.salary_sheet_writer import (
+    _model_row_cells,
+    _safe_cell,
     build_new_tab_grid,
     find_manager_block,
     index_existing_tab,
@@ -310,3 +312,43 @@ class TestInsertNewModelRow:
         assert result is None
         assert sheets.inserted is None
         assert sheets.updates == []
+
+
+class TestFormulaInjectionEscaping:
+    """Notion/WML-sourced strings must never be interpreted as Sheets
+    formulas — USER_ENTERED write mode parses any leading =/+/-/@ as a
+    formula regardless of who put it there (see security review 2026-07-31)."""
+
+    @pytest.mark.parametrize("prefix", ["=", "+", "-", "@"])
+    def test_safe_cell_escapes_formula_trigger_chars(self, prefix):
+        assert _safe_cell(f"{prefix}HYPERLINK(\"http://evil\")") == f"'{prefix}HYPERLINK(\"http://evil\")"
+
+    def test_safe_cell_leaves_normal_strings_untouched(self):
+        assert _safe_cell("КЕЙПТАУН") == "КЕЙПТАУН"
+
+    def test_safe_cell_passes_through_non_strings(self):
+        assert _safe_cell(5) == 5
+        assert _safe_cell("") == ""
+
+    def test_model_row_cells_escapes_malicious_model_name(self):
+        row = _row('=IMPORTXML("http://evil","//")', "Рони")
+        cells = _model_row_cells(row)
+        assert cells[0].startswith("'=")
+
+    def test_model_row_cells_escapes_malicious_status_and_content(self):
+        row = _row("НОВИЧОК", "Рони", status="=cmd", content=["+evil"])
+        cells = _model_row_cells(row)
+        assert cells[1] == "'=cmd"
+        assert cells[2] == "'+evil"
+
+    def test_build_new_tab_grid_escapes_malicious_manager_name(self):
+        report = {"=evil()": [_row("А", "=evil()")]}
+        grid = build_new_tab_grid(report)
+        manager_header = grid[1]
+        assert manager_header[0] == "'=evil()"
+
+    def test_build_new_tab_grid_sum_formula_is_not_escaped(self):
+        report = {"Рони": [_row("А", "Рони")]}
+        grid = build_new_tab_grid(report)
+        manager_header = grid[1]
+        assert manager_header[-1].startswith("=SUM(")

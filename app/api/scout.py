@@ -164,6 +164,10 @@ async def api_scout_verify(request: web.Request) -> web.Response:
     if not user_id:
         return web.json_response({"error": "unauthorized"}, status=401)
 
+    username = user.get("username")
+    if not username:
+        return web.json_response({"error": "telegram account has no username set"}, status=400)
+
     try:
         body = await request.json()
     except Exception:
@@ -174,6 +178,10 @@ async def api_scout_verify(request: web.Request) -> web.Response:
         return web.json_response({"error": "handle required"}, status=400)
 
     handle = f"@{handle_raw.lower().lstrip('@')}"
+
+    # Caller may only bind their OWN Telegram-verified handle — never someone else's.
+    if handle != f"@{username.lower().lstrip('@')}":
+        return web.json_response({"error": "handle does not match your Telegram account"}, status=403)
 
     config = request.app["config"]
     notion = request.app["notion"]

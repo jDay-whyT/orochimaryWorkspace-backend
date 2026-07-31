@@ -5,9 +5,22 @@ from aiogram.types import CallbackQuery
 from aiogram.types import InaccessibleMessage, Message
 from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError, TelegramRetryAfter
 
+from app.config import Config
+
 _MAX_NETWORK_RETRIES = 2
 _NETWORK_RETRY_DELAY = 1.0
 _MAX_FLOOD_RETRIES = 3
+
+
+def is_owner_callback(query: CallbackQuery, config: Config) -> bool:
+    """True only if the pressing user is the configured bot owner.
+
+    These buttons are only ever sent to the owner's private chat, but
+    Telegram forwards inline keyboards with working callback_data to whoever
+    a message ends up with — this check makes handlers self-defending
+    instead of relying solely on that delivery assumption.
+    """
+    return bool(config.owner_telegram_id) and bool(query.from_user) and query.from_user.id == config.owner_telegram_id
 
 
 async def safe_edit_message(

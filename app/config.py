@@ -108,7 +108,10 @@ def _validate_config(config: Config) -> None:
     # Critical: Tokens must be present
     if not config.telegram_bot_token:
         errors.append("TELEGRAM_BOT_TOKEN is required")
-    
+
+    if not config.telegram_webhook_secret:
+        errors.append("TELEGRAM_WEBHOOK_SECRET is required")
+
     if not config.notion_token:
         errors.append("NOTION_TOKEN is required")
     

@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import logging
 import os
 import pathlib
@@ -70,16 +71,14 @@ async def create_app() -> web.Application:
 
     async def internal_update_board(request: web.Request) -> web.Response:
         secret = config.internal_secret
-        if not secret:
-            return web.json_response({"ok": False}, status=403)
-        if request.headers.get("X-Internal-Secret", "") != secret:
+        if not secret or not hmac.compare_digest(request.headers.get("X-Internal-Secret", ""), secret):
             return web.json_response({"ok": False}, status=403)
         await update_board(request.app["bot"], request.app["config"], request.app["notion"])
         return web.json_response({"ok": True})
 
     async def internal_update_reddit_board(request: web.Request) -> web.Response:
         secret = config.internal_secret
-        if secret and request.headers.get("X-Internal-Secret") != secret:
+        if not secret or not hmac.compare_digest(request.headers.get("X-Internal-Secret", ""), secret):
             return web.Response(status=403, text="forbidden")
         bot = request.app["bot"]
         notion = request.app["notion"]
@@ -88,7 +87,7 @@ async def create_app() -> web.Application:
 
     async def internal_scrape_wml(request: web.Request) -> web.Response:
         secret = config.internal_secret
-        if not secret or request.headers.get("X-Internal-Secret", "") != secret:
+        if not secret or not hmac.compare_digest(request.headers.get("X-Internal-Secret", ""), secret):
             return web.json_response({"ok": False}, status=403)
         await run_wml_sync(request.app["bot"], request.app["config"], request.app["notion"], request.app.get("redis"))
         return web.json_response({"ok": True})
@@ -96,11 +95,10 @@ async def create_app() -> web.Application:
     async def telegram_webhook(request: web.Request) -> web.Response:
         # Validate secret first (before parsing body, to fail fast on bad actors).
         secret = config.telegram_webhook_secret
-        if secret:
-            header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-            if header_secret != secret:
-                LOGGER.warning("Webhook secret mismatch")
-                return web.Response(status=403, text="forbidden")
+        header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if not secret or not hmac.compare_digest(header_secret, secret):
+            LOGGER.warning("Webhook secret missing or mismatched")
+            return web.Response(status=403, text="forbidden")
 
         try:
             body = await request.json()

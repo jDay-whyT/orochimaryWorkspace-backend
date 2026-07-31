@@ -90,6 +90,19 @@ jobs:
 
       # FIXED: Removed duplicate "Prepare deployment variables" step that was never used
 
+      - name: Sync secrets to Secret Manager
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$TELEGRAM_BOT_TOKEN" | gcloud secrets versions add orochimary-telegram-bot-token --data-file=-
+          printf '%s' "$TELEGRAM_WEBHOOK_SECRET" | gcloud secrets versions add orochimary-telegram-webhook-secret --data-file=-
+          printf '%s' "$NOTION_TOKEN" | gcloud secrets versions add orochimary-notion-token --data-file=-
+          printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" | gcloud secrets versions add orochimary-google-service-account-json --data-file=-
+
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${{ steps.prep.outputs.region }}-docker.pkg.dev" --quiet
 
@@ -105,18 +118,16 @@ jobs:
           region: ${{ steps.prep.outputs.region }}
           image: ${{ steps.prep.outputs.image_uri }}
           env_vars: |-
-            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
-            TELEGRAM_WEBHOOK_SECRET=${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
-            NOTION_TOKEN=${{ secrets.NOTION_TOKEN }}
             DB_MODELS=${{ secrets.DB_MODELS }}
             DB_ORDERS=${{ secrets.DB_ORDERS }}
             DB_PLANNER=${{ secrets.DB_PLANNER }}
             DB_ACCOUNTING=${{ secrets.DB_ACCOUNTING }}
             DB_FORMS=${{ secrets.DB_FORMS }}
-            GOOGLE_SERVICE_ACCOUNT_JSON=${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
             ANALYTICS_SPREADSHEET_ID=${{ secrets.ANALYTICS_SPREADSHEET_ID }}
             TIMEZONE=${{ vars.TIMEZONE }}
-          
-            
+          secrets: |-
+            TELEGRAM_BOT_TOKEN=orochimary-telegram-bot-token:latest
+            TELEGRAM_WEBHOOK_SECRET=orochimary-telegram-webhook-secret:latest
+            NOTION_TOKEN=orochimary-notion-token:latest
+            GOOGLE_SERVICE_ACCOUNT_JSON=orochimary-google-service-account-json:latest
 
-      
