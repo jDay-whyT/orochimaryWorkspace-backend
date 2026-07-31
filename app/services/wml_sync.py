@@ -7,6 +7,7 @@ Telegram instead of the job just quietly doing nothing.
 import asyncio
 import logging
 import re
+from dataclasses import dataclass
 from datetime import date, datetime
 
 import requests
@@ -28,17 +29,83 @@ _TANGO_SLOT_RE = re.compile(r"^танго\s+(\d+)")
 
 def _tango_fallback_key(key: str) -> str | None:
     """WML sometimes glues a "Танго" annotation onto an already-onboarded
-    model's name: "ХанамиТанго"/"Смайл Танго" (base name + Tango suffix) or
+    model's name: "ХанамиТанго"/"Смайл Танго" (base name + Tango suffix),
+    "ТангоКейптаун"/"Танго Кейптаун" (Tango prefix + base name), or
     "Танго 26 ( сигма)"/"Танго 16 (Бьякуя)" (slot number + free-text note).
-    Both forms fail an exact title match; this recovers the base identity
-    so real duplicates aren't flagged as new. Returns None if no Tango
-    annotation is present (nothing to fall back to)."""
+    All three forms fail an exact title match; this recovers the base
+    identity (slot number, or bare name) so real duplicates aren't flagged
+    as new. Applied to BOTH sides of the match (see `build_notion_title_index`) —
+    the annotation, and its free-text note, can land on either the WML name
+    or the existing Notion title, and the two notes don't have to agree
+    (e.g. WML "Танго 34 John" vs Notion "Танго 34 ЕКБ" — same slot, only the
+    slot number is the real identity). Returns None if no Tango annotation
+    is present (nothing to fall back to)."""
     slot_match = _TANGO_SLOT_RE.match(key)
     if slot_match:
         return f"танго {slot_match.group(1)}"
     if key.endswith("танго") and len(key) > len("танго"):
         return key[: -len("танго")].strip()
+    if key.startswith("танго") and len(key) > len("танго"):
+        rest = key[len("танго"):].strip()
+        if rest and not rest[0].isdigit():  # digit case is the slot pattern above
+            return rest
     return None
+
+
+@dataclass
+class NotionTitleIndex:
+    by_title: dict[str, NotionModel]
+    ambiguous: set[str]
+    tango_alias: dict[str, NotionModel]
+    tango_ambiguous: set[str]
+
+
+def build_notion_title_index(existing: list[NotionModel]) -> NotionTitleIndex:
+    """Two lookups over existing Notion models: raw normalized titles, and a
+    Tango-fallback alias for whichever titles carry their own Tango
+    annotation (so a WML name with a different note for the same slot/base
+    name still resolves — see _tango_fallback_key)."""
+    by_title: dict[str, NotionModel] = {}
+    ambiguous: set[str] = set()
+    tango_alias: dict[str, NotionModel] = {}
+    tango_ambiguous: set[str] = set()
+    for m in existing:
+        key = _normalize_title(m.title)
+        if key in by_title:
+            ambiguous.add(key)
+        else:
+            by_title[key] = m
+
+        tango_key = _tango_fallback_key(key)
+        if tango_key:
+            if tango_key in tango_alias:
+                tango_ambiguous.add(tango_key)
+            else:
+                tango_alias[tango_key] = m
+
+    return NotionTitleIndex(by_title, ambiguous, tango_alias, tango_ambiguous)
+
+
+def resolve_wml_match(key: str, index: NotionTitleIndex) -> NotionModel | None:
+    """Resolve a normalized WML profile name to an existing Notion model,
+    trying an exact title match first, then the Tango-annotation fallback
+    against both raw titles and the Tango-alias index. Ambiguous keys are
+    never guessed."""
+    if key in index.ambiguous:
+        return None
+
+    model = index.by_title.get(key)
+    if model is not None:
+        return model
+
+    fallback_key = _tango_fallback_key(key)
+    if not fallback_key:
+        return None
+    if fallback_key not in index.ambiguous:
+        model = index.by_title.get(fallback_key)
+    if model is None and fallback_key not in index.tango_ambiguous:
+        model = index.tango_alias.get(fallback_key)
+    return model
 
 
 def _parse_wml_date(raw: str | None) -> date | None:
@@ -94,17 +161,10 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient, redis) 
     profiles = parse_statistics(html)
 
     existing = await notion.query_all_models(config.db_models)
-    by_title: dict[str, NotionModel] = {}
-    ambiguous: set[str] = set()
-    for m in existing:
-        key = _normalize_title(m.title)
-        if key in by_title:
-            ambiguous.add(key)
-        else:
-            by_title[key] = m
+    index = build_notion_title_index(existing)
 
     LOGGER.info("WML sync: %d WML profiles, %d Notion models (%d ambiguous titles)",
-                len(profiles), len(existing), len(ambiguous))
+                len(profiles), len(existing), len(index.ambiguous))
 
     seen_ids: set[str] = set()
     if redis is not None:
@@ -112,18 +172,14 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient, redis) 
 
     for profile in profiles:
         key = _normalize_title(profile.name)
-        if key in ambiguous:
+        if key in index.ambiguous:
             LOGGER.warning("Skipping ambiguous Notion title match for WML profile: %s", profile.name)
             continue
 
-        model = by_title.get(key)
-        if model is None:
-            fallback_key = _tango_fallback_key(key)
-            if fallback_key and fallback_key not in ambiguous:
-                model = by_title.get(fallback_key)
-                if model:
-                    LOGGER.info("WML profile matched via Tango-annotation fallback (%r -> %r): %s",
-                                key, fallback_key, profile.name)
+        model = resolve_wml_match(key, index)
+        if model and key not in index.by_title:
+            LOGGER.info("WML profile matched via Tango-annotation fallback (%r -> %r): %s",
+                        key, _tango_fallback_key(key), profile.name)
 
         if model is None:
             if profile.wml_id and profile.wml_id in seen_ids:
