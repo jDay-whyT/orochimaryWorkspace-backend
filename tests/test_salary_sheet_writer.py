@@ -1,8 +1,13 @@
 """Tests for app/services/salary_sheet_writer.py."""
+import pytest
+
 from app.services.salary_report import ModelSalaryRow
 from app.services.salary_sheet_writer import (
     build_new_tab_grid,
+    find_manager_block,
     index_existing_tab,
+    insert_new_model_row,
+    plan_row_insertion,
     plan_updates_for_existing_tab,
     tab_title_for_month,
 )
@@ -107,8 +112,9 @@ class TestPlanUpdatesForExistingTab:
             [],
         ]
         report = {"Рони": [_row("ФИГУРА", "Рони", status="work", total_files=80, orders_pay=3)]}
-        updates, unmatched = plan_updates_for_existing_tab(grid, report, "ИЮЛЬ")
+        updates, unmatched, unmatched_no_manager = plan_updates_for_existing_tab(grid, report, "ИЮЛЬ")
         assert unmatched == []
+        assert unmatched_no_manager == []
         ranges = dict(updates)
         assert ranges["'ИЮЛЬ'!B3:F3"] == [["work", "—", 80, "—", "—"]]
         assert ranges["'ИЮЛЬ'!K3"] == [[3]]
@@ -123,17 +129,28 @@ class TestPlanUpdatesForExistingTab:
             [],
         ]
         report = {"Flair": [_row("Maria Kai", "Flair", status="work")]}
-        updates, unmatched = plan_updates_for_existing_tab(grid, report, "ИЮЛЬ")
+        updates, unmatched, unmatched_no_manager = plan_updates_for_existing_tab(grid, report, "ИЮЛЬ")
         assert unmatched == []
+        assert unmatched_no_manager == []
         assert dict(updates)["'ИЮЛЬ'!B3:F3"][0][0] == "work"
 
-    def test_model_not_found_in_sheet_is_reported_unmatched(self):
+    def test_model_not_found_but_manager_exists_is_button_eligible_unmatched(self):
         grid = [["Модель", "Статус"], ["Рони"], []]
         report = {"Рони": [_row("НОВИЧОК", "Рони")]}
-        updates, unmatched = plan_updates_for_existing_tab(grid, report, "ИЮЛЬ")
+        updates, unmatched, unmatched_no_manager = plan_updates_for_existing_tab(grid, report, "ИЮЛЬ")
         assert updates == []
+        assert unmatched_no_manager == []
         assert len(unmatched) == 1
         assert unmatched[0].model_name == "НОВИЧОК"
+
+    def test_manager_not_in_sheet_is_unmatched_no_manager(self):
+        grid = [["Модель", "Статус"], ["Рони"], []]
+        report = {"НовыйМенеджер": [_row("НОВИЧОК", "НовыйМенеджер")]}
+        updates, unmatched, unmatched_no_manager = plan_updates_for_existing_tab(grid, report, "ИЮЛЬ")
+        assert updates == []
+        assert unmatched == []
+        assert len(unmatched_no_manager) == 1
+        assert unmatched_no_manager[0].model_name == "НОВИЧОК"
 
     def test_manual_columns_never_touched(self):
         grid = [
@@ -143,8 +160,110 @@ class TestPlanUpdatesForExistingTab:
             [],
         ]
         report = {"Рони": [_row("ФИГУРА", "Рони")]}
-        updates, _ = plan_updates_for_existing_tab(grid, report, "ИЮЛЬ")
+        updates, _, _ = plan_updates_for_existing_tab(grid, report, "ИЮЛЬ")
         touched_ranges = [r for r, _ in updates]
         for r in touched_ranges:
             assert "!G" not in r and "!H" not in r and "!I" not in r
             assert "!J" not in r and "!L" not in r
+
+
+class TestFindManagerBlock:
+    def test_finds_header_and_last_row_mid_sheet(self):
+        grid = [
+            ["Модель", "Статус"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K4)"],
+            ["А", "work"],
+            ["Б", "work"],
+            [],
+            ["Вангог", "", "", "", "", "", "", "", "", "", "", "=SUM(I7:K7)"],
+            ["В", "work"],
+            [],
+        ]
+        pos = find_manager_block(grid, "рони")
+        assert pos.header_row == 2
+        assert pos.last_row == 4
+
+    def test_last_block_in_sheet_with_no_trailing_blank(self):
+        grid = [
+            ["Модель", "Статус"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["А", "work"],
+        ]
+        pos = find_manager_block(grid, "Рони")
+        assert pos.header_row == 2
+        assert pos.last_row == 3
+
+    def test_manager_block_with_zero_models(self):
+        grid = [
+            ["Модель", "Статус"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", ""],
+            [],
+        ]
+        pos = find_manager_block(grid, "Рони")
+        assert pos.header_row == 2
+        assert pos.last_row == 2
+
+    def test_unknown_manager_returns_none(self):
+        grid = [["Модель", "Статус"], ["Рони"], []]
+        assert find_manager_block(grid, "НетТакого") is None
+
+
+class TestPlanRowInsertion:
+    def test_inserts_right_after_last_model_row(self):
+        grid = [
+            ["Модель", "Статус"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K4)"],
+            ["А", "work"],
+            ["Б", "work"],
+            [],
+        ]
+        plan = plan_row_insertion(grid, "Рони")
+        assert plan.insert_at_row == 4  # 0-based: right after 1-based row 4
+        assert plan.new_row_num == 5
+        assert plan.header_row == 2
+
+    def test_unknown_manager_returns_none(self):
+        grid = [["Модель", "Статус"], ["Рони"], []]
+        assert plan_row_insertion(grid, "НетТакого") is None
+
+
+class FakeSheetsClient:
+    def __init__(self):
+        self.inserted = None
+        self.updates = []
+
+    async def insert_rows(self, spreadsheet_id, sheet_id, start_index, end_index):
+        self.inserted = (spreadsheet_id, sheet_id, start_index, end_index)
+
+    async def update_values(self, spreadsheet_id, updates):
+        self.updates.append((spreadsheet_id, updates))
+
+
+class TestInsertNewModelRow:
+    @pytest.mark.asyncio
+    async def test_inserts_row_without_touching_manager_formula(self):
+        grid = [
+            ["Модель", "Статус"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["А", "work"],
+            [],
+        ]
+        sheets = FakeSheetsClient()
+        row = _row("НОВИЧОК", "Рони", status="work", total_files=10, orders_pay=5)
+        new_row = await insert_new_model_row(sheets, "ssid", "ИЮЛЬ", 999, grid, "Рони", row)
+
+        assert new_row == 4
+        assert sheets.inserted == ("ssid", 999, 3, 4)
+        ranges = dict(sheets.updates[0][1])
+        assert ranges["'ИЮЛЬ'!A4:L4"][0][0] == "НОВИЧОК"
+        assert "'ИЮЛЬ'!L2" not in ranges  # manager's SUM formula left untouched
+
+    @pytest.mark.asyncio
+    async def test_unknown_manager_returns_none_without_calling_sheets(self):
+        grid = [["Модель", "Статус"], ["Рони"], []]
+        sheets = FakeSheetsClient()
+        row = _row("НОВИЧОК", "НетТакого")
+        result = await insert_new_model_row(sheets, "ssid", "ИЮЛЬ", 999, grid, "НетТакого", row)
+        assert result is None
+        assert sheets.inserted is None
+        assert sheets.updates == []

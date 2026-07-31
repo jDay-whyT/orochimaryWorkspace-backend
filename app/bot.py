@@ -4,7 +4,10 @@ from typing import Any
 from aiogram import Bot, Dispatcher
 
 from app.config import Config
-from app.handlers import start, nlp_callbacks, notifications, group_manager, reddit, reports, tango, wml_callbacks
+from app.handlers import (
+    start, nlp_callbacks, notifications, group_manager, reddit, reports,
+    salary_callbacks, tango, wml_callbacks,
+)
 from app.services import NotionClient
 from app.services.sheets import SheetsClient
 from app.state import MemoryState, RecentModels
@@ -22,6 +25,8 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, An
     dp.include_router(reddit.router)       # /reddit command
     dp.include_router(tango.router)        # /tango command
     dp.include_router(reports.router)      # /reports command (salary report)
+    # Salary report "Добавить в таблицу" button (salary_add: prefixed callbacks)
+    dp.include_router(salary_callbacks.router)
     # NLP callback router (handles nlp: prefixed callbacks, including report detail)
     dp.include_router(nlp_callbacks.router)
     # WML "Add to Notion" button (wml_add: prefixed callbacks)

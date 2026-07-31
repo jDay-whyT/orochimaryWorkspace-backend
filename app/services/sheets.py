@@ -132,6 +132,36 @@ class SheetsClient:
             data = await resp.json()
         return data.get("values", [])
 
+    async def insert_rows(
+        self, spreadsheet_id: str, sheet_id: int, start_index: int, end_index: int,
+    ) -> None:
+        """
+        Insert `end_index - start_index` blank rows at 0-based `start_index`,
+        shifting existing rows (and any formula ranges referencing them) down.
+        `inheritFromBefore` copies formatting from the row above the insertion
+        point rather than leaving the new rows unformatted.
+        """
+        token = await self._access_token()
+        session = await self._get_session()
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}:batchUpdate"
+        payload = {
+            "requests": [{
+                "insertDimension": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "dimension": "ROWS",
+                        "startIndex": start_index,
+                        "endIndex": end_index,
+                    },
+                    "inheritFromBefore": start_index > 0,
+                },
+            }],
+        }
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        async with session.post(url, json=payload, headers=headers) as resp:
+            resp.raise_for_status()
+            await resp.json()
+
     async def update_values(self, spreadsheet_id: str, updates: list[tuple[str, list[list]]]) -> None:
         """
         Write values into specific ranges.

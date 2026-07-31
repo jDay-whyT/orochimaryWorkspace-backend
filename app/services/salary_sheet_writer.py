@@ -14,7 +14,7 @@ manual placement rather than risking an automatic row insertion that could
 misalign a manager's SUM range on a live payroll sheet.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.services.salary_report import ModelSalaryRow
 from app.services.sheets import SheetsClient
@@ -78,6 +78,77 @@ def build_new_tab_grid(report: dict[str, list[ModelSalaryRow]]) -> list[list]:
 
 
 @dataclass
+class ManagerBlockPosition:
+    """Where an existing manager's block sits in a tab's grid (1-based rows)."""
+    header_row: int
+    last_row: int  # last existing model row; == header_row if block has no models yet
+
+
+def find_manager_block(grid: list[list], manager: str) -> ManagerBlockPosition | None:
+    """
+    Locate a manager's header row and last model row in an existing tab, so a
+    new model row can be inserted right after the block instead of appended
+    to the wrong place. Manager-block boundaries are detected the same way
+    as `index_existing_tab` (empty column A ends a block; empty column B on a
+    non-empty column A starts a new manager header).
+    """
+    manager_lower = manager.strip().lower()
+    current_manager: str | None = None
+    header_row: int | None = None
+    last_row: int | None = None
+
+    def _match() -> ManagerBlockPosition | None:
+        if current_manager is not None and current_manager.lower() == manager_lower and header_row is not None:
+            return ManagerBlockPosition(header_row=header_row, last_row=last_row or header_row)
+        return None
+
+    for i, row in enumerate(grid):
+        row_num = i + 1
+        if row_num == 1:
+            continue  # header
+        if not row or not (row[0] or "").strip():
+            found = _match()
+            if found:
+                return found
+            current_manager, header_row, last_row = None, None, None
+            continue
+        is_manager_row = len(row) < 2 or not (row[1] or "").strip()
+        if is_manager_row:
+            found = _match()
+            if found:
+                return found
+            current_manager, header_row, last_row = row[0].strip(), row_num, None
+            continue
+        last_row = row_num
+
+    return _match()
+
+
+@dataclass
+class RowInsertionPlan:
+    """0-based `insert_at_row` for SheetsClient.insert_rows, plus the 1-based
+    row the new model row lands on. The manager's Оплата/SUM formula is
+    deliberately left untouched — user updates that range by hand after an
+    insert, same as Расходы/Lord/Managers (see insert_new_model_row)."""
+    insert_at_row: int
+    new_row_num: int
+    header_row: int
+
+
+def plan_row_insertion(grid: list[list], manager: str) -> RowInsertionPlan | None:
+    """Return None if the manager's block doesn't exist in the tab at all —
+    caller should fall back to reporting the row as 'add manually'."""
+    pos = find_manager_block(grid, manager)
+    if pos is None:
+        return None
+    return RowInsertionPlan(
+        insert_at_row=pos.last_row,  # 0-based index == 1-based last_row: inserts right after it
+        new_row_num=pos.last_row + 1,
+        header_row=pos.header_row,
+    )
+
+
+@dataclass
 class ExistingTabIndex:
     """model_name(lower) -> 1-based sheet row, scoped per manager block."""
     rows_by_manager: dict[str, dict[str, int]]
@@ -109,13 +180,18 @@ def plan_updates_for_existing_tab(
     grid: list[list],
     report: dict[str, list[ModelSalaryRow]],
     tab_name: str,
-) -> tuple[list[tuple[str, list[list]]], list[ModelSalaryRow]]:
+) -> tuple[list[tuple[str, list[list]]], list[ModelSalaryRow], list[ModelSalaryRow]]:
     """
-    Return (cell updates, unmatched rows) for an already-existing tab.
+    Return (cell updates, unmatched, unmatched_no_manager) for an already-existing tab.
 
     Each matched model gets two range updates: B:F (Статус..Другие) and K
     (Заказы) — deliberately skipping G:J (Расходы/spacer/Lord/Managers) and L
     (Оплата), which stay manual/formula-owned.
+
+    `unmatched` rows have a manager block in the tab but no matching model
+    row — these can be auto-inserted via plan_row_insertion/insert_new_model_row.
+    `unmatched_no_manager` rows' manager block doesn't exist in the tab at
+    all (new manager) — always reported as "add manually", never auto-inserted.
     """
     index = index_existing_tab(grid)
     # Manager block lookup is case-insensitive: report managers are
@@ -124,19 +200,21 @@ def plan_updates_for_existing_tab(
     by_manager_lower = {name.lower(): rows for name, rows in index.rows_by_manager.items()}
     updates: list[tuple[str, list[list]]] = []
     unmatched: list[ModelSalaryRow] = []
+    unmatched_no_manager: list[ModelSalaryRow] = []
 
     for manager, rows in report.items():
+        manager_exists = manager.lower() in by_manager_lower
         model_rows = by_manager_lower.get(manager.lower(), {})
         for row in rows:
             row_num = model_rows.get(row.model_name.strip().lower())
             if row_num is None:
-                unmatched.append(row)
+                (unmatched if manager_exists else unmatched_no_manager).append(row)
                 continue
             cells = _model_row_cells(row)
             updates.append((f"'{tab_name}'!B{row_num}:F{row_num}", [cells[1:6]]))
             updates.append((f"'{tab_name}'!K{row_num}", [[cells[10]]]))
 
-    return updates, unmatched
+    return updates, unmatched, unmatched_no_manager
 
 
 @dataclass
@@ -145,6 +223,7 @@ class SalarySheetWriteResult:
     created_new_tab: bool
     updated_count: int
     unmatched: list[ModelSalaryRow]
+    unmatched_no_manager: list[ModelSalaryRow] = field(default_factory=list)
 
 
 async def write_salary_report(
@@ -168,10 +247,48 @@ async def write_salary_report(
         )
 
     grid = await sheets.get_tab_grid(spreadsheet_id, tab_name)
-    updates, unmatched = plan_updates_for_existing_tab(grid, report, tab_name)
+    updates, unmatched, unmatched_no_manager = plan_updates_for_existing_tab(grid, report, tab_name)
     await sheets.update_values(spreadsheet_id, updates)
-    matched_count = sum(len(rows) for rows in report.values()) - len(unmatched)
+    matched_count = sum(len(rows) for rows in report.values()) - len(unmatched) - len(unmatched_no_manager)
     return SalarySheetWriteResult(
         tab_name=tab_name, created_new_tab=False,
         updated_count=matched_count, unmatched=unmatched,
+        unmatched_no_manager=unmatched_no_manager,
     )
+
+
+async def insert_new_model_row(
+    sheets: SheetsClient,
+    spreadsheet_id: str,
+    tab_name: str,
+    sheet_id: int,
+    grid: list[list],
+    manager: str,
+    row: ModelSalaryRow,
+) -> int | None:
+    """
+    Insert one new model row right after `manager`'s existing block in an
+    already-existing tab. Returns the 1-based row the model landed on, or
+    None if the manager has no block in this tab (caller should tell the
+    user to add manually — never guessed/auto-created, see
+    [[project_reports_feature]] on the risk of misaligning a manager's SUM
+    range on a live payroll sheet).
+
+    Row insertion (not a plain cell overwrite) is what keeps every other
+    manager's rows below the insertion point correctly shifted — a native
+    Sheets guarantee for structural inserts. The manager's own Оплата/SUM
+    formula is deliberately left untouched (not auto-extended to cover the
+    new row) — user explicitly wants formula/money columns hand-edited only,
+    same as Расходы/Lord/Managers elsewhere in this writer. Caller should
+    tell the user the manager's SUM range needs a manual bump.
+    """
+    plan = plan_row_insertion(grid, manager)
+    if plan is None:
+        return None
+
+    await sheets.insert_rows(spreadsheet_id, sheet_id, plan.insert_at_row, plan.insert_at_row + 1)
+    cells = _model_row_cells(row)
+    await sheets.update_values(
+        spreadsheet_id, [(f"'{tab_name}'!A{plan.new_row_num}:L{plan.new_row_num}", [cells])],
+    )
+    return plan.new_row_num

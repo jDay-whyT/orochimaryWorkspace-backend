@@ -4,7 +4,7 @@ import re
 
 from aiogram import Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.config import Config
 from app.services import NotionClient
@@ -80,12 +80,34 @@ async def cmd_reports(
         f"({'создан' if result.created_new_tab else 'обновлён'}).",
         f"Моделей в отчёте: {total_models}, записано/обновлено: {result.updated_count}.",
     ]
-    if result.unmatched:
+    if result.unmatched_no_manager:
         lines.append("")
-        lines.append(f"⚠️ Не найдены в таблице ({len(result.unmatched)}), добавь вручную:")
-        for row in result.unmatched[:20]:
+        lines.append(
+            f"⚠️ Менеджер не найден в таблице ({len(result.unmatched_no_manager)}), добавь вручную:"
+        )
+        for row in result.unmatched_no_manager[:20]:
             lines.append(f"• {html.escape(row.manager)} — {html.escape(row.model_name)}")
-        if len(result.unmatched) > 20:
-            lines.append(f"...и ещё {len(result.unmatched) - 20}")
+        if len(result.unmatched_no_manager) > 20:
+            lines.append(f"...и ещё {len(result.unmatched_no_manager) - 20}")
 
     await message.answer("\n".join(lines), parse_mode="HTML")
+
+    for row in result.unmatched[:20]:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="➕ Добавить в таблицу",
+                callback_data=f"salary_add:{yyyy_mm}:{row.model_id}",
+            ),
+            InlineKeyboardButton(
+                text="❌ Отклонить",
+                callback_data=f"salary_reject:{row.model_id}",
+            ),
+        ]])
+        await message.answer(
+            f"🆕 <b>{html.escape(row.model_name)}</b> ({html.escape(row.manager)}) "
+            f"не найдена в табе <b>{html.escape(result.tab_name)}</b>.",
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+    if len(result.unmatched) > 20:
+        await message.answer(f"...и ещё {len(result.unmatched) - 20} без кнопки, добавь вручную.")
