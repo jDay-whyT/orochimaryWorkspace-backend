@@ -608,7 +608,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
         memory_state.clear(chat_id, user_id)
 
 
-MAX_FILES_INPUT = 500  # configurable upper limit for manual file count
+MAX_FILES_INPUT = 1500  # configurable upper limit for manual file count
 
 
 async def _handle_custom_files_input(message, text, user_state, config, notion, memory_state):

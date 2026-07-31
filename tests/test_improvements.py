@@ -195,7 +195,7 @@ class TestFilesInputParsing:
         assert self._parse("1") == 1
 
     def test_max_value(self):
-        assert self._parse("500") == 500
+        assert self._parse("1500") == 1500
 
     def test_number_with_files_suffix_plural(self):
         assert self._parse("15 файлов") == 15
@@ -211,8 +211,8 @@ class TestFilesInputParsing:
     def test_over_limit_rejected(self):
         assert self._parse("99999") is None
 
-    def test_501_rejected(self):
-        assert self._parse("501") is None
+    def test_1501_rejected(self):
+        assert self._parse("1501") is None
 
     def test_text_without_number_rejected(self):
         assert self._parse("много") is None
