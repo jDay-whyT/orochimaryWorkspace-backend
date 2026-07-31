@@ -102,6 +102,34 @@ class TestIndexExistingTab:
         assert "аноли" not in index.rows_by_manager.get("Рони", {})
         assert not any("аноли" in models for models in index.rows_by_manager.values())
 
+    def test_split_model_row_gets_bare_name_alias(self):
+        """A co-owned model split between two managers is hand-suffixed
+        "  0.5" on its sheet row (e.g. "КОНАН  0.5") — Notion's report has no
+        such marker, so the bare name must also resolve to that row."""
+        grid = [
+            ["Модель"],
+            ["Какаси", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["КОНАН  0.5", "work"],
+            [],
+        ]
+        index = index_existing_tab(grid)
+        assert index.rows_by_manager["Какаси"]["конан  0.5"] == 3
+        assert index.rows_by_manager["Какаси"]["конан"] == 3
+
+    def test_split_alias_never_overwrites_a_real_distinct_model(self):
+        """If a manager somehow has both "конан" and "конан  0.5" as real,
+        separate rows, the bare-name alias must not clobber the real row."""
+        grid = [
+            ["Модель"],
+            ["Какаси", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K4)"],
+            ["КОНАН", "work"],
+            ["КОНАН  0.5", "work"],
+            [],
+        ]
+        index = index_existing_tab(grid)
+        assert index.rows_by_manager["Какаси"]["конан"] == 3
+        assert index.rows_by_manager["Какаси"]["конан  0.5"] == 4
+
 
 class TestPlanUpdatesForExistingTab:
     def test_matched_model_gets_bf_and_k_range_updates(self):
@@ -118,6 +146,21 @@ class TestPlanUpdatesForExistingTab:
         ranges = dict(updates)
         assert ranges["'ИЮЛЬ'!B3:F3"] == [["work", "—", 80, "—", "—"]]
         assert ranges["'ИЮЛЬ'!K3"] == [[3]]
+
+    def test_split_model_bare_name_matches_its_0_5_suffixed_row(self):
+        """КОНАН/ЖИВЧИК-style co-owned models: report has the bare name,
+        sheet row is hand-suffixed "  0.5" — must match, not fall to unmatched."""
+        grid = [
+            ["Модель", "Статус"],
+            ["Какаси", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["КОНАН  0.5", "new", "—", "—", "—", "—"],
+            [],
+        ]
+        report = {"Какаси": [_row("КОНАН", "Какаси", status="work", total_files=40)]}
+        updates, unmatched, unmatched_no_manager = plan_updates_for_existing_tab(grid, report, "ИЮЛЬ")
+        assert unmatched == []
+        assert unmatched_no_manager == []
+        assert dict(updates)["'ИЮЛЬ'!B3:F3"][0][0] == "work"
 
     def test_manager_block_lookup_is_case_insensitive(self):
         """Sheet has 'FLAIR' as the manager header, report groups as 'Flair'

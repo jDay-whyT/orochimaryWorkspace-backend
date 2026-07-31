@@ -14,6 +14,7 @@ manual placement rather than risking an automatic row insertion that could
 misalign a manager's SUM range on a live payroll sheet.
 """
 
+import re
 from dataclasses import dataclass, field
 
 from app.services.salary_report import ModelSalaryRow
@@ -154,6 +155,18 @@ class ExistingTabIndex:
     rows_by_manager: dict[str, dict[str, int]]
 
 
+_SPLIT_SUFFIX_RE = re.compile(r"\s+0\.5\s*$")
+
+
+def _strip_split_suffix(name: str) -> str:
+    """Co-owned models get a hand-added ' 0.5' suffix on their sheet row
+    (e.g. "КОНАН  0.5") when split between two managers at half rate each —
+    Notion's Accounting has no such marker, so the report's model_name is
+    always the bare name. Stripped only for a fallback lookup key, never
+    replacing the raw row key."""
+    return _SPLIT_SUFFIX_RE.sub("", name).strip().lower()
+
+
 def index_existing_tab(grid: list[list]) -> ExistingTabIndex:
     rows_by_manager: dict[str, dict[str, int]] = {}
     current_manager: str | None = None
@@ -171,7 +184,13 @@ def index_existing_tab(grid: list[list]) -> ExistingTabIndex:
             rows_by_manager.setdefault(current_manager, {})
             continue
         if current_manager is not None:
-            rows_by_manager[current_manager][row[0].strip().lower()] = row_num
+            key = row[0].strip().lower()
+            rows_by_manager[current_manager][key] = row_num
+            stripped = _strip_split_suffix(row[0])
+            if stripped != key:
+                # Fallback alias only — never overwrites a real distinct model
+                # that happens to already occupy the stripped name.
+                rows_by_manager[current_manager].setdefault(stripped, row_num)
 
     return ExistingTabIndex(rows_by_manager=rows_by_manager)
 
