@@ -29,12 +29,23 @@ _TANGO_SLOT_RE = re.compile(r"^танго\s+(\d+)")
 
 def _tango_fallback_key(key: str) -> str | None:
     """WML sometimes glues a "Танго" annotation onto an already-onboarded
-    model's name: "ХанамиТанго"/"Смайл Танго" (base name + Tango suffix),
-    "ТангоКейптаун"/"Танго Кейптаун" (Tango prefix + base name), or
+    model's name: "ХанамиТанго"/"Смайл Танго" (base name + Tango suffix), or
     "Танго 26 ( сигма)"/"Танго 16 (Бьякуя)" (slot number + free-text note).
-    All three forms fail an exact title match; this recovers the base
-    identity (slot number, or bare name) so real duplicates aren't flagged
-    as new. Applied to BOTH sides of the match (see `build_notion_title_index`) —
+    Both forms fail an exact title match; this recovers the base identity
+    (bare name, or slot number) so real duplicates aren't flagged as new.
+
+    IMPORTANT — this must NEVER strip a bare "Танго <name>" prefix (no slot
+    number) down to just "<name>": unlike the suffix form (confirmed via
+    screenshots to be the same already-onboarded model, just WML CRM listing
+    it twice), a Tango-prefixed name without a number is its own persistent
+    Notion page, separate from the bare-name model (e.g. "ТангоКейптаун" is
+    NOT the same record as "КЕЙПТАУН" — see [[project_wml_sync_feature]]).
+    Confirmed live 2026-07-31: an earlier version of this function did strip
+    that prefix and wrongly matched "Танго Кейптаун" to the bare "КЕЙПТАУН"
+    page instead of leaving them distinct. See `_tango_prefix_collapse_key`
+    for the safe way to match cosmetic spacing differences on that form.
+
+    Applied to BOTH sides of the match (see `build_notion_title_index`) —
     the annotation, and its free-text note, can land on either the WML name
     or the existing Notion title, and the two notes don't have to agree
     (e.g. WML "Танго 34 John" vs Notion "Танго 34 ЕКБ" — same slot, only the
@@ -45,11 +56,19 @@ def _tango_fallback_key(key: str) -> str | None:
         return f"танго {slot_match.group(1)}"
     if key.endswith("танго") and len(key) > len("танго"):
         return key[: -len("танго")].strip()
-    if key.startswith("танго") and len(key) > len("танго"):
-        rest = key[len("танго"):].strip()
-        if rest and not rest[0].isdigit():  # digit case is the slot pattern above
-            return rest
     return None
+
+
+def _tango_prefix_collapse_key(key: str) -> str | None:
+    """For a bare "Танго <name>" prefix (no slot number) — NOT a candidate
+    for `_tango_fallback_key`, which would wrongly conflate it with the
+    unrelated bare-name model. This only collapses internal whitespace, so
+    "танго кейптаун" (spaced) and "тангокейптаун" (concatenated) resolve to
+    the same identity as each other, while staying completely distinct from
+    "кейптаун" alone. Returns None if the key isn't Tango-prefixed."""
+    if not key.startswith("танго") or _TANGO_SLOT_RE.match(key):
+        return None
+    return re.sub(r"\s+", "", key)
 
 
 @dataclass
@@ -58,17 +77,23 @@ class NotionTitleIndex:
     ambiguous: set[str]
     tango_alias: dict[str, NotionModel]
     tango_ambiguous: set[str]
+    tango_prefix_collapse: dict[str, NotionModel]
+    tango_prefix_collapse_ambiguous: set[str]
 
 
 def build_notion_title_index(existing: list[NotionModel]) -> NotionTitleIndex:
-    """Two lookups over existing Notion models: raw normalized titles, and a
-    Tango-fallback alias for whichever titles carry their own Tango
-    annotation (so a WML name with a different note for the same slot/base
-    name still resolves — see _tango_fallback_key)."""
+    """Three lookups over existing Notion models: raw normalized titles, a
+    Tango-fallback alias for titles that carry their own Tango annotation
+    (so a WML name with a different note for the same slot/base name still
+    resolves — see _tango_fallback_key), and a whitespace-collapsed index
+    for bare Tango-prefixed titles (see _tango_prefix_collapse_key) — kept
+    separate so it can never match against an unrelated bare-name model."""
     by_title: dict[str, NotionModel] = {}
     ambiguous: set[str] = set()
     tango_alias: dict[str, NotionModel] = {}
     tango_ambiguous: set[str] = set()
+    tango_prefix_collapse: dict[str, NotionModel] = {}
+    tango_prefix_collapse_ambiguous: set[str] = set()
     for m in existing:
         key = _normalize_title(m.title)
         if key in by_title:
@@ -83,14 +108,25 @@ def build_notion_title_index(existing: list[NotionModel]) -> NotionTitleIndex:
             else:
                 tango_alias[tango_key] = m
 
-    return NotionTitleIndex(by_title, ambiguous, tango_alias, tango_ambiguous)
+        collapse_key = _tango_prefix_collapse_key(key)
+        if collapse_key:
+            if collapse_key in tango_prefix_collapse:
+                tango_prefix_collapse_ambiguous.add(collapse_key)
+            else:
+                tango_prefix_collapse[collapse_key] = m
+
+    return NotionTitleIndex(
+        by_title, ambiguous, tango_alias, tango_ambiguous,
+        tango_prefix_collapse, tango_prefix_collapse_ambiguous,
+    )
 
 
 def resolve_wml_match(key: str, index: NotionTitleIndex) -> NotionModel | None:
     """Resolve a normalized WML profile name to an existing Notion model,
     trying an exact title match first, then the Tango-annotation fallback
-    against both raw titles and the Tango-alias index. Ambiguous keys are
-    never guessed."""
+    against both raw titles and the Tango-alias index, then the bare
+    Tango-prefix whitespace-collapse index. Ambiguous keys are never
+    guessed."""
     if key in index.ambiguous:
         return None
 
@@ -99,12 +135,17 @@ def resolve_wml_match(key: str, index: NotionTitleIndex) -> NotionModel | None:
         return model
 
     fallback_key = _tango_fallback_key(key)
-    if not fallback_key:
-        return None
-    if fallback_key not in index.ambiguous:
-        model = index.by_title.get(fallback_key)
-    if model is None and fallback_key not in index.tango_ambiguous:
-        model = index.tango_alias.get(fallback_key)
+    if fallback_key:
+        if fallback_key not in index.ambiguous:
+            model = index.by_title.get(fallback_key)
+        if model is None and fallback_key not in index.tango_ambiguous:
+            model = index.tango_alias.get(fallback_key)
+        if model:
+            return model
+
+    collapse_key = _tango_prefix_collapse_key(key)
+    if collapse_key and collapse_key not in index.tango_prefix_collapse_ambiguous:
+        model = index.tango_prefix_collapse.get(collapse_key)
     return model
 
 

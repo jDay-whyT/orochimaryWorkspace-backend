@@ -3,6 +3,7 @@ from app.services.notion import NotionModel
 from app.services.wml_sync import (
     _normalize_title,
     _tango_fallback_key,
+    _tango_prefix_collapse_key,
     build_notion_title_index,
     resolve_wml_match,
 )
@@ -33,12 +34,24 @@ def test_no_tango_annotation_returns_none():
     assert _tango_fallback_key(_normalize_title("ТАНГО")) is None  # bare word, no slot number, no suffix
 
 
-def test_tango_prefix_with_name_not_number():
-    """"Танго Кейптаун"/"ТангоКейптаун" — prefix + base name, no slot number.
-    Missed in prod 2026-07-31: WML's "Танго Кейптаун" (spaced) never matched
-    Notion's existing "ТангоКейптаун" (concatenated), both fall to this branch."""
-    assert _tango_fallback_key(_normalize_title("Танго Кейптаун")) == "кейптаун"
-    assert _tango_fallback_key(_normalize_title("ТангоКейптаун")) == "кейптаун"
+def test_tango_prefix_with_name_never_collapses_to_bare_name():
+    """"Танго Кейптаун"/"ТангоКейптаун" is its own persistent Notion page,
+    distinct from bare "Кейптаун" — must NOT reduce to the bare name.
+    Regression: an earlier version of this fix wrongly matched "Танго
+    Кейптаун" to the unrelated bare "КЕЙПТАУН" page (caught live 2026-07-31,
+    user confirmed these must stay two separate records)."""
+    assert _tango_fallback_key(_normalize_title("Танго Кейптаун")) is None
+    assert _tango_fallback_key(_normalize_title("ТангоКейптаун")) is None
+
+
+def test_tango_prefix_collapse_key_matches_spacing_variants_only():
+    """The safe, narrow fix for the same case: only equates spaced vs
+    concatenated forms of a Tango-prefixed name against EACH OTHER, never
+    against the bare name (which doesn't start with "танго" at all)."""
+    assert _tango_prefix_collapse_key(_normalize_title("Танго Кейптаун")) == "тангокейптаун"
+    assert _tango_prefix_collapse_key(_normalize_title("ТангоКейптаун")) == "тангокейптаун"
+    assert _tango_prefix_collapse_key(_normalize_title("Кейптаун")) is None  # bare name: no prefix
+    assert _tango_prefix_collapse_key(_normalize_title("Танго 34 John")) is None  # slot form excluded
 
 
 def test_tango_slot_note_differs_but_slot_number_is_shared_identity():
@@ -73,6 +86,17 @@ class TestResolveWmlMatch:
         index = build_notion_title_index([_model("ТангоКейптаун")])
         model = resolve_wml_match(_normalize_title("Танго Кейптаун"), index)
         assert model is not None and model.title == "ТангоКейптаун"
+
+    def test_tango_prefixed_name_never_matches_unrelated_bare_model(self):
+        """Regression caught live 2026-07-31: with BOTH "КЕЙПТАУН" (bare) and
+        "ТангоКейптаун" existing as separate Notion pages, WML's "Танго
+        Кейптаун" must resolve to the Tango page, never the bare one."""
+        index = build_notion_title_index([_model("КЕЙПТАУН", "bare-id"), _model("ТангоКейптаун", "tango-id")])
+        model = resolve_wml_match(_normalize_title("Танго Кейптаун"), index)
+        assert model is not None and model.page_id == "tango-id"
+
+        bare_model = resolve_wml_match(_normalize_title("КЕЙПТАУН"), index)
+        assert bare_model is not None and bare_model.page_id == "bare-id"
 
     def test_ambiguous_raw_title_never_guessed(self):
         index = build_notion_title_index([_model("ФИГУРА", "id-1"), _model("ФИГУРА", "id-2")])
