@@ -17,7 +17,7 @@ async def search_model_by_name_or_alias(
     name_lower = name.lower()
 
     # Notion filters are case-insensitive by default for "contains"
-    payload = {
+    combined_payload = {
         "filter": {
             "or": [
                 {"property": "model", "title": {"contains": name}},
@@ -25,14 +25,25 @@ async def search_model_by_name_or_alias(
             ]
         }
     }
+    # multi_select "contains" only matches values that are already registered
+    # options on the "aliases" property. A search term that isn't one of those
+    # options makes Notion reject the *entire* request with 400 - which also
+    # kills the (valid) title match in the same OR filter. Fall back to a
+    # title-only query so an unregistered term still finds title matches.
+    title_only_payload = {
+        "filter": {"property": "model", "title": {"contains": name}}
+    }
 
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
 
     try:
-        response = await notion._request("POST", url, json=payload)
-    except Exception as e:
-        LOGGER.exception("Failed to search models: %s", e)
-        return []
+        response = await notion._request("POST", url, json=combined_payload)
+    except Exception:
+        try:
+            response = await notion._request("POST", url, json=title_only_payload)
+        except Exception as e:
+            LOGGER.exception("Failed to search models: %s", e)
+            return []
 
     models = []
     for item in response.get("results", []):
