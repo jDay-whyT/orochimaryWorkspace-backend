@@ -16,50 +16,43 @@ async def search_model_by_name_or_alias(
     """Search models by name or alias (case-insensitive); returns [{"id", "name", "aliases"}, ...]."""
     name_lower = name.lower()
 
-    # Notion filters are case-insensitive by default for "contains"
-    combined_payload = {
-        "filter": {
-            "or": [
-                {"property": "model", "title": {"contains": name}},
-                {"property": "aliases", "multi_select": {"contains": name}},
-            ]
-        }
-    }
     # multi_select "contains" only matches values that are already registered
-    # options on the "aliases" property. A search term that isn't one of those
-    # options makes Notion reject the *entire* request with 400 - which also
-    # kills the (valid) title match in the same OR filter. Fall back to a
-    # title-only query so an unregistered term still finds title matches.
-    title_only_payload = {
-        "filter": {"property": "model", "title": {"contains": name}}
-    }
-
+    # options on the "aliases" property - an unregistered search term makes
+    # Notion reject the whole request with 400. There's no way to filter by
+    # alias server-side without risking that, so fetch every page (unfiltered,
+    # paginated) and match both title and aliases client-side.
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
 
-    try:
-        response = await notion._request("POST", url, json=combined_payload)
-    except Exception:
+    models = []
+    cursor: str | None = None
+    while True:
+        payload: dict[str, Any] = {"page_size": 100}
+        if cursor:
+            payload["start_cursor"] = cursor
+
         try:
-            response = await notion._request("POST", url, json=title_only_payload)
+            response = await notion._request("POST", url, json=payload)
         except Exception as e:
             LOGGER.exception("Failed to search models: %s", e)
             return []
 
-    models = []
-    for item in response.get("results", []):
-        title = _extract_title(item, "model")
-        aliases = _extract_multi_select(item, "aliases")
+        for item in response.get("results", []):
+            title = _extract_title(item, "model")
+            aliases = _extract_multi_select(item, "aliases")
 
-        if not title:
-            LOGGER.warning("Skipping model %s - no title found", item.get("id"))
-            continue
+            if not title:
+                LOGGER.warning("Skipping model %s - no title found", item.get("id"))
+                continue
 
-        # Case-insensitive check (client-side filtering)
-        title_match = name_lower in title.lower()
-        alias_match = any(name_lower in alias.lower() for alias in aliases)
+            title_match = name_lower in title.lower()
+            alias_match = any(name_lower in alias.lower() for alias in aliases)
 
-        if title_match or alias_match:
-            models.append({"id": item["id"], "name": title, "aliases": aliases})
+            if title_match or alias_match:
+                models.append({"id": item["id"], "name": title, "aliases": aliases})
+
+        if not response.get("has_more"):
+            break
+        cursor = response.get("next_cursor")
 
     LOGGER.info("Found %d models for query '%s'", len(models), name)
     return models
