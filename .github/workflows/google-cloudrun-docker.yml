@@ -103,6 +103,23 @@ jobs:
           printf '%s' "$NOTION_TOKEN" | gcloud secrets versions add orochimary-notion-token --data-file=-
           printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" | gcloud secrets versions add orochimary-google-service-account-json --data-file=-
 
+      - name: Prune old Secret Manager versions
+        env:
+          PROJECT_ID: ${{ steps.prep.outputs.project_id }}
+        run: |
+          set -euo pipefail
+          # Every deploy adds one new version per secret (previous step) and none
+          # are ever destroyed — Secret Manager bills per active version-month, so
+          # this accumulates cost forever. Only :latest is ever referenced by
+          # Cloud Run, so keep a small rollback buffer and destroy the rest.
+          KEEP=3
+          for secret in orochimary-telegram-bot-token orochimary-telegram-webhook-secret orochimary-notion-token orochimary-google-service-account-json; do
+            gcloud secrets versions list "$secret" --project="$PROJECT_ID" \
+              --filter="state=ENABLED" --format="value(name)" --sort-by="~createTime" \
+              | tail -n "+$((KEEP + 1))" \
+              | xargs -r -I{} gcloud secrets versions destroy {} --secret="$secret" --project="$PROJECT_ID" --quiet
+          done
+
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${{ steps.prep.outputs.region }}-docker.pkg.dev" --quiet
 
