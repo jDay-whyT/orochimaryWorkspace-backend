@@ -10,7 +10,10 @@ from app.services.tango_schedule import TangoRawRow
 LOGGER = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-GRID_FIELDS = "sheets.data.rowData.values(formattedValue,userEnteredFormat.backgroundColor,textFormatRuns,hyperlink)"
+GRID_FIELDS = (
+    "sheets.data.rowData.values(formattedValue,userEnteredFormat.backgroundColor,"
+    "textFormatRuns,effectiveFormat.textFormat,hyperlink)"
+)
 
 
 class SheetsClient:
@@ -89,6 +92,11 @@ class SheetsClient:
                 name_background=(name_cell.get("userEnteredFormat") or {}).get("backgroundColor"),
                 week_text=week_cell.get("formattedValue") or "",
                 week_text_format_runs=week_cell.get("textFormatRuns"),
+                # Sheets only returns textFormatRuns when a cell has multiple
+                # distinct formats; a cell whose text is uniformly one color/
+                # style (e.g. a fully cancelled week) has no runs at all, and
+                # its formatting only shows up here — used as a fallback.
+                week_text_format=(week_cell.get("effectiveFormat") or {}).get("textFormat"),
                 url=url_cell.get("hyperlink") or url_cell.get("formattedValue") or "",
             ))
         return rows

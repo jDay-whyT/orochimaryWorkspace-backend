@@ -29,6 +29,7 @@ class TangoRawRow:
     name_background: dict | None
     week_text: str
     week_text_format_runs: list[dict] | None
+    week_text_format: dict | None = None
     url: str = ""
 
 
@@ -58,10 +59,15 @@ def find_entries(cell_text: str) -> list[dict]:
     return entries
 
 
-def _format_at(offset: int, runs: list[dict] | None) -> dict:
-    """Sheets textFormatRuns apply from startIndex until the next run's startIndex."""
+def _format_at(offset: int, runs: list[dict] | None, cell_format: dict | None = None) -> dict:
+    """
+    Sheets textFormatRuns apply from startIndex until the next run's startIndex.
+    A cell with one uniform format for its whole text (e.g. an entirely
+    cancelled week) has no textFormatRuns at all — fall back to the cell's
+    own effectiveFormat.textFormat in that case.
+    """
     if not runs:
-        return {}
+        return cell_format or {}
     active: dict = {}
     for run in runs:
         if run.get("startIndex", 0) <= offset:
@@ -128,7 +134,7 @@ def build_tomorrow_schedule(
                 pass
             else:
                 continue
-            fmt = _format_at(entry["start"], row.week_text_format_runs)
+            fmt = _format_at(entry["start"], row.week_text_format_runs, row.week_text_format)
             if fmt.get("strikethrough"):
                 LOGGER.info(
                     "Tango schedule: %r %s %s skipped (strikethrough)",
