@@ -314,7 +314,7 @@ async def _reject_stale(
         from app.keyboards.inline import nlp_back_keyboard
         reply_markup = nlp_back_keyboard(model_id)
     try:
-        await query.message.edit_text(
+        await safe_edit_message(query, 
             STALE_MSG,
             reply_markup=reply_markup,
         )
@@ -411,7 +411,7 @@ async def _handle_nlp_callback_impl(
             if sub == "m":
                 if query.message:
                     try:
-                        await query.message.edit_text(
+                        await safe_edit_message(query, 
                             "👋 Главное меню. Напишите запрос текстом или /start",
                             parse_mode="HTML",
                         )
@@ -425,7 +425,7 @@ async def _handle_nlp_callback_impl(
                         message_id=query.message.message_id,
                     )
                     try:
-                        await query.message.edit_text(
+                        await safe_edit_message(query, 
                             "✅ Готово",
                             reply_markup=None,
                         )
@@ -581,7 +581,7 @@ async def _handle_select_model(query, parts, config, notion, memory_state, recen
     # Get model info
     model_data = await notion.get_model(model_id)
     if not model_data:
-        await query.message.edit_text("Модель не найдена.")
+        await safe_edit_message(query, "Модель не найдена.")
         return
 
     recent_models.add(user_id, model_id, model_data.title)
@@ -641,7 +641,7 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
     if action == "order":
         # Show order type selection
         if not is_editor(user_id, config):
-            await query.message.edit_text("❌ Нет доступа")
+            await safe_edit_message(query, "❌ Нет доступа")
             return
         from app.keyboards.inline import nlp_order_type_keyboard
         k = generate_token()
@@ -653,7 +653,7 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
             "k": k,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📦 <b>{html.escape(model_name)}</b> · Тип заказа:",
             reply_markup=nlp_order_type_keyboard(model_id, k),
             parse_mode="HTML",
@@ -729,7 +729,7 @@ async def _handle_note_action(
     })
     await _clear_previous_screen_keyboard(query, memory_state)
     try:
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"✏️ Напиши заметку для <b>{html.escape(model_name)}</b>:",
             reply_markup=nlp_back_keyboard(model_id),
             parse_mode="HTML",
@@ -890,7 +890,7 @@ async def _show_orders_view(
     })
     await _clear_previous_screen_keyboard(query, memory_state)
     try:
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             text,
             reply_markup=keyboard,
             parse_mode="HTML",
@@ -916,7 +916,7 @@ async def _show_close_picker(
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
-            msg = await query.message.edit_text(
+            msg = await safe_edit_message(query, 
                 "❌ Нет доступа",
                 reply_markup=nlp_back_keyboard(model_id),
             )
@@ -934,7 +934,7 @@ async def _show_close_picker(
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
-            msg = await query.message.edit_text(
+            msg = await safe_edit_message(query, 
                 f"❌ Нет открытых заказов — {html.escape(model_name)}",
                 reply_markup=nlp_back_keyboard(model_id),
                 parse_mode="HTML",
@@ -963,7 +963,7 @@ async def _show_close_picker(
     })
     await _clear_previous_screen_keyboard(query, memory_state)
     try:
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📦 {html.escape(model_name).upper()} · Дата закрытия:",
             reply_markup=nlp_close_order_select_keyboard(
                 page_orders,
@@ -1003,7 +1003,7 @@ async def _handle_orders_menu_action(
         if not is_editor(user_id, config):
             from app.keyboards.inline import nlp_back_keyboard
             await _clear_previous_screen_keyboard(query, memory_state)
-            msg = await query.message.edit_text(
+            msg = await safe_edit_message(query, 
                 "❌ Нет доступа",
                 reply_markup=nlp_back_keyboard(model_id),
             )
@@ -1019,7 +1019,7 @@ async def _handle_orders_menu_action(
             "k": k,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📦 <b>{html.escape(model_name)}</b> · Тип заказа:",
             reply_markup=nlp_order_type_keyboard(model_id, k),
             parse_mode="HTML",
@@ -1116,7 +1116,7 @@ async def _show_files_menu(
         text = f"📁 <b>{html.escape(model_name)}</b>\n\n❌ Нет доступа."
     await _clear_previous_screen_keyboard(query, memory_state)
     try:
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             text,
             reply_markup=nlp_files_menu_keyboard(can_edit=can_edit, model_id=model_id),
             parse_mode="HTML",
@@ -1151,7 +1151,7 @@ async def _handle_files_menu_action(
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
-            msg = await query.message.edit_text(
+            msg = await safe_edit_message(query, 
                 "❌ Нет доступа",
                 reply_markup=nlp_back_keyboard(model_id),
             )
@@ -1173,7 +1173,7 @@ async def _handle_files_menu_action(
         })
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
-            msg = await query.message.edit_text(
+            msg = await safe_edit_message(query, 
                 f"📁 <b>{html.escape(model_name)}</b> · Сколько файлов?",
                 reply_markup=nlp_files_qty_keyboard(model_id, k),
                 parse_mode="HTML",
@@ -1192,7 +1192,7 @@ async def _handle_files_menu_action(
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
-            msg = await query.message.edit_text(
+            msg = await safe_edit_message(query, 
                 "Нет записи accounting за этот месяц. Сначала добавьте файлы.",
                 reply_markup=nlp_back_keyboard(model_id),
             )
@@ -1214,7 +1214,7 @@ async def _handle_files_menu_action(
         })
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
-            msg = await query.message.edit_text(
+            msg = await safe_edit_message(query, 
                 f"💬 <b>{html.escape(model_name)}</b> · Введите комментарий:",
                 parse_mode="HTML",
                 reply_markup=nlp_back_keyboard(model_id),
@@ -1271,7 +1271,7 @@ async def _show_shoot_menu(
         text = f"📅 <b>{html.escape(model_name)}</b>\n\n❌ Нет доступа."
     await _clear_previous_screen_keyboard(query, memory_state)
     try:
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             text,
             reply_markup=nlp_shoot_menu_keyboard(
                 has_shoot=bool(shoot),
@@ -1307,7 +1307,7 @@ async def _handle_shoot_menu_action(
     if not is_editor(user_id, config):
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             "❌ Нет доступа",
             reply_markup=nlp_back_keyboard(state.get("model_id", "")),
         )
@@ -1330,7 +1330,7 @@ async def _handle_shoot_menu_action(
             "k": k,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📅 <b>{html.escape(model_name)}</b> · Выберите контент:",
             reply_markup=nlp_shoot_content_keyboard([], model_id, k),
             parse_mode="HTML",
@@ -1357,7 +1357,7 @@ async def _handle_shoot_menu_action(
             "k": k,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📅 <b>{html.escape(model_name)}</b> · Новая дата:",
             reply_markup=nlp_shoot_date_keyboard(model_id, k),
             parse_mode="HTML",
@@ -1376,7 +1376,7 @@ async def _handle_shoot_menu_action(
         })
         await _clear_previous_screen_keyboard(query, memory_state)
         from app.keyboards.inline import nlp_action_complete_keyboard
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             "✅ Съемка закрыта",
             reply_markup=nlp_action_complete_keyboard(model_id),
         )
@@ -1399,7 +1399,7 @@ async def _handle_shoot_menu_action(
             "k": k,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"💬 <b>{html.escape(model_name)}</b> · Введите комментарий:",
             parse_mode="HTML",
             reply_markup=nlp_back_keyboard(model_id),
@@ -1440,7 +1440,7 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
         memory_state.update(chat_id, user_id, step="awaiting_custom_date")
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             "Введите дату (ДД.ММ):",
             parse_mode="HTML",
             reply_markup=nlp_back_keyboard(model_id),
@@ -1467,7 +1467,7 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
             await _clear_previous_screen_keyboard(query, memory_state)
             await _cleanup_prompt_message(query, memory_state)
             try:
-                msg = await query.message.edit_text(
+                msg = await safe_edit_message(query, 
                     f"✅ Съемка перенесена с {old_label} на {shoot_date.strftime('%d.%m')}",
                     reply_markup=nlp_action_complete_keyboard(model_id),
                     parse_mode="HTML",
@@ -1481,7 +1481,7 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
         # Create shoot
         if not is_editor(user_id, config):
             try:
-                await query.message.edit_text("❌ Нет доступа")
+                await safe_edit_message(query, "❌ Нет доступа")
             except TelegramBadRequest as e:
                 if "message is not modified" not in str(e):
                     raise
@@ -1505,7 +1505,7 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
         try:
-            msg = await query.message.edit_text(
+            msg = await safe_edit_message(query, 
                 f"📍 <b>{html.escape(model_name)}</b> · Локация:",
                 reply_markup=nlp_shoot_location_keyboard(model_id, k),
                 parse_mode="HTML",
@@ -1555,7 +1555,7 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
 
     if not is_editor(user_id, config):
         try:
-            await query.message.edit_text("❌ Нет доступа")
+            await safe_edit_message(query, "❌ Нет доступа")
         except Exception:
             # Ignore "message is not modified" and similar edit errors
             pass
@@ -1594,7 +1594,7 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
     except Exception as e:
         LOGGER.exception("Failed to create shoot: %s", e)
         try:
-            await query.message.edit_text("❌ Ошибка Notion — попробуй позже")
+            await safe_edit_message(query, "❌ Ошибка Notion — попробуй позже")
         except Exception:
             pass
         memory_state.clear(chat_id, user_id)
@@ -1679,7 +1679,7 @@ async def _handle_order_qty(query, parts, config, notion, memory_state):
 
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
-            msg = await query.message.edit_text(
+            msg = await safe_edit_message(query, 
                 f"📦 <b>{html.escape(model_name)}</b> · {type_label}\n\n"
                 f"Введите количество:",
                 reply_markup=nlp_back_keyboard(model_id),
@@ -1710,7 +1710,7 @@ async def _handle_order_qty(query, parts, config, notion, memory_state):
     memory_state.update(chat_id, user_id, step="awaiting_date", count=count, k=k)
     await _clear_previous_screen_keyboard(query, memory_state)
     try:
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\nДата заказа:",
             reply_markup=nlp_order_date_keyboard(model_id, k),
             parse_mode="HTML",
@@ -1742,7 +1742,7 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
 
     if not is_editor(user_id, config):
         try:
-            await query.message.edit_text("❌ Нет доступа")
+            await safe_edit_message(query, "❌ Нет доступа")
         except TelegramBadRequest as e:
             if "message is not modified" not in str(e):
                 raise
@@ -1759,7 +1759,7 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
-            msg = await query.message.edit_text(
+            msg = await safe_edit_message(query, 
                 "Введите дату (ДД.ММ):",
                 reply_markup=nlp_back_keyboard(model_id),
             )
@@ -1781,7 +1781,7 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
     memory_state.update(chat_id, user_id, step="awaiting_confirm", in_date=in_date.isoformat(), k=k)
     await _clear_previous_screen_keyboard(query, memory_state)
     try:
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\n"
             f"Дата заказа: <b>{in_date.strftime('%d.%m')}</b>\n\nСоздать заказ?",
             reply_markup=nlp_order_confirm_keyboard(model_id, k),
@@ -1821,7 +1821,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
         in_date = date.fromisoformat(in_date_str) if in_date_str else date.today()
 
         if not is_editor(user_id, config):
-            await query.message.edit_text("❌ Нет доступа")
+            await safe_edit_message(query, "❌ Нет доступа")
             memory_state.clear(chat_id, user_id)
             return
 
@@ -1926,7 +1926,7 @@ async def _handle_close_order_select(query, parts, config, memory_state):
         "k": k,
     })
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
+    msg = await safe_edit_message(query, 
         f"📦 {html.escape(model_name).upper()} · Дата закрытия:",
         reply_markup=nlp_close_order_date_keyboard(model_id, k),
         parse_mode="HTML",
@@ -1963,7 +1963,7 @@ async def _show_short_close_options(
         [nlp_back_button(model_id)],
     ])
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
+    msg = await safe_edit_message(query, 
         f"📦 <b>{html.escape(model_name)}</b> · {order_type} × {count}\n"
         f"📥 Получено: {recv}/{count}\n\n"
         f"Что делаем?",
@@ -1989,7 +1989,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
     chat_id, user_id = _state_ids_from_query(query)
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа")
+        await safe_edit_message(query, "❌ Нет доступа")
         return
 
     state = memory_state.get(chat_id, user_id)
@@ -2011,7 +2011,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
             "k": k,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📦 {html.escape(state.get('model_name', '')).upper()} · Дата закрытия:",
             reply_markup=nlp_close_order_date_keyboard(state.get("model_id", ""), k),
             parse_mode="HTML",
@@ -2034,7 +2034,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         memory_state.update(chat_id, user_id, step="awaiting_custom_date")
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             "Введите дату закрытия (ДД.ММ):",
             reply_markup=nlp_back_keyboard(state.get("model_id", "") if state else ""),
         )
@@ -2112,7 +2112,7 @@ async def _handle_report_orders(query, config, notion, memory_state):
     from app.keyboards.inline import nlp_report_keyboard
     if query.message:
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📦 <b>Открытые заказы: {html.escape(model_name)}</b>\n\n{orders_text}",
             reply_markup=nlp_report_keyboard(model_id, k),
             parse_mode="HTML",
@@ -2147,7 +2147,7 @@ async def _handle_report_accounting(query, config, notion, memory_state):
     from app.keyboards.inline import nlp_report_keyboard
     if query.message:
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📁 <b>Учет файлов: {html.escape(model_name)}</b>\n\n{accounting_text}",
             reply_markup=nlp_report_keyboard(model_id, k),
             parse_mode="HTML",
@@ -2185,7 +2185,7 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
             "k": k,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📁 <b>{html.escape(model_name)}</b> · Сколько файлов?",
             reply_markup=nlp_files_qty_keyboard(model_id, k),
             parse_mode="HTML",
@@ -2205,7 +2205,7 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
         })
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             "Введите количество файлов:",
             parse_mode="HTML",
             reply_markup=nlp_back_keyboard(model_id),
@@ -2221,7 +2221,7 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
     count = int(value)
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа")
+        await safe_edit_message(query, "❌ Нет доступа")
         return
 
     memory_state.update(
@@ -2233,7 +2233,7 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
     )
     from app.keyboards.inline import nlp_files_content_type_keyboard
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
+    msg = await safe_edit_message(query, 
         f"📁 <b>{html.escape(model_name)}</b> · {count} файлов\n\nВыберите тип контента:",
         reply_markup=nlp_files_content_type_keyboard(model_id),
         parse_mode="HTML",
@@ -2302,7 +2302,7 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
         return
 
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа")
+        await safe_edit_message(query, "❌ Нет доступа")
         memory_state.clear(chat_id, user_id)
         return
 
@@ -2378,7 +2378,7 @@ async def _handle_shoot_content_toggle(query, parts, config, memory_state):
     ct = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа")
+        await safe_edit_message(query, "❌ Нет доступа")
         return
     state = memory_state.get(chat_id, user_id)
     if not state:
@@ -2397,7 +2397,7 @@ async def _handle_shoot_content_toggle(query, parts, config, memory_state):
 
     from app.keyboards.inline import nlp_shoot_content_keyboard
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
+    msg = await safe_edit_message(query, 
         f"📅 <b>{html.escape(model_name)}</b> · Выберите контент:",
         reply_markup=nlp_shoot_content_keyboard(selected, state.get("model_id", ""), k),
         parse_mode="HTML",
@@ -2437,7 +2437,7 @@ async def _handle_shoot_content_done(query, parts, config, notion, memory_state,
         from app.keyboards.inline import nlp_shoot_location_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📍 <b>{html.escape(model_name)}</b> · Локация:",
             reply_markup=nlp_shoot_location_keyboard(model_id, k),
             parse_mode="HTML",
@@ -2472,7 +2472,7 @@ async def _handle_shoot_content_done(query, parts, config, notion, memory_state,
     k = generate_token()
     memory_state.update(chat_id, user_id, step="awaiting_date", k=k)
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
+    msg = await safe_edit_message(query, 
         f"📅 <b>{html.escape(model_name)}</b> · Дата съемки:",
         reply_markup=nlp_shoot_date_keyboard(state.get("model_id", ""), k),
         parse_mode="HTML",
@@ -2487,7 +2487,7 @@ async def _handle_shoot_content_manage(query, parts, config, notion, memory_stat
     shoot_id = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа")
+        await safe_edit_message(query, "❌ Нет доступа")
         return
 
     shoot = await notion.get_shoot(shoot_id)
@@ -2511,7 +2511,7 @@ async def _handle_shoot_content_manage(query, parts, config, notion, memory_stat
         "k": k,
     })
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
+    msg = await safe_edit_message(query, 
         f"📅 <b>{html.escape(model_name)}</b> · Выберите контент:",
         reply_markup=nlp_shoot_content_keyboard(selected, model_id, k),
         parse_mode="HTML",
@@ -2526,7 +2526,7 @@ async def _handle_shoot_reschedule_cb(query, parts, config, notion, memory_state
     shoot_id = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа")
+        await safe_edit_message(query, "❌ Нет доступа")
         return
     state = memory_state.get(chat_id, user_id)
     model_name = state.get("model_name", "") if state else ""
@@ -2543,7 +2543,7 @@ async def _handle_shoot_reschedule_cb(query, parts, config, notion, memory_state
         "k": k,
     })
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
+    msg = await safe_edit_message(query, 
         f"📅 <b>{html.escape(model_name)}</b> · Новая дата:",
         reply_markup=nlp_shoot_date_keyboard(model_id, k),
         parse_mode="HTML",
@@ -2558,7 +2558,7 @@ async def _handle_shoot_comment_cb(query, parts, config, notion, memory_state):
     shoot_id = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа")
+        await safe_edit_message(query, "❌ Нет доступа")
         return
     state = memory_state.get(chat_id, user_id)
     model_name = state.get("model_name", "") if state else ""
@@ -2580,7 +2580,7 @@ async def _handle_shoot_comment_cb(query, parts, config, notion, memory_state):
     })
     from app.keyboards.inline import nlp_back_keyboard
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
+    msg = await safe_edit_message(query, 
         f"💬 <b>{html.escape(model_name)}</b> · Введите комментарий:",
         parse_mode="HTML",
         reply_markup=nlp_back_keyboard(model_id),
@@ -2600,7 +2600,7 @@ async def _handle_accounting_content_toggle(query, parts, config, memory_state):
     ct = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа")
+        await safe_edit_message(query, "❌ Нет доступа")
         return
     state = memory_state.get(chat_id, user_id)
     if not state:
@@ -2619,7 +2619,7 @@ async def _handle_accounting_content_toggle(query, parts, config, memory_state):
 
     from app.keyboards.inline import nlp_accounting_content_keyboard
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
+    msg = await safe_edit_message(query, 
         f"🗂 <b>{html.escape(model_name)}</b> · Content\n\n"
         "Выберите типы контента:",
         reply_markup=nlp_accounting_content_keyboard(selected, state.get("model_id", ""), k),
@@ -2633,7 +2633,7 @@ async def _handle_accounting_content_save(query, parts, config, notion, memory_s
     await safe_query_answer(query)
     chat_id, user_id = _state_ids_from_query(query)
     if not is_editor(user_id, config):
-        await query.message.edit_text("❌ Нет доступа")
+        await safe_edit_message(query, "❌ Нет доступа")
         return
     state = memory_state.get(chat_id, user_id)
     if not state:
@@ -2646,7 +2646,7 @@ async def _handle_accounting_content_save(query, parts, config, notion, memory_s
     model_id_for_kb = state.get("model_id", "")
 
     if not accounting_id:
-        await query.message.edit_text("Запись accounting не найдена.")
+        await safe_edit_message(query, "Запись accounting не найдена.")
         memory_state.clear(chat_id, user_id)
         return
 
@@ -2708,7 +2708,7 @@ async def _show_report(query, model_id, model_name, config, notion, memory_state
     orders_str = f"{len(open_orders)} открытых"
 
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await query.message.edit_text(
+    msg = await safe_edit_message(query, 
         f"📊 <b>{escape_html(model_name)}</b> · {yyyy_mm}\n\n"
         f"📁 Файлов: {files_str}\n"
         f"📦 Заказов: {orders_str}\n",
@@ -2749,7 +2749,7 @@ async def _handle_partial_received(query, parts, config, memory_state):
 
     from app.keyboards.inline import nlp_back_keyboard
     try:
-        msg = await query.message.edit_text(
+        msg = await safe_edit_message(query, 
             f"📥 <b>{html.escape(model_name)}</b> · {order_type} × {count}\n"
             f"Получено сейчас: {current_received}/{count}\n\n"
             f"Введи сколько получено (добавится к текущему):",

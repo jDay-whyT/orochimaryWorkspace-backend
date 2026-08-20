@@ -100,6 +100,28 @@ class RedisMemoryState:
             return None
         return json.loads(raw)
 
+    def _run_resilient(self, make_coro: Any, *, on_error: Any) -> Any:
+        """
+        Run a Redis coroutine, tolerating a single dropped connection.
+        Upstash closes idle TCP connections server-side; redis-py's own
+        retry (see __post_init__) reuses the same dead connection and can
+        still raise ConnectionError/TimeoutError on the first attempt after
+        an idle period. One extra attempt on a fresh connection covers that
+        case; a second consecutive failure is treated as a real outage and
+        falls back to `on_error` instead of crashing the caller's handler.
+        `make_coro` is a zero-arg callable — a coroutine object can only be
+        awaited once, so retrying needs a fresh one each attempt.
+        """
+        try:
+            return self._run(make_coro())
+        except (ConnectionError, TimeoutError) as e:
+            LOGGER.warning("Redis op failed once (%s), retrying", e)
+            try:
+                return self._run(make_coro())
+            except (ConnectionError, TimeoutError) as e2:
+                LOGGER.error("Redis op failed twice, giving up: %s", e2)
+                return on_error() if callable(on_error) else on_error
+
     def get(
         self,
         chat_id: int | tuple[int, int],
@@ -108,7 +130,8 @@ class RedisMemoryState:
         key = self._resolve_key(chat_id, user_id)
         if key is None:
             return None
-        return self._run(self._get_data(self._state_key(*key)))
+        redis_key = self._state_key(*key)
+        return self._run_resilient(lambda: self._get_data(redis_key), on_error=None)
 
     def set(
         self,
@@ -121,7 +144,7 @@ class RedisMemoryState:
             return
 
         redis_key = self._state_key(*key)
-        previous_data = self._run(self._get_data(redis_key))
+        previous_data = self._run_resilient(lambda: self._get_data(redis_key), on_error=None)
         if (
             previous_data
             and "prompt_message_id" not in data
@@ -133,12 +156,10 @@ class RedisMemoryState:
             }
 
         assert self.redis_client is not None
-        self._run(
-            self.redis_client.set(
-                redis_key,
-                json.dumps(data, default=_default_serializer),
-                ex=self.ttl_seconds,
-            )
+        payload = json.dumps(data, default=_default_serializer)
+        self._run_resilient(
+            lambda: self.redis_client.set(redis_key, payload, ex=self.ttl_seconds),
+            on_error=None,
         )
 
     def update(
@@ -156,5 +177,6 @@ class RedisMemoryState:
         key = self._resolve_key(chat_id, user_id)
         if key is None:
             return
+        redis_key = self._state_key(*key)
         assert self.redis_client is not None
-        self._run(self.redis_client.delete(self._state_key(*key)))
+        self._run_resilient(lambda: self.redis_client.delete(redis_key), on_error=None)
