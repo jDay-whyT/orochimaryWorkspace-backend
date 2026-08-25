@@ -8,7 +8,16 @@ from threading import Event, Thread
 from typing import Any
 from urllib.parse import urlsplit
 
+from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError
+
 LOGGER = logging.getLogger(__name__)
+
+# Connection-level errors worth retrying once on a fresh connection: redis-py's
+# own ConnectionError/TimeoutError (raised for socket read/write failures —
+# these do NOT subclass the builtin exceptions of the same name) plus the
+# builtin ConnectionError/TimeoutError for any raw socket error that reaches
+# us unwrapped.
+_RETRYABLE_REDIS_ERRORS = (RedisConnectionError, RedisTimeoutError, ConnectionError, TimeoutError)
 
 
 def _default_serializer(obj: Any) -> Any:
@@ -47,7 +56,7 @@ class RedisMemoryState:
             kwargs.setdefault("socket_keepalive", True)
             kwargs.setdefault("health_check_interval", 30)
             kwargs.setdefault("retry_on_timeout", True)
-            kwargs.setdefault("retry_on_error", [ConnectionError, TimeoutError])
+            kwargs.setdefault("retry_on_error", [RedisConnectionError, RedisTimeoutError])
             kwargs.setdefault("retry", Retry(ExponentialBackoff(), 2))
             self.redis_client = Redis.from_url(self.redis_url, decode_responses=True, **kwargs)
             LOGGER.info("RedisMemoryState initialized: url=%s ttl=%s", _redact_redis_url(self.redis_url), self.ttl_seconds)
@@ -114,11 +123,11 @@ class RedisMemoryState:
         """
         try:
             return self._run(make_coro())
-        except (ConnectionError, TimeoutError) as e:
+        except _RETRYABLE_REDIS_ERRORS as e:
             LOGGER.warning("Redis op failed once (%s), retrying", e)
             try:
                 return self._run(make_coro())
-            except (ConnectionError, TimeoutError) as e2:
+            except _RETRYABLE_REDIS_ERRORS as e2:
                 LOGGER.error("Redis op failed twice, giving up: %s", e2)
                 return on_error() if callable(on_error) else on_error
 

@@ -39,7 +39,9 @@ class RedisRecentModels:
             kwargs.setdefault("socket_keepalive", True)
             kwargs.setdefault("health_check_interval", 30)
             kwargs.setdefault("retry_on_timeout", True)
-            kwargs.setdefault("retry_on_error", [ConnectionError, TimeoutError])
+            from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError
+
+            kwargs.setdefault("retry_on_error", [RedisConnectionError, RedisTimeoutError])
             kwargs.setdefault("retry", Retry(ExponentialBackoff(), 2))
             self.redis_client = Redis.from_url(self.redis_url, decode_responses=True, **kwargs)
             LOGGER.info("RedisRecentModels initialized: url=%s ttl=%s", _redact_redis_url(self.redis_url), self.ttl_seconds)
