@@ -3,7 +3,7 @@
 import logging
 
 from aiogram.filters import BaseFilter
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InaccessibleMessage, Message
 
 from app.config import Config
 
@@ -85,6 +85,8 @@ class TopicAccessCallbackFilter(BaseFilter):
         message = query.message
         if not message:
             return True
+        if isinstance(message, InaccessibleMessage):
+            return False
         if message.chat.type == "private":
             return True
         if message.chat.type not in {"group", "supergroup"}:
