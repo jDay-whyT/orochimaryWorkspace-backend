@@ -2,12 +2,19 @@
 import json
 
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from app.state.redis_state import RedisMemoryState
 
 
 class FakeRedisClient:
-    """Fails its first N calls with ConnectionError, then succeeds."""
+    """Fails its first N calls with redis-py's own ConnectionError, then succeeds.
+
+    Uses redis.exceptions.ConnectionError specifically — it does NOT subclass
+    the builtin ConnectionError, and a prior version of this fake used the
+    builtin, which masked a real bug where _run_resilient only caught the
+    builtin type.
+    """
 
     def __init__(self, fail_times: int = 0):
         self.fail_times = fail_times
@@ -17,7 +24,7 @@ class FakeRedisClient:
     def _maybe_fail(self):
         if self.calls < self.fail_times:
             self.calls += 1
-            raise ConnectionError("Error 104 while writing to socket. Connection reset by peer.")
+            raise RedisConnectionError("Error 104 while writing to socket. Connection reset by peer.")
         self.calls += 1
 
     async def get(self, key):
