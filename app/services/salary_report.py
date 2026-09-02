@@ -38,7 +38,7 @@ class ModelSalaryRow:
     total_files: int = 0
     custom_count: int = 0
     other_count: int = 0
-    orders_pay: int = 0
+    orders_pay: float = 0
 
 
 def salary_pending_redis_key(yyyy_mm: str, model_id: str) -> str:
@@ -84,7 +84,7 @@ def build_salary_report(
         other_count = sum(
             (o.count or 0) for o in model_orders if o.order_type != "custom"
         )
-        orders_pay = sum((o.pay or 0) for o in model_orders)
+        orders_pay = round(sum((o.pay or 0) for o in model_orders), 2)
 
         content = record.content or []
         is_tango = bool(model and (model.project or "").strip().upper() == "TANGO")

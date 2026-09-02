@@ -39,7 +39,7 @@ class NotionOrder:
     comments: str | None = None
     from_project: str | None = None
     received: int | None = None
-    pay: int | None = None
+    pay: float | None = None
 
 
 @dataclass
@@ -1506,7 +1506,7 @@ def _parse_order(item: dict[str, Any]) -> NotionOrder:
         comments=_extract_rich_text(item, "comments"),
         from_project=_extract_select(item, "from"),
         received=int(received_val) if received_val is not None else None,
-        pay=int(pay_val) if pay_val is not None else None,
+        pay=pay_val,
     )
 
 
