@@ -37,7 +37,7 @@ class TestBuildNewTabGrid:
         grid = build_new_tab_grid({})
         assert grid[0] == [
             "Модель", "Статус", "Контент", "Total files", "Custom",
-            "Другие (short/call/verif)", "Расходы", "", "Lord", "Managers",
+            "Другие (short/call/verif)", "Расходы", "", "Lord", "Managers", "Tango",
             "Заказы", "Оплата",
         ]
 
@@ -48,7 +48,7 @@ class TestBuildNewTabGrid:
         grid = build_new_tab_grid(report)
         # row1=header, row2=manager, rows3-5=models
         assert grid[1][0] == "Рони"
-        assert grid[1][-1] == "=SUM(I3:K5)"
+        assert grid[1][-1] == "=SUM(I3:L5)"
         assert grid[2][0] == "А"
         assert grid[4][0] == "В"
 
@@ -60,16 +60,16 @@ class TestBuildNewTabGrid:
         grid = build_new_tab_grid(report)
         # header, Рони header, А, blank, Вангог header, Б, blank, grand total
         assert grid[3] == []
-        assert grid[1][-1] == "=SUM(I3:K3)"
-        assert grid[4][-1] == "=SUM(I6:K6)"
+        assert grid[1][-1] == "=SUM(I3:L3)"
+        assert grid[4][-1] == "=SUM(I6:L6)"
 
-    def test_grand_total_sums_every_manager_header_l_cell(self):
+    def test_grand_total_sums_every_manager_header_m_cell(self):
         report = {
             "Рони": [_row("А", "Рони")],
             "Вангог": [_row("Б", "Вангог")],
         }
         grid = build_new_tab_grid(report)
-        assert grid[-1][-1] == "=SUM(L2,L5)"
+        assert grid[-1][-1] == "=SUM(M2,M5)"
 
     def test_zero_counts_render_as_dash_but_pay_stays_blank(self):
         report = {"Ева": [_row("СОЛО", "Ева")]}
@@ -78,14 +78,14 @@ class TestBuildNewTabGrid:
         assert model_row[3] == "—"  # Total files
         assert model_row[4] == "—"  # Custom
         assert model_row[5] == "—"  # Другие
-        assert model_row[10] == ""  # Заказы (0 -> blank, not "0")
+        assert model_row[11] == ""  # Заказы (0 -> blank, not "0")
 
 
 class TestIndexExistingTab:
     def test_finds_model_row_under_correct_manager(self):
         grid = [
             ["Модель", "Статус", "Контент", "Total files", "Custom", "Другие", "", "", "", "", "", "Оплата"],
-            ["Рони", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
             ["ФИГУРА", "work", "reddit", 80, "—", "—", "", "", 20, 20],
             [],
         ]
@@ -95,7 +95,7 @@ class TestIndexExistingTab:
     def test_blank_row_resets_current_manager(self):
         grid = [
             ["Модель"],
-            ["Рони", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
             ["ФИГУРА", "work"],
             [],
             ["АНОЛИ", "work"],  # orphaned model row after blank, no manager
@@ -110,7 +110,7 @@ class TestIndexExistingTab:
         such marker, so the bare name must also resolve to that row."""
         grid = [
             ["Модель"],
-            ["Какаси", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["Какаси", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
             ["КОНАН  0.5", "work"],
             [],
         ]
@@ -123,7 +123,7 @@ class TestIndexExistingTab:
         separate rows, the bare-name alias must not clobber the real row."""
         grid = [
             ["Модель"],
-            ["Какаси", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K4)"],
+            ["Какаси", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K4)"],
             ["КОНАН", "work"],
             ["КОНАН  0.5", "work"],
             [],
@@ -137,7 +137,7 @@ class TestPlanUpdatesForExistingTab:
     def test_matched_model_gets_bf_and_k_range_updates(self):
         grid = [
             ["Модель", "Статус"],
-            ["Рони", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
             ["ФИГУРА", "new", "—", "—", "—", "—"],
             [],
         ]
@@ -147,14 +147,14 @@ class TestPlanUpdatesForExistingTab:
         assert unmatched_no_manager == []
         ranges = dict(updates)
         assert ranges["'ИЮЛЬ'!B3:F3"] == [["work", "—", 80, "—", "—"]]
-        assert ranges["'ИЮЛЬ'!K3"] == [[3]]
+        assert ranges["'ИЮЛЬ'!L3"] == [[3]]
 
     def test_split_model_bare_name_matches_its_0_5_suffixed_row(self):
         """КОНАН/ЖИВЧИК-style co-owned models: report has the bare name,
         sheet row is hand-suffixed "  0.5" — must match, not fall to unmatched."""
         grid = [
             ["Модель", "Статус"],
-            ["Какаси", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["Какаси", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
             ["КОНАН  0.5", "new", "—", "—", "—", "—"],
             [],
         ]
@@ -169,7 +169,7 @@ class TestPlanUpdatesForExistingTab:
         (Title-cased scoutname) — must still match (Jul 29 prod incident)."""
         grid = [
             ["Модель", "Статус"],
-            ["FLAIR", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["FLAIR", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
             ["Maria Kai", "work"],
             [],
         ]
@@ -200,7 +200,7 @@ class TestPlanUpdatesForExistingTab:
     def test_manual_columns_never_touched(self):
         grid = [
             ["Модель", "Статус"],
-            ["Рони", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
             ["ФИГУРА", "new"],
             [],
         ]
@@ -209,18 +209,18 @@ class TestPlanUpdatesForExistingTab:
         touched_ranges = [r for r, _ in updates]
         for r in touched_ranges:
             assert "!G" not in r and "!H" not in r and "!I" not in r
-            assert "!J" not in r and "!L" not in r
+            assert "!J" not in r and "!K" not in r and "!M" not in r
 
 
 class TestFindManagerBlock:
     def test_finds_header_and_last_row_mid_sheet(self):
         grid = [
             ["Модель", "Статус"],
-            ["Рони", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K4)"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K4)"],
             ["А", "work"],
             ["Б", "work"],
             [],
-            ["Вангог", "", "", "", "", "", "", "", "", "", "", "=SUM(I7:K7)"],
+            ["Вангог", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I7:K7)"],
             ["В", "work"],
             [],
         ]
@@ -231,7 +231,7 @@ class TestFindManagerBlock:
     def test_last_block_in_sheet_with_no_trailing_blank(self):
         grid = [
             ["Модель", "Статус"],
-            ["Рони", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
             ["А", "work"],
         ]
         pos = find_manager_block(grid, "Рони")
@@ -241,7 +241,7 @@ class TestFindManagerBlock:
     def test_manager_block_with_zero_models(self):
         grid = [
             ["Модель", "Статус"],
-            ["Рони", "", "", "", "", "", "", "", "", "", "", ""],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "", ""],
             [],
         ]
         pos = find_manager_block(grid, "Рони")
@@ -257,7 +257,7 @@ class TestPlanRowInsertion:
     def test_inserts_right_after_last_model_row(self):
         grid = [
             ["Модель", "Статус"],
-            ["Рони", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K4)"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K4)"],
             ["А", "work"],
             ["Б", "work"],
             [],
@@ -289,7 +289,7 @@ class TestInsertNewModelRow:
     async def test_inserts_row_without_touching_manager_formula(self):
         grid = [
             ["Модель", "Статус"],
-            ["Рони", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
+            ["Рони", "", "", "", "", "", "", "", "", "", "", "", "=SUM(I3:K3)"],
             ["А", "work"],
             [],
         ]
@@ -300,8 +300,8 @@ class TestInsertNewModelRow:
         assert new_row == 4
         assert sheets.inserted == ("ssid", 999, 3, 4)
         ranges = dict(sheets.updates[0][1])
-        assert ranges["'ИЮЛЬ'!A4:L4"][0][0] == "НОВИЧОК"
-        assert "'ИЮЛЬ'!L2" not in ranges  # manager's SUM formula left untouched
+        assert ranges["'ИЮЛЬ'!A4:M4"][0][0] == "НОВИЧОК"
+        assert "'ИЮЛЬ'!M2" not in ranges  # manager's SUM formula left untouched
 
     @pytest.mark.asyncio
     async def test_unknown_manager_returns_none_without_calling_sheets(self):

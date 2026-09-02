@@ -1,10 +1,10 @@
 """Writes a monthly salary report (see app.services.salary_report) into the
 salary Google Sheet, matching the existing hand-built layout: one tab per
 month (e.g. "ИЮЛЬ"), models grouped under a manager header row whose "Оплата"
-column holds a `=SUM(I{first}:K{last})` formula over that manager's block.
+column holds a `=SUM(I{first}:L{last})` formula over that manager's block.
 
 Only the columns pulled from Notion (Статус, Контент, Total files, Custom,
-Другие, Заказы) are ever written. Расходы/Lord/Managers/Оплата stay manual.
+Другие, Заказы) are ever written. Расходы/Lord/Managers/Tango/Оплата stay manual.
 
 If the month's tab doesn't exist yet, the whole tab is built fresh in one
 batch (safe — nothing pre-existing to corrupt). If it already exists, only
@@ -23,7 +23,7 @@ from app.utils.formatting import MONTHS_RU
 
 HEADER_ROW = [
     "Модель", "Статус", "Контент", "Total files", "Custom",
-    "Другие (short/call/verif)", "Расходы", "", "Lord", "Managers",
+    "Другие (short/call/verif)", "Расходы", "", "Lord", "Managers", "Tango",
     "Заказы", "Оплата",
 ]
 
@@ -66,13 +66,14 @@ def _model_row_cells(row: ModelSalaryRow) -> list:
         "",  # (unnamed spacer column)
         "",  # Lord — manual
         "",  # Managers — manual
+        "",  # Tango — manual
         _safe_cell(row.orders_pay) if row.orders_pay else "",
         "",  # Оплата — manual/formula, only set on manager rows
     ]
 
 
 def build_new_tab_grid(report: dict[str, list[ModelSalaryRow]]) -> list[list]:
-    """Build the full A1:L{n} grid for a brand-new month tab."""
+    """Build the full A1:M{n} grid for a brand-new month tab."""
     grid: list[list] = [HEADER_ROW]
     manager_header_rows: list[int] = []
 
@@ -80,14 +81,14 @@ def build_new_tab_grid(report: dict[str, list[ModelSalaryRow]]) -> list[list]:
         header_row_num = len(grid) + 1  # 1-based sheet row
         first_model_row = header_row_num + 1
         last_model_row = first_model_row + len(rows) - 1
-        grid.append([_safe_cell(manager)] + [""] * 10 + [f"=SUM(I{first_model_row}:K{last_model_row})"])
+        grid.append([_safe_cell(manager)] + [""] * 11 + [f"=SUM(I{first_model_row}:L{last_model_row})"])
         manager_header_rows.append(header_row_num)
         for row in rows:
             grid.append(_model_row_cells(row))
         grid.append([])  # blank separator between manager blocks
 
-    total_formula = "=SUM(" + ",".join(f"L{n}" for n in manager_header_rows) + ")"
-    grid.append([""] * 11 + [total_formula])
+    total_formula = "=SUM(" + ",".join(f"M{n}" for n in manager_header_rows) + ")"
+    grid.append([""] * 12 + [total_formula])
     return grid
 
 
@@ -216,9 +217,9 @@ def plan_updates_for_existing_tab(
     """
     Return (cell updates, unmatched, unmatched_no_manager) for an already-existing tab.
 
-    Each matched model gets two range updates: B:F (Статус..Другие) and K
-    (Заказы) — deliberately skipping G:J (Расходы/spacer/Lord/Managers) and L
-    (Оплата), which stay manual/formula-owned.
+    Each matched model gets two range updates: B:F (Статус..Другие) and L
+    (Заказы) — deliberately skipping G:K (Расходы/spacer/Lord/Managers/Tango)
+    and M (Оплата), which stay manual/formula-owned.
 
     `unmatched` rows have a manager block in the tab but no matching model
     row — these can be auto-inserted via plan_row_insertion/insert_new_model_row.
@@ -244,7 +245,7 @@ def plan_updates_for_existing_tab(
                 continue
             cells = _model_row_cells(row)
             updates.append((f"'{tab_name}'!B{row_num}:F{row_num}", [cells[1:6]]))
-            updates.append((f"'{tab_name}'!K{row_num}", [[cells[10]]]))
+            updates.append((f"'{tab_name}'!L{row_num}", [[cells[11]]]))
 
     return updates, unmatched, unmatched_no_manager
 
@@ -271,7 +272,7 @@ async def write_salary_report(
         await sheets.add_sheet_tab(spreadsheet_id, tab_name)
         grid = build_new_tab_grid(report)
         last_row = len(grid)
-        await sheets.update_values(spreadsheet_id, [(f"'{tab_name}'!A1:L{last_row}", grid)])
+        await sheets.update_values(spreadsheet_id, [(f"'{tab_name}'!A1:M{last_row}", grid)])
         total_models = sum(len(rows) for rows in report.values())
         return SalarySheetWriteResult(
             tab_name=tab_name, created_new_tab=True,
@@ -321,6 +322,6 @@ async def insert_new_model_row(
     await sheets.insert_rows(spreadsheet_id, sheet_id, plan.insert_at_row, plan.insert_at_row + 1)
     cells = _model_row_cells(row)
     await sheets.update_values(
-        spreadsheet_id, [(f"'{tab_name}'!A{plan.new_row_num}:L{plan.new_row_num}", [cells])],
+        spreadsheet_id, [(f"'{tab_name}'!A{plan.new_row_num}:M{plan.new_row_num}", [cells])],
     )
     return plan.new_row_num
