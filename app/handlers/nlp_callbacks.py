@@ -1809,11 +1809,11 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
     _oc_in_progress.add(_oc_key)
     try:
         state = memory_state.get(chat_id, user_id)
-        if not state:
+        if not state or not state.get("model_id"):
             await _session_expired(query, memory_state)
             return
 
-        model_id = state.get("model_id", "")
+        model_id = state["model_id"]
         model_name = state.get("model_name", "")
         order_type = state.get("order_type", "")
         count = state.get("count", 1)
