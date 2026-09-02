@@ -771,6 +771,34 @@ class NotionClient:
 
         return results
 
+    async def query_accounting_by_status(
+        self,
+        database_id: str,
+        status: str,
+    ) -> list[NotionAccounting]:
+        """Fetch every accounting record with the given status (e.g. 'work'), paginated."""
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        base_filter = {"property": "status", "status": {"equals": status}}
+
+        results: list[NotionAccounting] = []
+        cursor: str | None = None
+        while True:
+            payload: dict[str, Any] = {"page_size": 100, "filter": base_filter}
+            if cursor:
+                payload["start_cursor"] = cursor
+            data = await self._request("POST", url, json=payload)
+            results.extend(_parse_accounting(item) for item in data.get("results", []))
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
+
+        return results
+
+    async def update_page_title(self, page_id: str, title: str) -> None:
+        """Overwrite a page's Title property."""
+        payload = {"properties": {"Title": {"title": [{"text": {"content": title}}]}}}
+        await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json=payload)
+
     async def query_tango_accounting(self, database_id: str) -> list[NotionAccounting]:
         """
         Fetch persistent Tango accounting records (Content contains "Tango").

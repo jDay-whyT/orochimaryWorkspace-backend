@@ -1,7 +1,35 @@
 import functools
 import os
+import re
 
 from app.utils.constants import ACCOUNTING_STATUS_NEW, ACCOUNTING_STATUS_WORK
+from app.utils.formatting import MONTHS_RU_LOWER
+
+_MONTH_YEAR_SUFFIX_RE = re.compile(
+    r"\s+(?:" + "|".join(MONTHS_RU_LOWER) + r")\s+\d{4}\s*$",
+    re.IGNORECASE,
+)
+
+
+def rename_month_in_title(title: str, yyyy_mm: str) -> str | None:
+    """
+    Replace the trailing "{месяц_ru} {год}" of an accounting Title with the
+    given month, keeping the model-name prefix intact.
+
+    Returns None if the title doesn't end in the expected "{month} {year}"
+    format (e.g. Tango slots, which have no month suffix at all) — caller
+    should treat that as "leave alone, report as skipped".
+    """
+    year, month_str = yyyy_mm.split("-")
+    month_label = MONTHS_RU_LOWER[int(month_str) - 1]
+    new_suffix = f" {month_label} {year}"
+
+    match = _MONTH_YEAR_SUFFIX_RE.search(title)
+    if not match:
+        return None
+
+    prefix = title[: match.start()]
+    return f"{prefix}{new_suffix}"
 
 
 def _get_env_int(name: str, default: int) -> int:
