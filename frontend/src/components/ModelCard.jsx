@@ -45,6 +45,7 @@ export default function ModelCard({ name, onBack }) {
           <StatusBadge status={card.status} />
           {card.project && <span>{card.project}</span>}
           {card.assist && <span>{card.assist}</span>}
+          {card.scout && <span>{card.scout}</span>}
         </div>
       </div>
 

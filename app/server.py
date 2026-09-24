@@ -8,7 +8,7 @@ from collections import deque
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import setup_application
 
-from app.api.scout import api_scout_model_card, api_scout_models, api_scout_verify
+from app.api.scout import api_scout_model_card, api_scout_models
 from app.bot import create_dispatcher
 from app.config import load_config
 from app.handlers.notifications import update_board
@@ -151,7 +151,6 @@ async def create_app() -> web.Application:
     # Scout Mini App API
     app.router.add_post("/api/scout/models", api_scout_models)
     app.router.add_get("/api/scout/model/{name}", api_scout_model_card)
-    app.router.add_post("/api/scout/verify", api_scout_verify)
 
     # Static mini-app frontend — must come LAST among GET routes.
     # GET /{tail:.*} below is a wildcard that catches every unmatched GET.
@@ -181,7 +180,7 @@ async def create_app() -> web.Application:
         "HTTP endpoints registered: GET /, GET /healthz, "
         "POST /tg/webhook, POST /internal/update-board, POST /internal/update-reddit-board, "
         "POST /internal/scrape-wml, "
-        "POST /api/scout/models, GET /api/scout/model/{name}, POST /api/scout/verify"
+        "POST /api/scout/models, GET /api/scout/model/{name}"
     )
     return app
 

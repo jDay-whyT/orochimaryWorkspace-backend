@@ -1,8 +1,6 @@
 """Tests for app/api/scout.py — Mini App scout endpoints.
 
-Previously had zero test coverage, including the api_scout_verify IDOR fix
-(caller could bind an arbitrary handle to their own user id) — see
-[[project_security_review_jul2026]]. Handlers are called directly against
+Handlers are called directly against
 real aiohttp Request objects (aiohttp.test_utils.make_mocked_request) rather
 than through a live server, matching the request.app dict-access pattern
 the handlers use (a plain dict satisfies both `request.app["x"]` and
@@ -95,14 +93,41 @@ class TestApiScoutModels:
         notion.query_models_by_scout.assert_awaited_once_with("db_models_id", "@scout1")
 
     @pytest.mark.asyncio
-    async def test_unverified_scout_returns_status_unverified(self):
+    async def test_user_without_models_gets_no_access(self):
         notion = MagicMock()
         notion.query_models_by_scout = AsyncMock(return_value=[])
         cfg = _config()
         req = _request({"id": 7, "username": "nobody"}, {"config": cfg, "notion": notion})
         resp = await scout.api_scout_models(req)
         assert resp.status == 200
-        assert json.loads(resp.body) == {"status": "unverified"}
+        assert json.loads(resp.body) == {
+            "status": "no_access", "reason": "no_models", "username": "@nobody",
+        }
+
+    @pytest.mark.asyncio
+    async def test_user_without_username_gets_no_access(self):
+        notion = MagicMock()
+        notion.query_models_by_scout = AsyncMock()
+        cfg = _config()
+        req = _request({"id": 7}, {"config": cfg, "notion": notion})
+        resp = await scout.api_scout_models(req)
+        assert json.loads(resp.body) == {
+            "status": "no_access", "reason": "no_username", "username": None,
+        }
+        notion.query_models_by_scout.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cached_scout_with_no_models_left_gets_no_access_and_cache_dropped(self):
+        notion = MagicMock()
+        notion.query_models_by_scout = AsyncMock(return_value=[])
+        redis = MagicMock()
+        redis.get = AsyncMock(return_value="@scout1")
+        redis.delete = AsyncMock()
+        cfg = _config()
+        req = _request({"id": 7, "username": "scout1"}, {"config": cfg, "notion": notion, "redis": redis})
+        resp = await scout.api_scout_models(req)
+        assert json.loads(resp.body)["status"] == "no_access"
+        redis.delete.assert_awaited_once_with("scout:7")
 
 
 class TestApiScoutModelCard:
@@ -124,66 +149,4 @@ class TestApiScoutModelCard:
         monkeypatch.setattr("app.services.scout_card.build_scout_report_card_json", AsyncMock(return_value=None))
         req = _request({"id": 42}, {"config": cfg, "notion": notion}, match_info={"name": "Ghost"})
         resp = await scout.api_scout_model_card(req)
-        assert resp.status == 404
-
-
-class TestApiScoutVerify:
-    @pytest.mark.asyncio
-    async def test_own_handle_binds_successfully(self):
-        notion = MagicMock()
-        model = MagicMock()
-        notion.query_models_by_scout = AsyncMock(return_value=[model])
-        redis = MagicMock()
-        redis.set = AsyncMock()
-        cfg = _config()
-        req = _request({"id": 7, "username": "scout1"}, {"config": cfg, "notion": notion, "redis": redis},
-                        method="POST", path="/api/scout/verify", json_body={"handle": "scout1"})
-        resp = await scout.api_scout_verify(req)
-        assert resp.status == 200
-        assert json.loads(resp.body) == {"status": "ok", "scout": "@scout1"}
-        redis.set.assert_awaited_once_with("scout:7", "@scout1", ex=86400)
-
-    @pytest.mark.asyncio
-    async def test_other_users_handle_is_rejected_idor(self):
-        """Regression test for the IDOR fix: submitting someone else's handle
-        must be rejected before any Notion lookup happens."""
-        notion = MagicMock()
-        notion.query_models_by_scout = AsyncMock()
-        cfg = _config()
-        req = _request({"id": 7, "username": "scout1"}, {"config": cfg, "notion": notion},
-                        method="POST", path="/api/scout/verify", json_body={"handle": "someone_elses_scout"})
-        resp = await scout.api_scout_verify(req)
-        assert resp.status == 403
-        notion.query_models_by_scout.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_no_telegram_username_rejected(self):
-        cfg = _config()
-        req = _request({"id": 7}, {"config": cfg, "notion": MagicMock()},
-                        method="POST", path="/api/scout/verify", json_body={"handle": "scout1"})
-        resp = await scout.api_scout_verify(req)
-        assert resp.status == 400
-
-    @pytest.mark.asyncio
-    async def test_invalid_json_body_rejected(self):
-        cfg = _config()
-        req = make_mocked_request(
-            "POST", "/api/scout/verify",
-            headers={"Authorization": f"tma {_init_data({'id': 7, 'username': 'scout1'})}"},
-            app={"config": cfg, "notion": MagicMock()},
-        )
-        async def _bad_json():
-            raise ValueError("not json")
-        req.json = _bad_json
-        resp = await scout.api_scout_verify(req)
-        assert resp.status == 400
-
-    @pytest.mark.asyncio
-    async def test_handle_not_found_in_notion_returns_404(self):
-        notion = MagicMock()
-        notion.query_models_by_scout = AsyncMock(return_value=[])
-        cfg = _config()
-        req = _request({"id": 7, "username": "scout1"}, {"config": cfg, "notion": notion},
-                        method="POST", path="/api/scout/verify", json_body={"handle": "scout1"})
-        resp = await scout.api_scout_verify(req)
         assert resp.status == 404

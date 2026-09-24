@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { fetchModels } from './api'
 import ModelList from './components/ModelList'
 import ModelCard from './components/ModelCard'
-import VerifyScreen from './components/VerifyScreen'
+import NoAccessScreen from './components/NoAccessScreen'
 
 export default function App() {
   const [screen, setScreen] = useState('loading')
@@ -10,32 +10,35 @@ export default function App() {
   const [scout, setScout] = useState(null)
   const [selectedModel, setSelectedModel] = useState(null)
   const [error, setError] = useState(null)
+  const [noAccess, setNoAccess] = useState(null)
 
   useEffect(() => {
+    async function load() {
+      setScreen('loading')
+      try {
+        const data = await fetchModels()
+        if (data.status === 'no_access') {
+          setNoAccess({ reason: data.reason, username: data.username })
+          setScreen('denied')
+          return
+        }
+        setScout(data.scout)
+        setModels(data.models || [])
+        setScreen('list')
+      } catch (e) {
+        if (e.status === 401) {
+          setNoAccess({ reason: 'outside_telegram' })
+          setScreen('denied')
+        } else {
+          setError(e.message)
+          setScreen('error')
+        }
+      }
+    }
+
     window.Telegram?.WebApp?.ready()
     load()
   }, [])
-
-  async function load() {
-    setScreen('loading')
-    try {
-      const data = await fetchModels()
-      if (data.status === 'unverified') {
-        setScreen('verify')
-        return
-      }
-      setScout(data.scout)
-      setModels(data.models || [])
-      setScreen('list')
-    } catch (e) {
-      if (e.status === 401) {
-        setScreen('denied')
-      } else {
-        setError(e.message)
-        setScreen('error')
-      }
-    }
-  }
 
   function openCard(name) {
     setSelectedModel(name)
@@ -52,15 +55,11 @@ export default function App() {
   }
 
   if (screen === 'denied') {
-    return <div className="center"><p>Access denied</p></div>
+    return <NoAccessScreen reason={noAccess?.reason} username={noAccess?.username} />
   }
 
   if (screen === 'error') {
     return <div className="center"><p>Error: {error}</p></div>
-  }
-
-  if (screen === 'verify') {
-    return <VerifyScreen onVerified={load} />
   }
 
   if (screen === 'card') {

@@ -16,18 +16,25 @@ function statusClass(status) {
   if (s === 'done')        return 'shoot-status-done'
   if (s === 'rescheduled') return 'shoot-status-rescheduled'
   if (s === 'cancelled')   return 'shoot-status-cancelled'
+  if (s === 'scheduled')   return 'shoot-status-scheduled'
+  if (s === 'stuck')       return 'shoot-status-stuck'
   return ''
 }
 
-function ShootList({ shoots }) {
-  if (!shoots.length) return <p className="empty">No shoots</p>
-  return shoots.map((s) => (
-    <div key={`${s.date}-${s.status}`} className="shoot-item">
-      <div className="shoot-date">{formatDate(s.date)}</div>
+function ShootList({ shoots, emptyText = 'No shoots' }) {
+  if (!shoots.length) return <p className="empty">{emptyText}</p>
+  return shoots.map((s, i) => (
+    <div key={s.id || `${s.date}-${i}`} className="shoot-item">
+      <div className="shoot-date">
+        {formatDate(s.date)}
+        {s.time && <div className="shoot-time">{s.time}</div>}
+      </div>
       <div className="shoot-body">
         <div className={`shoot-status ${statusClass(s.status)}`}>{s.status}</div>
-        {s.types?.length > 0 && (
-          <div className="shoot-types">{s.types.join(', ')}</div>
+        {(s.types?.length > 0 || s.location) && (
+          <div className="shoot-types">
+            {[s.types?.join(', '), s.location].filter(Boolean).join(' · ')}
+          </div>
         )}
       </div>
     </div>
@@ -53,41 +60,56 @@ function HistoryShootMonth({ month, shoots }) {
 export default function ShootsSection({ card }) {
   const shoots = card.shoots || []
   const currentMonth = card.current_month || ''
+  const today = card.today || ''
+  const failed = (card.failed || []).includes('shoots')
 
-  const grouped = {}
-  for (const s of shoots) {
-    const ym = (s.date || '').slice(0, 7)
-    if (!ym) continue
-    ;(grouped[ym] = grouped[ym] || []).push(s)
-  }
-
-  const currentShoots = grouped[currentMonth] || []
-  const historyMonths = Object.keys(grouped)
-    .filter(ym => ym !== currentMonth)
-    .sort()
-    .reverse()
+  // ISO dates compare correctly as strings.
+  const upcoming = shoots.filter(s => s.date > today)
+  const past = shoots.filter(s => s.date <= today)
+  const currentShoots = past.filter(s => s.date.startsWith(currentMonth))
+  const historyMonths = card.history_months || []
 
   return (
     <div className="section">
       <div className="section-title">Shoots</div>
 
-      <div className="history-month-current">
-        <span className="history-month-name">{monthLabel(currentMonth)}</span>
-        <span className="history-month-right">
-          <span className="content-current-badge">current</span>
-          <span className="history-month-total">{currentShoots.length} shoots</span>
-        </span>
-      </div>
-      <div className="history-month-body">
-        <ShootList shoots={currentShoots} />
-      </div>
-
-      {historyMonths.length > 0 && (
+      {failed ? (
+        <p className="empty section-failed">⚠ Failed to load</p>
+      ) : (
         <>
-          <div className="history-section-label">History</div>
-          {historyMonths.map(ym => (
-            <HistoryShootMonth key={ym} month={ym} shoots={grouped[ym]} />
-          ))}
+          <div className="history-month-current">
+            <span className="history-month-name">Upcoming</span>
+            <span className="history-month-right">
+              <span className="history-month-total">{upcoming.length} shoots</span>
+            </span>
+          </div>
+          <div className="history-month-body">
+            <ShootList shoots={upcoming} emptyText="Nothing planned" />
+          </div>
+
+          <div className="history-month-current">
+            <span className="history-month-name">{monthLabel(currentMonth)}</span>
+            <span className="history-month-right">
+              <span className="content-current-badge">current</span>
+              <span className="history-month-total">{currentShoots.length} shoots</span>
+            </span>
+          </div>
+          <div className="history-month-body">
+            <ShootList shoots={currentShoots} />
+          </div>
+
+          {historyMonths.length > 0 && (
+            <>
+              <div className="history-section-label">History</div>
+              {historyMonths.map(ym => (
+                <HistoryShootMonth
+                  key={ym}
+                  month={ym}
+                  shoots={past.filter(s => s.date.startsWith(ym))}
+                />
+              ))}
+            </>
+          )}
         </>
       )}
     </div>

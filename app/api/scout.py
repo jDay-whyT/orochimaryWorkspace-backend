@@ -106,11 +106,22 @@ async def api_scout_models(request: web.Request) -> web.Response:
 
     handle, models = await _resolve_scout_handle(request, user_id, username)
 
-    if not handle:
-        return web.json_response({"status": "unverified"})
-
-    if models is None:
+    if handle and models is None:
         models = await notion.query_models_by_scout(config.db_models, handle)
+        if not models:
+            # Cached handle whose models were all reassigned — drop the stale binding.
+            redis = request.app.get("redis")
+            if redis:
+                await redis.delete(f"scout:{user_id}")
+
+    if not handle or not models:
+        # Access = being the scout of at least one model in Notion.
+        return web.json_response({
+            "status": "no_access",
+            "reason": "no_models" if username else "no_username",
+            "username": f"@{username}" if username else None,
+        })
+
     return web.json_response({
         "scout": handle,
         "models": [
@@ -152,46 +163,3 @@ async def api_scout_model_card(request: web.Request) -> web.Response:
         return web.json_response({"error": "not found"}, status=404)
 
     return web.json_response(card)
-
-
-async def api_scout_verify(request: web.Request) -> web.Response:
-    """POST /api/scout/verify — bind user_id to @handle via Notion check."""
-    user = _extract_user(request)
-    if not user:
-        return web.json_response({"error": "unauthorized"}, status=401)
-
-    user_id = user.get("id")
-    if not user_id:
-        return web.json_response({"error": "unauthorized"}, status=401)
-
-    username = user.get("username")
-    if not username:
-        return web.json_response({"error": "telegram account has no username set"}, status=400)
-
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "invalid body"}, status=400)
-
-    handle_raw = str(body.get("handle", "")).strip()
-    if not handle_raw:
-        return web.json_response({"error": "handle required"}, status=400)
-
-    handle = f"@{handle_raw.lower().lstrip('@')}"
-
-    # Caller may only bind their OWN Telegram-verified handle — never someone else's.
-    if handle != f"@{username.lower().lstrip('@')}":
-        return web.json_response({"error": "handle does not match your Telegram account"}, status=403)
-
-    config = request.app["config"]
-    notion = request.app["notion"]
-
-    models = await notion.query_models_by_scout(config.db_models, handle)
-    if not models:
-        return web.json_response({"error": "handle not found"}, status=404)
-
-    redis = request.app.get("redis")
-    if redis:
-        await redis.set(f"scout:{user_id}", handle, ex=86400)
-
-    return web.json_response({"status": "ok", "scout": handle})

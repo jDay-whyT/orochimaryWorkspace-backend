@@ -110,6 +110,8 @@ class NotionClient:
         self._token = token
         self._session: aiohttp.ClientSession | None = None
         self._session_loop: asyncio.AbstractEventLoop | None = None
+        # (archive_page_id, kind, month) -> database id; archive DBs never move.
+        self._archive_db_cache: dict[tuple[str, str, str], str] = {}
 
     async def _get_session(self) -> aiohttp.ClientSession:
         loop = asyncio.get_running_loop()
@@ -832,14 +834,43 @@ class NotionClient:
         archive_page_id: str,
         month_name_en: str,
     ) -> str | None:
-        """
-        Find the archive accounting database ID for a given month.
-        """
-        try:
-            month_query = month_name_en.strip().lower()
-            if not archive_page_id or not month_query:
-                return None
+        """Find the archive accounting (content) database for a month ("Robin <month>" pages)."""
+        return await self._find_archive_month_db(archive_page_id, month_name_en, "content")
 
+    async def find_archive_orders_db(
+        self,
+        archive_page_id: str,
+        month_name_en: str,
+    ) -> str | None:
+        """Find the archive orders database for a month ("<month> robin" pages)."""
+        return await self._find_archive_month_db(archive_page_id, month_name_en, "orders")
+
+    async def _find_archive_month_db(
+        self,
+        archive_page_id: str,
+        month_name_en: str,
+        kind: str,
+    ) -> str | None:
+        """
+        Walk ARCHIVE page columns and return the inline DB of the month page.
+
+        content pages are titled "Robin <month>", orders pages "<month> robin".
+        """
+        month_query = month_name_en.strip().lower()
+        if not archive_page_id or not month_query:
+            return None
+
+        cache_key = (archive_page_id, kind, month_query)
+        cached = self._archive_db_cache.get(cache_key)
+        if cached:
+            return cached
+
+        def _matches(title: str) -> bool:
+            if kind == "orders":
+                return title.startswith(month_query) and title.endswith("robin")
+            return title.startswith("robin") and month_query in title
+
+        try:
             root_url = f"https://api.notion.com/v1/blocks/{archive_page_id}/children"
             root_data = await self._request("GET", root_url)
 
@@ -867,8 +898,8 @@ class NotionClient:
                     for block in content_data.get("results", []):
                         if block.get("type") != "child_page":
                             continue
-                        title = (block.get("child_page", {}) or {}).get("title", "").lower()
-                        if title.startswith("robin") and month_query in title:
+                        title = (block.get("child_page", {}) or {}).get("title", "").strip().lower()
+                        if _matches(title):
                             month_page_id = block.get("id")
                             break
                     if month_page_id:
@@ -883,9 +914,13 @@ class NotionClient:
             page_children = await self._request("GET", page_children_url)
             for block in page_children.get("results", []):
                 if block.get("type") == "child_database":
-                    return block.get("id")
+                    db_id = block.get("id")
+                    if db_id:
+                        self._archive_db_cache[cache_key] = db_id
+                    return db_id
             return None
         except Exception:
+            LOGGER.warning("archive %s db lookup failed for %s", kind, month_query, exc_info=True)
             return None
 
     async def query_reddit_shoots(
