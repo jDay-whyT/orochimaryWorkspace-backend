@@ -257,11 +257,11 @@ gcloud scheduler jobs create http wml-crm-sync \
   --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
 ```
 
-Вечерняя сводка действий редакторов (кроме владельца): заказы, съёмки, файлы. Пишется владельцу, молчит если действий не было:
+Сводка действий редакторов за день (кроме владельца): заказы, съёмки, файлы. В 23:55, чтобы попали все записи дня; молчит если действий не было:
 ```bash
 gcloud scheduler jobs create http activity-digest \
   --location=europe-west1 \
-  --schedule="0 21 * * *" \
+  --schedule="55 23 * * *" \
   --time-zone="Europe/Brussels" \
   --uri="https://YOUR_CLOUD_RUN_URL/internal/activity-digest" \
   --http-method=POST \
