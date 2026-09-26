@@ -50,7 +50,7 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `WML_PASSWORD` | ⚠️ | Пароль WML CRM (для /internal/scrape-wml) |
 | `MANAGER_TELEGRAM_IDS` | ❌ | Куда слать напоминания менеджеру (поле `assist` в Accounting): `"robin:-100123/25612,di:456"` — `чат/топик` для топика группы, просто ID для лички |
 | `OVERDUE_ORDER_DAYS` | ❌ | Заказ «долго открыт», если дней больше этого (по умолчанию 3) |
-| `LOW_CONTENT_THRESHOLD` | ❌ | «Мало контента» — меньше стольких файлов за месяц (по умолчанию 30) |
+| `LOW_CONTENT_THRESHOLD` | ❌ | «Мало контента» — меньше стольких файлов за месяц (по умолчанию 50) |
 
 ## Структура проекта
 
@@ -271,11 +271,11 @@ gcloud scheduler jobs create http activity-digest \
   --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
 ```
 
-Утренние напоминания: долго открытые заказы (каждый день) и мало контента у моделей `work`/`new` (20-го и 27-го). Владелец получает всё в личку, менеджеры из `MANAGER_TELEGRAM_IDS` — только свои модели (в личку или в топик группы); молчит если нечего напомнить:
+Напоминания в 12:00: долго открытые заказы (каждый день) и мало контента у моделей `work`/`new` (20-го и 27-го). Владелец получает всё в личку, менеджеры из `MANAGER_TELEGRAM_IDS` — только свои модели (в личку или в топик группы); молчит если нечего напомнить:
 ```bash
 gcloud scheduler jobs create http daily-reminders \
   --location=europe-west1 \
-  --schedule="0 10 * * *" \
+  --schedule="0 12 * * *" \
   --time-zone="Europe/Brussels" \
   --uri="https://YOUR_CLOUD_RUN_URL/internal/daily-reminders" \
   --http-method=POST \

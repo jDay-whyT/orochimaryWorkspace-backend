@@ -53,7 +53,7 @@ class Config:
     # (chat_id, None) for a DM, (group_chat_id, topic_thread_id) for a group topic
     manager_targets: dict[str, tuple[int, int | None]] = field(default_factory=dict)
     overdue_order_days: int = 3
-    low_content_threshold: int = 30
+    low_content_threshold: int = 50
 
 
 def _parse_mini_app_viewers(value: str) -> tuple[set[int], set[str]]:
@@ -293,7 +293,7 @@ def load_config(validate: bool = True) -> Config:
         wml_username=wml_username,
         manager_targets=_parse_manager_targets(os.getenv("MANAGER_TELEGRAM_IDS", "")),
         overdue_order_days=_int_env("OVERDUE_ORDER_DAYS", 3),
-        low_content_threshold=_int_env("LOW_CONTENT_THRESHOLD", 30),
+        low_content_threshold=_int_env("LOW_CONTENT_THRESHOLD", 50),
         wml_password=wml_password,
     )
     

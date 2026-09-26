@@ -1,4 +1,4 @@
-"""Morning reminders: long-open orders (daily) and low monthly content (on set days).
+"""Daily (12:00) reminders: long-open orders (daily) and low monthly content (on set days).
 
 The owner gets the full list in DM; each manager (Accounting `assist`, mapped via
 MANAGER_TELEGRAM_IDS) gets only their own models — in DM or in a group topic.
