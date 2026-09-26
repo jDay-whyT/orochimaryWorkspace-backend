@@ -1062,6 +1062,22 @@ class NotionClient:
         data = await self._request("POST", url, json=payload)
         return [_parse_order(item) for item in data.get("results", [])]
 
+    async def query_all_orders(self, database_id: str) -> list[NotionOrder]:
+        """Every order in the working Orders database (any status), paginated."""
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        results: list[NotionOrder] = []
+        cursor: str | None = None
+        while True:
+            payload: dict[str, Any] = {"page_size": 100}
+            if cursor:
+                payload["start_cursor"] = cursor
+            data = await self._request("POST", url, json=payload)
+            results.extend(_parse_order(item) for item in data.get("results", []))
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
+        return results
+
     async def query_orders_in_month(self, database_id: str, yyyy_mm: str) -> list[NotionOrder]:
         """Every order whose `in` date falls in the month, any status, paginated."""
         import calendar as _calendar

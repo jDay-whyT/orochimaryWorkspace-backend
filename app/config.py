@@ -55,6 +55,9 @@ class Config:
     overdue_order_days: int = 3
     # Models -> Accounting status sync writes only when this is on; otherwise it reports
     status_sync_apply: bool = False
+    # Notion -> WML CRM scheduled export: writes only when on; orders with `in` >= this date
+    wml_export_apply: bool = False
+    wml_export_from: str = "2026-09-01"
     # Telegram IDs whose writes go into the owner's evening digest (empty = nobody)
     digest_user_ids: set[int] = field(default_factory=set)
     low_content_threshold: int = 50
@@ -298,6 +301,8 @@ def load_config(validate: bool = True) -> Config:
         manager_targets=_parse_manager_targets(os.getenv("MANAGER_TELEGRAM_IDS", "")),
         overdue_order_days=_int_env("OVERDUE_ORDER_DAYS", 3),
         status_sync_apply=os.getenv("STATUS_SYNC_APPLY", "").strip() == "1",
+        wml_export_apply=os.getenv("WML_EXPORT_APPLY", "").strip() == "1",
+        wml_export_from=os.getenv("WML_EXPORT_FROM", "2026-09-01").strip() or "2026-09-01",
         digest_user_ids=_parse_user_ids(os.getenv("ACTIVITY_DIGEST_USER_IDS", "")),
         low_content_threshold=_int_env("LOW_CONTENT_THRESHOLD", 50),
         wml_password=wml_password,
