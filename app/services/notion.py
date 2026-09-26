@@ -87,6 +87,7 @@ class NotionAccounting:
     comment: str | None = None
     status: str | None = None
     assist: str | None = None  # manager of the model (e.g. "robin")
+    total: float | None = None  # the `Total` formula as Notion computes it
     last_edited: str | None = None
     content: list[str] | None = None
 
@@ -1697,6 +1698,7 @@ def _parse_accounting(item: dict[str, Any]) -> NotionAccounting:
         comment=_extract_rich_text(item, "comments"),
         status=_extract_status(item, "status"),
         assist=_extract_select(item, "assist"),
+        total=_extract_formula_number(item, "Total"),
         last_edited=last_edited,
         content=_extract_multi_select(item, "Content"),
     )

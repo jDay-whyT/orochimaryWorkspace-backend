@@ -115,3 +115,72 @@ def test_api_raises_on_business_error():
     session.request.return_value = _resp(422, {"success": False, "error": "bad type"})
     with pytest.raises(WmlApiError, match="bad type"):
         WmlApi("u", "p", session=session).upsert_files({"profile": "X"})
+
+
+# ---------- monthly file counts ----------
+
+from app.services.notion import NotionAccounting  # noqa: E402
+
+
+def _acc(**kw):
+    base = dict(page_id="a1", title="ТВИКСИ сентябрь 2026", model_id="m1", status="work",
+                of_files=29, reddit_files=60, twitter_files=11, fansly_files=10, request_files=2, social_files=3)
+    base.update(kw)
+    return NotionAccounting(**base)
+
+
+def test_files_month_majority_whole_words_and_fallback():
+    records = [
+        _acc(title="МАЙЯ сентябрь 2026"),          # "май" inside a name must not count as May
+        _acc(title="X сентябрь 2026"),
+        _acc(title="Y октябрь 2026"),
+        _acc(title="Z апрель 2026", status="stop"),  # dead pages don't vote
+        _acc(title=""),
+    ]
+    assert wml_export.files_month(records, "2026-10") == "2026-09"
+    assert wml_export.files_month([_acc(title="")], "2026-10") == "2026-10"
+
+
+def test_files_payload_folds_social_into_request_and_uses_formula_total():
+    payload, reason = wml_export.files_payload(_acc(total=115.0), MODEL, "2026-09")
+    assert reason is None
+    assert payload == {"profile": "ТВИКСИ", "month": "2026-09", "of": 29, "reddit": 60, "twitter": 11,
+                       "fansly": 10, "request": 5, "total": 115}
+
+
+def test_files_payload_total_falls_back_to_sum():
+    payload, _ = wml_export.files_payload(_acc(total=None), MODEL, "2026-09")
+    assert payload["total"] == 29 + 60 + 11 + 10 + 5
+
+
+@pytest.mark.parametrize("record,model,reason", [
+    (_acc(), None, "нет модели"),
+    (_acc(), TANGO, "Tango"),
+    (_acc(content=["Tango"]), MODEL, "Tango"),
+    (_acc(status="stop"), MODEL, "stop"),
+])
+def test_files_payload_skips(record, model, reason):
+    assert wml_export.files_payload(record, model, "2026-09") == (None, reason)
+
+
+@pytest.mark.asyncio
+async def test_pick_files_one_row_per_model_for_records_month():
+    notion = AsyncMock()
+    notion.query_all_models.return_value = [MODEL, TANGO]
+    notion.query_all_accounting.return_value = [
+        _acc(page_id="a1", title="ТВИКСИ сентябрь 2026"),
+        _acc(page_id="a2", title="", model_id="m2", content=["Tango"]),
+    ]
+    batch = await wml_export.pick_files(SimpleNamespace(db_accounting="a", db_models="m"), notion, "2026-10")
+    assert batch.month == "2026-09"
+    assert [p["profile"] for _, p in batch.items] == ["ТВИКСИ"]
+    assert batch.skipped == {"Tango": 1}
+
+
+@pytest.mark.asyncio
+async def test_send_files_continues_after_error(monkeypatch):
+    monkeypatch.setattr(wml_export, "_SEND_INTERVAL_SECONDS", 0)
+    api = MagicMock()
+    api.upsert_files.side_effect = [{"success": True}, WmlApiError("unknown profile")]
+    sent, errors = await wml_export.send_files(api, [(None, {"profile": "A"}), (None, {"profile": "B"})])
+    assert sent == 1 and errors == ["B: unknown profile"]
