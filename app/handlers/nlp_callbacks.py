@@ -34,7 +34,7 @@ from datetime import date, datetime, timedelta
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery, InaccessibleMessage, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InaccessibleMessage
 
 from app.config import Config
 from app.filters.topic_access import TopicAccessCallbackFilter
@@ -47,10 +47,9 @@ from app.services import orders as orders_cache
 from app.services import planner as planner_cache
 from app.state import MemoryState, RecentModels, generate_token
 from app.keyboards.inline import ORDER_TYPE_CB_MAP
-from app.utils.formatting import format_appended_comment
 from app.utils.accounting import format_accounting_progress
 from app.utils import PAGE_SIZE
-from app.utils.telegram import safe_edit_message, safe_answer, safe_query_answer
+from app.utils.telegram import safe_edit_message, safe_query_answer
 from app.utils.locks import get_user_lock
 
 

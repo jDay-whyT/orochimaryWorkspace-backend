@@ -532,20 +532,6 @@ class NotionClient:
         }
         await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json=payload)
 
-    async def update_order_comment(self, page_id: str, comment: str) -> None:
-        """Update order comment."""
-        # Notion rich_text content limit is 2000 chars; truncate as safety net.
-        if len(comment) > 2000:
-            LOGGER.warning("Order comment truncated: page_id=%s len=%d", page_id, len(comment))
-            comment = comment[:2000]
-        payload = {
-            "properties": {
-                "comments": {"rich_text": [{"text": {"content": comment}}]},
-            }
-        }
-        url = f"https://api.notion.com/v1/pages/{page_id}"
-        await self._request("PATCH", url, json=payload)
-
     # ==================== Planner ====================
 
     async def query_upcoming_shoots(
@@ -1101,20 +1087,6 @@ class NotionClient:
         response = await self._request("POST", url, json=payload)
         return response["id"]
 
-    async def update_accounting_files(
-        self,
-        page_id: str,
-        files: int,
-    ) -> None:
-        """Update accounting Files number (legacy — use update_accounting_files_by_type for new code)."""
-        payload = {
-            "properties": {
-                "Files": {"number": files},
-            }
-        }
-        url = f"https://api.notion.com/v1/pages/{page_id}"
-        await self._request("PATCH", url, json=payload)
-
     async def update_accounting_files_by_type(
         self,
         page_id: str,
@@ -1223,12 +1195,6 @@ class NotionClient:
                 accounting.model_title = model.title if model else None
             results.append(accounting)
         return results
-
-    async def update_order(self, page_id: str, properties: dict[str, Any]) -> None:
-        """Update order properties."""
-        payload = {"properties": properties}
-        url = f"https://api.notion.com/v1/pages/{page_id}"
-        await self._request("PATCH", url, json=payload)
 
     async def get_shoot(self, page_id: str) -> NotionPlanner | None:
         """Get shoot by page ID."""

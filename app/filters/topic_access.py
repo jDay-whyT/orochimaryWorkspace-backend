@@ -45,39 +45,6 @@ class TopicAccessMessageFilter(BaseFilter):
         return result
 
 
-class ManagersTopicFilter(BaseFilter):
-    """Allow group messages only from the managers topic and allowed editors.
-
-    If managers_topic_thread_id is 0 (not configured), passes nothing.
-    """
-
-    async def __call__(self, message: Message, config: Config) -> bool:
-        if config.managers_topic_thread_id == 0:
-            LOGGER.info("ManagersTopicFilter: thread_id=%s expected=%s user=%s",
-                        message.message_thread_id, config.managers_topic_thread_id,
-                        message.from_user.id if message.from_user else None)
-            return False
-        if message.chat.type not in {"group", "supergroup"}:
-            LOGGER.info("ManagersTopicFilter: thread_id=%s expected=%s user=%s",
-                        message.message_thread_id, config.managers_topic_thread_id,
-                        message.from_user.id if message.from_user else None)
-            return False
-        if message.message_thread_id != config.managers_topic_thread_id:
-            LOGGER.info("ManagersTopicFilter: thread_id=%s expected=%s user=%s",
-                        message.message_thread_id, config.managers_topic_thread_id,
-                        message.from_user.id if message.from_user else None)
-            return False
-        if not message.from_user:
-            LOGGER.info("ManagersTopicFilter: thread_id=%s expected=%s user=%s",
-                        message.message_thread_id, config.managers_topic_thread_id,
-                        message.from_user.id if message.from_user else None)
-            return False
-        LOGGER.info("ManagersTopicFilter: thread_id=%s expected=%s user=%s",
-                    message.message_thread_id, config.managers_topic_thread_id,
-                    message.from_user.id if message.from_user else None)
-        return message.from_user.id in config.allowed_editors
-
-
 class TopicAccessCallbackFilter(BaseFilter):
     """Allow all private callbacks, restrict group callbacks to CRM topic and editors."""
 
