@@ -34,6 +34,7 @@ from app.router.entities_v2 import (
 from app.router.command_filters import CommandIntent
 from app.router.model_resolver import resolve_model
 from app.utils.formatting import format_appended_comment, MAX_COMMENT_LENGTH
+from app.utils.formatting import today as today_in_tz
 from app.utils.telegram import safe_answer
 from app.utils.locks import get_user_lock
 
@@ -478,7 +479,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
 
     day, month = int(m.group(1)), int(m.group(2))
     try:
-        today = date.today()
+        today = today_in_tz(config.timezone)
         year = today.year
         parsed_date = date(year, month, day)
         # Only bump to next year if the date is more than 90 days in the past.
@@ -674,7 +675,10 @@ async def _handle_note_input(message, text, user_state, config, notion, memory_s
         return
 
     try:
-        await notion.create_note(config.db_notes, model_id, model_name, note_text)
+        await notion.create_note(
+            config.db_notes, model_id, model_name, note_text,
+            note_date=today_in_tz(config.timezone),
+        )
     except Exception:
         LOGGER.exception("Failed to create note model=%s", model_id)
         await message.answer("❌ Ошибка при сохранении заметки.")

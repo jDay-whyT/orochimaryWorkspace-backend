@@ -66,12 +66,7 @@ class _FakeArchiveNotion:
 def _fake_today(monkeypatch, y, m, d):
     from datetime import date as real_date
 
-    class FakeDate(real_date):
-        @classmethod
-        def today(cls):
-            return real_date(y, m, d)
-
-    monkeypatch.setattr(scout_card, "date", FakeDate)
+    monkeypatch.setattr(scout_card, "_today", lambda: real_date(y, m, d))
 
 
 def _order(item_id, out, order_type, status="Done", in_date=None, count=None):

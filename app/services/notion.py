@@ -1320,10 +1320,11 @@ class NotionClient:
         model_page_id: str,
         model_name: str,
         text: str,
+        note_date: date | None = None,
     ) -> str:
         """Create a note for a model. Returns page ID."""
         from datetime import date as _date
-        today = _date.today()
+        today = note_date or _date.today()
         title = f"{model_name} {today.strftime('%d.%m.%Y')}"
         if len(text) > 2000:
             LOGGER.warning("Note text truncated: model=%s len=%d", model_page_id, len(text))

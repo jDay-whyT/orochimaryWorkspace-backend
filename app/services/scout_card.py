@@ -7,6 +7,7 @@ import calendar as _calendar
 import logging
 import os
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -17,6 +18,11 @@ LOGGER = logging.getLogger(__name__)
 from app.utils.constants import DB_FORMS_DEFAULT
 from app.utils.formatting import MONTHS_RU_LOWER
 from app.services.notion import NotionClient
+
+
+def _today() -> date:
+    """Today in the bot's timezone (Cloud Run runs in UTC)."""
+    return datetime.now(ZoneInfo(os.getenv("TIMEZONE", "Europe/Brussels") or "Europe/Brussels")).date()
 
 _DB_MODELS_DEFAULT = "1fc32bee-e7a0-809f-8bbe-000be8182d4d"
 _DB_ORDERS_DEFAULT = "20b32bee-e7a0-81ab-b72b-000b78a1e78a"
@@ -236,7 +242,7 @@ async def _fetch_accounting_months(
     )
     result = _bucket_accounting(items, months)
 
-    today = date.today()
+    today = _today()
     cur_yyyy_mm = f"{today.year:04d}-{today.month:02d}"
     archive_page_id = os.getenv("ARCHIVE_PAGE_ID", "").strip()
     missing_past = [m for m in months if m not in result and m < cur_yyyy_mm]
@@ -265,7 +271,7 @@ async def _fetch_shoots(
     model_page_id: str,
 ) -> list[dict[str, Any]]:
     """Shoots from the start of the month _HISTORY_MONTHS ago up to _SHOOTS_AHEAD_DAYS ahead."""
-    today = date.today()
+    today = _today()
     start = today.replace(day=1)
     for _ in range(_HISTORY_MONTHS):
         start = (start - timedelta(days=1)).replace(day=1)
@@ -371,7 +377,7 @@ async def _fetch_orders_months(
     first_day = _month_bounds(min(months))[0]
     last_day = _month_bounds(max(months))[1]
 
-    today = date.today()
+    today = _today()
     cur_yyyy_mm = f"{today.year:04d}-{today.month:02d}"
     archive_page_id = os.getenv("ARCHIVE_PAGE_ID", "").strip()
     past = [m for m in months if m < cur_yyyy_mm] if archive_page_id else []
@@ -454,7 +460,7 @@ async def build_scout_report_card_json(
 
     model_page_id = model_row["page_id"]
 
-    today = date.today()
+    today = _today()
     cur_yyyy_mm = today.strftime("%Y-%m")
 
     def _month_ago(n: int) -> str:

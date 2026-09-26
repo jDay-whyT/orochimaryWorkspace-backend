@@ -385,8 +385,9 @@ def nlp_close_order_select_keyboard(
     total_pages: int,
     model_id: str,
     k: str = "",
+    today=None,
 ) -> InlineKeyboardMarkup:
-    """Select an order to close (paginated)."""
+    """Select an order to close (paginated). `today` should be in the configured timezone."""
     builder = InlineKeyboardBuilder()
     for order in orders:
         from datetime import date as _date
@@ -396,7 +397,7 @@ def nlp_close_order_select_keyboard(
             try:
                 d = _date.fromisoformat(order.in_date[:10])
                 date_label = d.strftime("%d.%m")
-                days = (_date.today() - d).days
+                days = ((today or _date.today()) - d).days
             except (ValueError, TypeError):
                 pass
         label = f"{order.order_type or '?'} · {date_label} ({days}d)"

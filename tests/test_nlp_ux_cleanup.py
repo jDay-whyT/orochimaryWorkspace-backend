@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+from zoneinfo import ZoneInfo
 
 from app.state.memory import MemoryState
 from app.handlers.nlp_callbacks import _handle_back_to_card, handle_nlp_callback
@@ -102,6 +103,7 @@ async def test_date_prompt_cleanup():
 
     config = MagicMock()
     config.allowed_editors = {1}
+    config.timezone = ZoneInfo("Europe/Brussels")
     notion = AsyncMock()
 
     await _handle_custom_date_input(message, "05.02", user_state, config, notion, memory_state)

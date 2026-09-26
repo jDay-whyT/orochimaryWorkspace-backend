@@ -41,6 +41,7 @@ from app.filters.topic_access import TopicAccessCallbackFilter
 from app.roles import is_authorized, is_editor
 from app.services import NotionClient
 from app.services import activity_log
+from app.utils.formatting import today as today_in_tz
 from app.services import accounting as accounting_cache
 from app.services import orders as orders_cache
 from app.services import planner as planner_cache
@@ -864,7 +865,7 @@ async def _show_orders_view(
     for order in page_orders:
         order_type = order.get("order_type") or "?"
         in_date = order.get("in_date")
-        days = _calc_days_open(in_date)
+        days = _calc_days_open(in_date, today_in_tz(config.timezone))
         count = order.get("count")
 
         lines.append(
@@ -971,6 +972,7 @@ async def _show_close_picker(
                 current_page,
                 total_pages,
                 model_id,
+                today=today_in_tz(config.timezone),
             ),
             parse_mode="HTML",
         )
@@ -1432,7 +1434,7 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
     model_name = state.get("model_name", "")
     step = state.get("step", "")
 
-    today = date.today()
+    today = today_in_tz(config.timezone)
     if date_choice == "tomorrow":
         shoot_date = today + timedelta(days=1)
     elif date_choice == "day_after":
@@ -1755,7 +1757,7 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
         memory_state.clear(chat_id, user_id)
         return
 
-    today_date = date.today()
+    today_date = today_in_tz(config.timezone)
     if date_choice == "today":
         in_date = today_date
     elif date_choice == "yesterday":
@@ -1824,7 +1826,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
         order_type = state.get("order_type", "")
         count = state.get("count", 1)
         in_date_str = state.get("in_date")
-        in_date = date.fromisoformat(in_date_str) if in_date_str else date.today()
+        in_date = date.fromisoformat(in_date_str) if in_date_str else today_in_tz(config.timezone)
 
         if not is_editor(user_id, config):
             await safe_edit_message(query, "❌ Нет доступа")
@@ -2036,7 +2038,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         await _session_expired(query, memory_state)
         return
 
-    today_date = date.today()
+    today_date = today_in_tz(config.timezone)
     if date_choice == "today":
         out_date = today_date
     elif date_choice == "yesterday":
@@ -2778,12 +2780,12 @@ async def _handle_partial_received(query, parts, config, memory_state):
     await safe_query_answer(query)
 
 
-def _calc_days_open(in_date_str: str | None) -> int:
+def _calc_days_open(in_date_str: str | None, today: date) -> int:
     if not in_date_str:
         return 0
     try:
         in_date = date.fromisoformat(in_date_str[:10])
-        return (date.today() - in_date).days
+        return (today - in_date).days
     except (ValueError, TypeError):
         return 0
 
