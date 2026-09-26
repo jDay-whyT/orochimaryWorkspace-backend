@@ -49,6 +49,7 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `WML_USERNAME` | ⚠️ | Логин WML CRM (для /internal/scrape-wml) |
 | `WML_PASSWORD` | ⚠️ | Пароль WML CRM (для /internal/scrape-wml) |
 | `MANAGER_TELEGRAM_IDS` | ❌ | Куда слать напоминания менеджеру (поле `assist` в Accounting): `"robin:-100123/25612,di:456"` — `чат/топик` для топика группы, просто ID для лички |
+| `ACTIVITY_DIGEST_USER_IDS` | ❌ | Чьи действия попадают в вечернюю сводку владельцу (Telegram ID через запятую) |
 | `OVERDUE_ORDER_DAYS` | ❌ | Заказ «долго открыт», если дней больше этого (по умолчанию 3) |
 | `LOW_CONTENT_THRESHOLD` | ❌ | «Мало контента» — меньше стольких файлов за месяц (по умолчанию 50) |
 
@@ -260,7 +261,7 @@ gcloud scheduler jobs create http wml-crm-sync \
   --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
 ```
 
-Сводка действий редакторов за день (кроме владельца): заказы, съёмки, файлы. В 23:55, чтобы попали все записи дня; молчит если действий не было:
+Сводка действий за день пользователей из `ACTIVITY_DIGEST_USER_IDS`: заказы, съёмки, файлы. В 23:55, чтобы попали все записи дня; молчит если действий не было:
 ```bash
 gcloud scheduler jobs create http activity-digest \
   --location=europe-west1 \

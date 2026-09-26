@@ -1,7 +1,8 @@
 """Daily log of editor writes (orders, shoots, files) + evening digest to the owner.
 
 Entries live in Redis under ``activity:YYYY-MM-DD`` (config timezone) for a few
-days. The owner's own actions are not logged. Without Redis this is a no-op.
+days. Only users listed in ACTIVITY_DIGEST_USER_IDS are logged (e.g. a new
+manager). Without Redis this is a no-op.
 """
 
 import html
@@ -53,7 +54,7 @@ async def record(config: Config, user: Any, action: str, model_name: str, detail
     """Append one write to today's log. Never raises."""
     if _redis is None or user is None:
         return
-    if config.owner_telegram_id and getattr(user, "id", None) == config.owner_telegram_id:
+    if getattr(user, "id", None) not in config.digest_user_ids:
         return
     entry = {
         "author": author_label(user),

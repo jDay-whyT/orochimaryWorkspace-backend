@@ -29,7 +29,11 @@ class FakeRedis:
 
 @pytest.fixture
 def config():
-    return SimpleNamespace(owner_telegram_id=OWNER_ID, timezone=ZoneInfo("Europe/Brussels"))
+    return SimpleNamespace(
+        owner_telegram_id=OWNER_ID,
+        timezone=ZoneInfo("Europe/Brussels"),
+        digest_user_ids={MANAGER.id},
+    )
 
 
 @pytest.fixture
@@ -79,3 +83,10 @@ async def test_digest_silent_without_activity(config, redis):
 async def test_record_noop_without_redis(config):
     activity_log.init(None)
     await activity_log.record(config, MANAGER, "order", "Robin", "x")  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_record_skips_users_not_in_digest_list(config, redis):
+    robin = SimpleNamespace(id=999, username="robin", full_name="Robin")
+    await activity_log.record(config, robin, "order", "X", "custom × 1")
+    assert redis.lists == {}

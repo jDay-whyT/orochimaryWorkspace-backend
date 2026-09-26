@@ -53,6 +53,8 @@ class Config:
     # (chat_id, None) for a DM, (group_chat_id, topic_thread_id) for a group topic
     manager_targets: dict[str, tuple[int, int | None]] = field(default_factory=dict)
     overdue_order_days: int = 3
+    # Telegram IDs whose writes go into the owner's evening digest (empty = nobody)
+    digest_user_ids: set[int] = field(default_factory=set)
     low_content_threshold: int = 50
 
 
@@ -293,6 +295,7 @@ def load_config(validate: bool = True) -> Config:
         wml_username=wml_username,
         manager_targets=_parse_manager_targets(os.getenv("MANAGER_TELEGRAM_IDS", "")),
         overdue_order_days=_int_env("OVERDUE_ORDER_DAYS", 3),
+        digest_user_ids=_parse_user_ids(os.getenv("ACTIVITY_DIGEST_USER_IDS", "")),
         low_content_threshold=_int_env("LOW_CONTENT_THRESHOLD", 50),
         wml_password=wml_password,
     )
