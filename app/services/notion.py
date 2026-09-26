@@ -1120,6 +1120,12 @@ class NotionClient:
         payload = {"properties": {"Content": {"multi_select": updated_content}}}
         await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json=payload)
 
+    async def update_accounting_status(self, page_id: str, status: str) -> None:
+        """Set the Accounting record status (new/work/inactive/stop)."""
+        payload = {"properties": {"status": {"status": {"name": status}}}}
+        url = f"https://api.notion.com/v1/pages/{page_id}"
+        await self._request("PATCH", url, json=payload)
+
     async def update_accounting_comment(self, page_id: str, comment: str) -> None:
         """Update accounting Comment."""
         # Notion rich_text content limit is 2000 chars; truncate as safety net.
