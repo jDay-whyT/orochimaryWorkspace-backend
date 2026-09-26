@@ -51,3 +51,35 @@ async def get_cached_monthly_record(
     record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
     _set_cached(key, record)
     return record
+
+
+def working_records(
+    records: list[NotionAccounting],
+    yyyy_mm: str,
+) -> tuple[dict[str, NotionAccounting], dict[str, list[NotionAccounting]]]:
+    """Pick each model's working record from the whole Accounting database.
+
+    A model normally has exactly one record (renamed and zeroed at month close),
+    whatever its title says. With duplicates, the one titled for `yyyy_mm` wins,
+    else the most recently edited. Keys are model ids without dashes.
+    Returns (working record per model, duplicates per model).
+    """
+    from app.utils.formatting import MONTHS_RU_LOWER
+
+    year, month = yyyy_mm.split("-")
+    month_label = f"{MONTHS_RU_LOWER[int(month) - 1]} {year}"
+
+    by_model: dict[str, list[NotionAccounting]] = {}
+    for record in records:
+        if record.model_id:
+            by_model.setdefault(record.model_id.replace("-", ""), []).append(record)
+
+    working: dict[str, NotionAccounting] = {}
+    duplicates: dict[str, list[NotionAccounting]] = {}
+    for model_key, group in by_model.items():
+        group = sorted(group, key=lambda r: r.last_edited or "", reverse=True)
+        titled = [r for r in group if month_label in (r.title or "").lower()]
+        working[model_key] = (titled or group)[0]
+        if len(group) > 1:
+            duplicates[model_key] = group
+    return working, duplicates

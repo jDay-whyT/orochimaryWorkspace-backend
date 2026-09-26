@@ -730,7 +730,19 @@ class NotionClient:
         results_fb2 = [_parse_accounting(item) for item in data_fb2.get("results", [])]
         if results_fb2:
             LOGGER.debug("query_monthly_records: found via fallback2 ('%s')", yyyy_mm)
-        return results_fb2
+            return results_fb2
+
+        # Step 4 — the model's record with any title. Working records are renamed
+        # by hand at month close (so early in a month they still carry last month's
+        # name) and pages created from a model's "㊗️ Current" relation have no
+        # title at all. Without this the bot created a duplicate record.
+        payload_fb3 = {"page_size": 10, "filter": model_filter, "sorts": sorts}
+        data_fb3 = await self._request("POST", url, json=payload_fb3)
+        results_fb3 = [_parse_accounting(item) for item in data_fb3.get("results", [])]
+        if results_fb3:
+            LOGGER.info("query_monthly_records: model %s found only by relation (title %r)",
+                        model_page_id, results_fb3[0].title)
+        return results_fb3
 
     async def query_reddit_accounting(
         self,
@@ -818,6 +830,23 @@ class NotionClient:
         """Overwrite a page's Title property."""
         payload = {"properties": {"Title": {"title": [{"text": {"content": title}}]}}}
         await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json=payload)
+
+    async def query_all_accounting(self, database_id: str) -> list[NotionAccounting]:
+        """Every record in the working Accounting database, paginated."""
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        sorts = [{"timestamp": "last_edited_time", "direction": "descending"}]
+        results: list[NotionAccounting] = []
+        cursor: str | None = None
+        while True:
+            payload: dict[str, Any] = {"page_size": 100, "sorts": sorts}
+            if cursor:
+                payload["start_cursor"] = cursor
+            data = await self._request("POST", url, json=payload)
+            results.extend(_parse_accounting(item) for item in data.get("results", []))
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
+        return results
 
     async def query_tango_accounting(self, database_id: str) -> list[NotionAccounting]:
         """

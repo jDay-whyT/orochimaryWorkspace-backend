@@ -40,7 +40,7 @@ def _notion():
         NotionModel(page_id="m-6", title="FRESH", status="new"),
         NotionModel(page_id="m-7", title="PAUSED", status="inactive"),
     ]
-    notion.query_accounting_for_month.return_value = [
+    notion.query_all_accounting.return_value = [
         NotionAccounting(page_id="a1", title="x", model_id="m1", assist="robin", files=5),
         NotionAccounting(page_id="a2", title="y", model_id="m2", assist="di", files=100),
         NotionAccounting(page_id="a3", title="z", model_id="m3", assist="robin", files=0, tango_files=70),

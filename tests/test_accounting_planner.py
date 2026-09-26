@@ -373,3 +373,31 @@ class TestNoOldAccountingFields:
         assert "files" in field_names
         assert "comment" in field_names
         assert "content" in field_names
+
+
+class TestAccountingSearchByRelationOnly:
+    """Step 4: a record found only by the model relation (any title)."""
+
+    @pytest.mark.asyncio
+    async def test_untitled_record_found_after_title_steps_miss(self):
+        from app.services.notion import NotionClient
+
+        client = NotionClient("test-token-fb-relation")
+        hit = {"id": "p4", "properties": {
+            "Title": {"title": []},
+            "model": {"relation": [{"id": "m1"}]},
+            "status": {"status": {"name": "new"}},
+            "Content": {"multi_select": []},
+        }, "last_edited_time": "2026-09-20T00:00:00Z"}
+        client._request = AsyncMock(side_effect=[
+            {"results": []}, {"results": []}, {"results": []},  # three title-based steps miss
+            {"results": [hit]},                                   # relation-only step hits
+        ])
+
+        records = await client.query_monthly_records("db-acc", "m1", "2026-09")
+
+        assert [r.page_id for r in records] == ["p4"]
+        last_payload = client._request.call_args[1].get("json") or client._request.call_args[0][2]
+        assert last_payload["filter"] == {"property": "model", "relation": {"contains": "m1"}}
+
+        NotionClient._instances.pop("test-token-fb-relation", None)

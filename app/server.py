@@ -95,7 +95,7 @@ async def create_app() -> web.Application:
             return web.json_response({"ok": False}, status=403)
         await run_wml_sync(request.app["bot"], request.app["config"], request.app["notion"], request.app.get("redis"))
         # Independent of WML: runs even if the scrape failed.
-        await run_status_sync(request.app["bot"], request.app["config"], request.app["notion"])
+        await run_status_sync(request.app["bot"], request.app["config"], request.app["notion"], request.app.get("redis"))
         return web.json_response({"ok": True})
 
     async def internal_activity_digest(request: web.Request) -> web.Response:

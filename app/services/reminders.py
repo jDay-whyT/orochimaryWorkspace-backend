@@ -14,6 +14,7 @@ from html import escape
 from aiogram import Bot
 
 from app.config import Config
+from app.services.accounting import working_records
 from app.services.notion import NotionAccounting, NotionClient
 
 LOGGER = logging.getLogger(__name__)
@@ -31,6 +32,13 @@ def _days_open(in_date: str | None, today: date) -> int | None:
         return (today - date.fromisoformat((in_date or "")[:10])).days
     except ValueError:
         return None
+
+
+async def _working(config: Config, notion: NotionClient, today: date) -> dict[str, NotionAccounting]:
+    """Each model's working Accounting record, whatever its title (see working_records)."""
+    records = await notion.query_all_accounting(config.db_accounting)
+    working, _ = working_records(records, today.strftime("%Y-%m"))
+    return working
 
 
 def total_files(record: NotionAccounting) -> int:
@@ -60,8 +68,8 @@ async def overdue_orders(config: Config, notion: NotionClient, today: date) -> d
     if not orders:
         return {}
     models = {_key(m.page_id): m.title for m in await notion.query_all_models(config.db_models)}
-    records = await notion.query_accounting_for_month(config.db_accounting, today.strftime("%Y-%m"))
-    manager_of = {_key(r.model_id): r.assist for r in records if r.model_id}
+    working = await _working(config, notion, today)
+    manager_of = {key: r.assist for key, r in working.items()}
 
     rows: list[tuple[int, str | None, str]] = []
     for order in orders:
@@ -82,8 +90,7 @@ async def low_content(config: Config, notion: NotionClient, today: date) -> dict
     """Models in `work`/`new` with fewer than LOW_CONTENT_THRESHOLD files this month."""
     models = [m for m in await notion.query_all_models(config.db_models)
               if (m.status or "").strip().lower() in CONTENT_STATUSES]
-    records = await notion.query_accounting_for_month(config.db_accounting, today.strftime("%Y-%m"))
-    record_of = {_key(r.model_id): r for r in records if r.model_id}
+    record_of = await _working(config, notion, today)
 
     rows: list[tuple[int, str | None, str]] = []
     for model in models:
