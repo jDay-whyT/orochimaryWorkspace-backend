@@ -40,6 +40,8 @@ class NotionOrder:
     from_project: str | None = None
     received: int | None = None
     pay: float | None = None
+    wml_id: int | None = None  # id of this order's content request in the WML CRM
+    created_time: str | None = None
 
 
 @dataclass
@@ -539,6 +541,11 @@ class NotionClient:
         }
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
+
+    async def set_order_wml_id(self, page_id: str, wml_id: int) -> None:
+        """Remember the WML CRM content-request id on the order."""
+        payload = {"properties": {"wml_id": {"number": wml_id}}}
+        await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json=payload)
 
     async def update_order_received(self, page_id: str, received: int) -> None:
         """Update received count for an order."""
@@ -1049,6 +1056,30 @@ class NotionClient:
         }
         data = await self._request("POST", url, json=payload)
         return [_parse_order(item) for item in data.get("results", [])]
+
+    async def query_orders_in_month(self, database_id: str, yyyy_mm: str) -> list[NotionOrder]:
+        """Every order whose `in` date falls in the month, any status, paginated."""
+        import calendar as _calendar
+        year, month = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
+        first_day = date(year, month, 1).isoformat()
+        last_day = date(year, month, _calendar.monthrange(year, month)[1]).isoformat()
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        base_filter = {"and": [
+            {"property": "in", "date": {"on_or_after": first_day}},
+            {"property": "in", "date": {"on_or_before": last_day}},
+        ]}
+        results: list[NotionOrder] = []
+        cursor: str | None = None
+        while True:
+            payload: dict[str, Any] = {"page_size": 100, "filter": base_filter}
+            if cursor:
+                payload["start_cursor"] = cursor
+            data = await self._request("POST", url, json=payload)
+            results.extend(_parse_order(item) for item in data.get("results", []))
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
+        return results
 
     async def query_orders_closed_in_month(
         self,
@@ -1604,6 +1635,8 @@ def _parse_order(item: dict[str, Any]) -> NotionOrder:
         from_project=_extract_select(item, "from"),
         received=int(received_val) if received_val is not None else None,
         pay=pay_val,
+        wml_id=int(wml_id_val) if (wml_id_val := _extract_number(item, "wml_id")) is not None else None,
+        created_time=item.get("created_time"),
     )
 
 

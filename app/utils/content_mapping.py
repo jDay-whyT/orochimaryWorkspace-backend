@@ -11,9 +11,10 @@ CONTENT_TYPE_TO_FIELD = {
     "reddit": "reddit_files",
     "twitter": "twitter_files",
     "fansly": "fansly_files",
-    "instagram": "social_files",
-    "snapchat": "social_files",
-    "IG": "social_files",
+    # Social platforms are counted as requests (social_files is being retired)
+    "instagram": "request_files",
+    "snapchat": "request_files",
+    "IG": "request_files",
     "ad request": "request_files",
     "request": "request_files",
     "no content": None,

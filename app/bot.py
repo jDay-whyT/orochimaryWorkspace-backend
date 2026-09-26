@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher
 from app.config import Config
 from app.handlers import (
     accounting_rename, start, nlp_callbacks, notifications, reddit, reports,
-    salary_callbacks, tango, wml_callbacks,
+    salary_callbacks, tango, wml_callbacks, wml_export_cmd,
 )
 from app.services import NotionClient
 from app.services.sheets import SheetsClient
@@ -32,6 +32,8 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, An
     dp.include_router(nlp_callbacks.router)
     # WML "Add to Notion" button (wml_add: prefixed callbacks)
     dp.include_router(wml_callbacks.router)
+    # /wml_test_orders + its send button (owner only)
+    dp.include_router(wml_export_cmd.router)
     # 2. Fallback router (NLP + /start) - handles all unmatched text messages
     dp.include_router(start.router)        # MUST BE LAST - catches all text via NLP
 
