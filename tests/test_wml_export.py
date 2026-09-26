@@ -184,3 +184,10 @@ async def test_send_files_continues_after_error(monkeypatch):
     api.upsert_files.side_effect = [{"success": True}, WmlApiError("unknown profile")]
     sent, errors = await wml_export.send_files(api, [(None, {"profile": "A"}), (None, {"profile": "B"})])
     assert sent == 1 and errors == ["B: unknown profile"]
+
+
+def test_top_keeps_biggest_by_total():
+    from app.handlers.wml_export_cmd import _top
+    batch = wml_export.FilesBatch(month="2026-09", items=[(None, {"total": t}) for t in (5, 50, 20, 0)])
+    assert [p["total"] for _, p in _top(batch, 2).items] == [50, 20]
+    assert len(_top(wml_export.FilesBatch(items=[(None, {"total": 1})]), 0).items) == 1

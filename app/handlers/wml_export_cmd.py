@@ -96,18 +96,26 @@ async def cb_wml_orders_send(query: CallbackQuery, config: Config, notion: Notio
 
 
 # ---------------------------------------------------------------------------
-# /wml_test_files — monthly file counts
+# /wml_test_files [N] — monthly file counts (N = only the N biggest by Total)
 # ---------------------------------------------------------------------------
 
+def _top(batch, top: int):
+    """Keep only the `top` models with the most files (0 = all)."""
+    if top:
+        batch.items = sorted(batch.items, key=lambda item: item[1]["total"], reverse=True)[:top]
+    return batch
+
+
 @router.message(Command("wml_test_files"))
-async def cmd_wml_test_files(message: Message, config: Config, notion: NotionClient) -> None:
+async def cmd_wml_test_files(message: Message, command: CommandObject, config: Config, notion: NotionClient) -> None:
     if message.chat.type != "private":
         return
     if not config.owner_telegram_id or message.from_user.id != config.owner_telegram_id:
         return
 
     from datetime import datetime
-    batch = await pick_files(config, notion, datetime.now(config.timezone).strftime("%Y-%m"))
+    top = int(command.args) if command.args and command.args.strip().isdigit() else 0
+    batch = _top(await pick_files(config, notion, datetime.now(config.timezone).strftime("%Y-%m")), top)
     if not batch.items:
         await message.answer("Нечего отправлять.")
         return
@@ -116,18 +124,19 @@ async def cmd_wml_test_files(message: Message, config: Config, notion: NotionCli
     total_files = sum(p["total"] for _, p in batch.items)
     example = json.dumps(batch.items[0][1], ensure_ascii=False)
     text = (
-        f"📁 <b>Тест выгрузки файлов в CRM за {batch.month}</b>\n\n"
+        f"📁 <b>Тест выгрузки файлов в CRM за {batch.month}</b>"
+        f"{f' — топ {top} по Total' if top else ''}\n\n"
         f"Моделей: <b>{len(batch.items)}</b>, файлов всего: {total_files}\n"
         f"Пропущено: {html.escape(skipped)}\n\n"
         f"Пример запроса:\n<code>{html.escape(example)}</code>"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=f"📤 Отправить {len(batch.items)} в CRM", callback_data="wml_files_send"),
+        InlineKeyboardButton(text=f"📤 Отправить {len(batch.items)} в CRM", callback_data=f"wml_files_send:{top}"),
     ]])
     await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
 
 
-@router.callback_query(F.data == "wml_files_send")
+@router.callback_query(F.data.startswith("wml_files_send"))
 async def cb_wml_files_send(query: CallbackQuery, config: Config, notion: NotionClient, redis=None) -> None:
     if not is_owner_callback(query, config):
         await safe_query_answer(query, "⛔ Нет доступа", show_alert=True)
@@ -143,7 +152,9 @@ async def cb_wml_files_send(query: CallbackQuery, config: Config, notion: Notion
             await safe_edit_message(query, "⚠️ WML логин не настроен.")
             return
         from datetime import datetime
-        batch = await pick_files(config, notion, datetime.now(config.timezone).strftime("%Y-%m"))
+        top_arg = query.data.partition(":")[2]
+        top = int(top_arg) if top_arg.isdigit() else 0
+        batch = _top(await pick_files(config, notion, datetime.now(config.timezone).strftime("%Y-%m")), top)
         await safe_edit_message(query, f"⏳ Отправляю файлы {len(batch.items)} моделей за {batch.month}…")
         sent, errors = await send_files(WmlApi(config.wml_username, config.wml_password), batch.items)
 
