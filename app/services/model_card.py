@@ -11,6 +11,8 @@ from app.services.notion import NotionClient
 
 LOGGER = logging.getLogger(__name__)
 
+_NOTE_PREVIEW_CHARS = 100
+
 # ===== TTL Cache =====
 
 CARD_CACHE_TTL: float = 120.0  # seconds for successful results
@@ -123,7 +125,7 @@ async def _build_card_text_impl(
             statuses=["planned", "scheduled", "rescheduled", "done"],
         ),
         notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm),
-        notion.get_recent_notes(config.db_notes, model_id, limit=3) if config.db_notes else _no_notes(),
+        notion.get_recent_notes(config.db_notes, model_id, limit=1) if config.db_notes else _no_notes(),
         return_exceptions=True,
     )
 
@@ -215,15 +217,17 @@ async def _build_card_text_impl(
         lines.extend([f"📅 {shoot_line}", ""])
     lines.append(f"📁 Файлы ({month_label}): {files_line}")
 
+    # Only the latest note, first line, capped — full text lives in Notion.
     if not isinstance(notes_result, Exception) and notes_result:
-        note_lines = []
-        for note in notes_result:
-            date_str = _format_date_card(note.date) if note.date else "?"
-            note_text = html.escape(note.text or "")
-            note_lines.append(f"{date_str} · {note_text}")
-        if note_lines:
-            lines.extend(["", "📝 Заметки"])
-            lines.extend(note_lines)
+        note = notes_result[0]
+        date_str = _format_date_card(note.date) if note.date else "?"
+        note_text = (note.text or "").strip()
+        first_line = note_text.split("\n", 1)[0]
+        if len(first_line) > _NOTE_PREVIEW_CHARS:
+            first_line = first_line[:_NOTE_PREVIEW_CHARS].rstrip() + "…"
+        elif first_line != note_text:
+            first_line += " …"
+        lines.extend(["", f"📝 {date_str} · {html.escape(first_line)}"])
 
     text = "\n".join(lines)
     return text, has_error, open_orders_count
