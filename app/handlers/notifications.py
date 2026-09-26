@@ -7,7 +7,6 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 
 from app.config import Config
-from app.roles import can_edit
 from app.services import NotionClient
 from app.utils.formatting import MONTHS_SHORT, parse_date, today
 
@@ -115,10 +114,14 @@ async def update_board(bot, config: Config, notion: NotionClient) -> None:
 
 @router.message(Command("scoutbutton"))
 async def cmd_scout_button(message: Message, config: Config) -> None:
-    """Send a forwardable Scout App button (editors, private chat only)."""
+    """Send a forwardable Scout App button (owner only, private chat only)."""
     if message.chat.type != "private":
         return
-    if not message.from_user or not can_edit(message.from_user.id, config):
+    if (
+        not message.from_user
+        or not config.owner_telegram_id
+        or message.from_user.id != config.owner_telegram_id
+    ):
         await message.answer("⛔ Нет доступа.")
         return
 
