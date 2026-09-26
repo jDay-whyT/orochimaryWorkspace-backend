@@ -12,7 +12,6 @@ Falls back to a full re-fetch only if the cache entry is missing/expired or
 Redis isn't configured, so a stale/cold cache degrades to "slow" rather than
 "broken".
 """
-import dataclasses
 import json
 import logging
 
@@ -21,7 +20,9 @@ from aiogram.types import CallbackQuery
 
 from app.config import Config
 from app.services.notion import NotionClient
-from app.services.salary_report import ModelSalaryRow, build_salary_report, salary_pending_redis_key
+from app.services.salary_report import (
+    ModelSalaryRow, build_salary_report, load_salary_accounting, salary_pending_redis_key,
+)
 from app.services.salary_sheet_writer import insert_new_model_row, tab_title_for_month
 from app.services.sheets import SheetsClient
 from app.utils.locks import release_write_lock, try_acquire_write_lock
@@ -37,10 +38,7 @@ async def _load_row(redis, notion: NotionClient, config: Config, yyyy_mm: str, m
         if cached:
             return ModelSalaryRow(**json.loads(cached))
 
-    accounting_records = await notion.query_accounting_for_month(config.db_accounting, yyyy_mm)
-    tango_records = await notion.query_tango_accounting(config.db_accounting)
-    seen_ids = {r.page_id for r in accounting_records}
-    accounting_records += [r for r in tango_records if r.page_id not in seen_ids]
+    accounting_records = await load_salary_accounting(notion, config, yyyy_mm)
     orders = await notion.query_orders_closed_in_month(config.db_orders, yyyy_mm)
     models = await notion.query_all_models(config.db_models)
     report = build_salary_report(accounting_records, orders, models)

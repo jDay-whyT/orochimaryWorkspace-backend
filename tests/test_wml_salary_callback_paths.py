@@ -179,7 +179,7 @@ class TestSalaryAdd:
     @pytest.mark.asyncio
     async def test_load_row_failure_reported(self):
         notion = MagicMock()
-        notion.query_accounting_for_month = AsyncMock(side_effect=RuntimeError("notion timeout"))
+        notion.query_all_accounting = AsyncMock(side_effect=RuntimeError("notion timeout"))
         sheets = MagicMock()
         query = _query("salary_add:2026-07:id-1")
         await salary_callbacks.cb_salary_add(query, _config(salary_sheet_id="sid"), notion, sheets)
@@ -189,8 +189,7 @@ class TestSalaryAdd:
     async def test_row_no_longer_in_report(self):
         redis = _redis_mock()
         notion = MagicMock()
-        notion.query_accounting_for_month = AsyncMock(return_value=[])
-        notion.query_tango_accounting = AsyncMock(return_value=[])
+        notion.query_all_accounting = AsyncMock(return_value=[])
         notion.query_orders_closed_in_month = AsyncMock(return_value=[])
         notion.query_all_models = AsyncMock(return_value=[])
         sheets = MagicMock()
@@ -239,7 +238,7 @@ class TestSalaryAdd:
     @pytest.mark.asyncio
     async def test_lock_released_even_on_exception(self):
         notion = MagicMock()
-        notion.query_accounting_for_month = AsyncMock(side_effect=RuntimeError("boom"))
+        notion.query_all_accounting = AsyncMock(side_effect=RuntimeError("boom"))
         query = _query("salary_add:2026-07:id-err")
         await salary_callbacks.cb_salary_add(query, _config(salary_sheet_id="sid"), notion, MagicMock())
         assert await locks_module.try_acquire_write_lock(None, "salary_add_lock:2026-07:id-err")

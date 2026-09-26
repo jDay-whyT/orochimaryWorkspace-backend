@@ -10,7 +10,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.config import Config
 from app.services import NotionClient
-from app.services.salary_report import build_salary_report, salary_pending_redis_key
+from app.services.salary_report import build_salary_report, load_salary_accounting, salary_pending_redis_key
 from app.services.salary_sheet_writer import write_salary_report
 from app.services.sheets import SheetsClient
 from app.utils.formatting import today
@@ -55,10 +55,7 @@ async def cmd_reports(
     await message.answer(f"Собираю отчёт за {yyyy_mm}…")
 
     try:
-        accounting_records = await notion.query_accounting_for_month(config.db_accounting, yyyy_mm)
-        tango_records = await notion.query_tango_accounting(config.db_accounting)
-        seen_ids = {r.page_id for r in accounting_records}
-        accounting_records += [r for r in tango_records if r.page_id not in seen_ids]
+        accounting_records = await load_salary_accounting(notion, config, yyyy_mm)
         orders = await notion.query_orders_closed_in_month(config.db_orders, yyyy_mm)
         models = await notion.query_all_models(config.db_models)
     except Exception:

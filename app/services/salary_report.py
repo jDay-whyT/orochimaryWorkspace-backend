@@ -107,3 +107,17 @@ def build_salary_report(
         rows.sort(key=lambda r: r.model_name.lower())
 
     return dict(sorted(by_manager.items(), key=lambda kv: kv[0].lower()))
+
+
+async def load_salary_accounting(notion, config, yyyy_mm: str) -> list[NotionAccounting]:
+    """Accounting rows for the salary report: each model's working record.
+
+    Working records are found by model, not by title — records are renamed by
+    hand at month close and some are created untitled — so every model is
+    counted once (duplicates collapse to one) and untitled ones are included.
+    """
+    from app.services.accounting import working_records
+
+    records = await notion.query_all_accounting(config.db_accounting)
+    working, _ = working_records(records, yyyy_mm)
+    return list(working.values())
