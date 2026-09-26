@@ -55,6 +55,11 @@ async def sync_accounting_status(
         record = working.get(model.page_id.replace("-", ""))
         if record is None or not model.status:
             continue
+        # Never revive a `stop` page: it holds a dead month's never-zeroed numbers,
+        # and anything but `stop` puts it back into /reports. A model that returned
+        # to work gets a fresh record when files are next added.
+        if (record.status or "").strip().lower() == "stop":
+            continue
         target = _MODEL_TO_ACCOUNTING.get(model.status.strip().lower())
         if target is None or (record.status or "").strip().lower() == target:
             continue

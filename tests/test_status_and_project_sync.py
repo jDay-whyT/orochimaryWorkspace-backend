@@ -202,3 +202,19 @@ def test_working_records_skips_stale_stop_page_and_its_duplicate():
     assert working["m1"].page_id == "live"
     assert working["m2"].page_id in {"s1", "s2"}
     assert dups == {}
+
+
+@pytest.mark.asyncio
+async def test_stop_record_is_never_revived():
+    models = [
+        NotionModel(page_id="aaaa", title="BACK", status="work"),
+        NotionModel(page_id="bbbb", title="PAUSED", status="inactive"),
+    ]
+    records = [
+        NotionAccounting(page_id="acc1", title="BACK апрель 2026", model_id="aaaa", status="stop"),
+        NotionAccounting(page_id="acc2", title="", model_id="bbbb", status="stop"),
+    ]
+    notion = _notion(models, records)
+    changes, _ = await sync_accounting_status(_config(), notion, apply=True)
+    assert changes == []
+    notion.update_accounting_status.assert_not_awaited()

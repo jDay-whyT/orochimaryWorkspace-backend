@@ -127,3 +127,14 @@ def test_manager_targets_parsing():
     from app.config import _parse_manager_targets
     parsed = _parse_manager_targets("Robin:-1002047661163/25612, di:456, broken:x, :1")
     assert parsed == {"robin": (-1002047661163, 25612), "di": (456, None)}
+
+
+@pytest.mark.asyncio
+async def test_low_content_ignores_numbers_on_a_dead_stop_page():
+    notion = _notion()
+    notion.query_all_models.return_value = [NotionModel(page_id="m-8", title="REVIVED", status="work")]
+    notion.query_all_accounting.return_value = [
+        NotionAccounting(page_id="old", title="REVIVED апрель 2026", model_id="m8", status="stop", files=400),
+    ]
+    grouped = await reminders.low_content(_config(), notion, TODAY)
+    assert grouped[None] == ["• REVIVED — 0 файлов"]

@@ -95,7 +95,8 @@ async def low_content(config: Config, notion: NotionClient, today: date) -> dict
     rows: list[tuple[int, str | None, str]] = []
     for model in models:
         record = record_of.get(_key(model.page_id))
-        files = total_files(record) if record else 0
+        live = record is not None and (record.status or "").strip().lower() != "stop"
+        files = total_files(record) if live else 0  # a dead `stop` page's numbers aren't this month's
         if files >= config.low_content_threshold:
             continue
         manager = record.assist if record else None
