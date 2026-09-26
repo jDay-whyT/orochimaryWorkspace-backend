@@ -736,7 +736,16 @@ class NotionClient:
         # by hand at month close (so early in a month they still carry last month's
         # name) and pages created from a model's "㊗️ Current" relation have no
         # title at all. Without this the bot created a duplicate record.
-        payload_fb3 = {"page_size": 10, "filter": model_filter, "sorts": sorts}
+        # A `stop` record is a dead model's page with stale, never-zeroed numbers —
+        # never write into it; a revived model gets a fresh record instead.
+        payload_fb3 = {
+            "page_size": 10,
+            "filter": {"and": [
+                model_filter,
+                {"property": "status", "status": {"does_not_equal": "stop"}},
+            ]},
+            "sorts": sorts,
+        }
         data_fb3 = await self._request("POST", url, json=payload_fb3)
         results_fb3 = [_parse_accounting(item) for item in data_fb3.get("results", [])]
         if results_fb3:

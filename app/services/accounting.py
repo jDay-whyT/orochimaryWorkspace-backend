@@ -60,9 +60,10 @@ def working_records(
     """Pick each model's working record from the whole Accounting database.
 
     A model normally has exactly one record (renamed and zeroed at month close),
-    whatever its title says. With duplicates, the one titled for `yyyy_mm` wins,
-    else the most recently edited. Keys are model ids without dashes.
-    Returns (working record per model, duplicates per model).
+    whatever its title says. With several, preference goes: titled for `yyyy_mm`,
+    then not `stop` (a dead page with stale numbers), then most recently edited.
+    Keys are model ids without dashes. Duplicates = models with more than one
+    live (non-stop) record. Returns (working record per model, duplicates).
     """
     from app.utils.formatting import MONTHS_RU_LOWER
 
@@ -78,8 +79,9 @@ def working_records(
     duplicates: dict[str, list[NotionAccounting]] = {}
     for model_key, group in by_model.items():
         group = sorted(group, key=lambda r: r.last_edited or "", reverse=True)
-        titled = [r for r in group if month_label in (r.title or "").lower()]
-        working[model_key] = (titled or group)[0]
-        if len(group) > 1:
-            duplicates[model_key] = group
+        live = [r for r in group if (r.status or "").strip().lower() != "stop"]
+        titled = [r for r in live or group if month_label in (r.title or "").lower()]
+        working[model_key] = (titled or live or group)[0]
+        if len(live) > 1:
+            duplicates[model_key] = live
     return working, duplicates

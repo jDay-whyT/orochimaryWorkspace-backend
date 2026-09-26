@@ -185,3 +185,20 @@ def test_working_records_prefers_month_title_then_latest_edit():
     assert working["m2"].page_id == "new"    # no month title -> latest edit
     assert working["m3"].page_id == "solo"   # untitled single record is found
     assert set(dups) == {"m1", "m2"}
+
+
+def test_working_records_skips_stale_stop_page_and_its_duplicate():
+    from app.services.accounting import working_records
+    records = [
+        # revived model: old dead page edited later than the live one
+        NotionAccounting(page_id="dead", title="Z апрель 2026", model_id="m-1", status="stop",
+                         last_edited="2026-09-25"),
+        NotionAccounting(page_id="live", title="", model_id="m-1", status="work", last_edited="2026-09-10"),
+        # stopped model with several old pages: not a duplicate worth reporting
+        NotionAccounting(page_id="s1", title="Q март 2026", model_id="m-2", status="stop"),
+        NotionAccounting(page_id="s2", title="Q апрель 2026", model_id="m-2", status="stop"),
+    ]
+    working, dups = working_records(records, "2026-09")
+    assert working["m1"].page_id == "live"
+    assert working["m2"].page_id in {"s1", "s2"}
+    assert dups == {}

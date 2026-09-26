@@ -398,6 +398,9 @@ class TestAccountingSearchByRelationOnly:
 
         assert [r.page_id for r in records] == ["p4"]
         last_payload = client._request.call_args[1].get("json") or client._request.call_args[0][2]
-        assert last_payload["filter"] == {"property": "model", "relation": {"contains": "m1"}}
+        assert last_payload["filter"] == {"and": [
+            {"property": "model", "relation": {"contains": "m1"}},
+            {"property": "status", "status": {"does_not_equal": "stop"}},  # never write into a dead page
+        ]}
 
         NotionClient._instances.pop("test-token-fb-relation", None)
