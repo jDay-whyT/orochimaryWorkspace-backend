@@ -25,13 +25,13 @@ def _order(**kw):
 def test_payload_open_order_has_no_out():
     payload, reason = wml_export.order_payload(_order(), MODEL)
     assert reason is None
-    assert payload == {"profile": "ТВИКСИ", "title": "ТВИКСИ | custom 1/1", "in": "2026-09-18", "type": 2, "count": 1}
+    assert payload == {"profile": "ТВИКСИ", "title": "ТВИКСИ | custom 1/1", "in": "2026-09-18", "type": "custom", "count": 1}
 
 
 def test_payload_closed_by_out_even_if_status_open():
     payload, _ = wml_export.order_payload(
         _order(order_type="short", count=3, out_date="2026-09-25", received=3, status="Open"), MODEL)
-    assert payload["type"] == 3 and payload["out"] == "2026-09-25" and payload["received"] == 3
+    assert payload["type"] == "short" and payload["out"] == "2026-09-25" and payload["received"] == 3
 
 
 @pytest.mark.parametrize("order,model,reason", [
@@ -45,9 +45,9 @@ def test_payload_skips(order, model, reason):
     assert wml_export.order_payload(order, model) == (None, reason)
 
 
-def test_all_order_types_mapped():
-    for t, expected in [("ad request", 1), ("custom", 2), ("short", 3), ("call", 4), ("verif reddit", 5)]:
-        assert wml_export.order_payload(_order(order_type=t), MODEL)[0]["type"] == expected
+def test_all_order_types_sent_by_name():
+    for t in ("ad request", "custom", "short", "call", "verif reddit"):
+        assert wml_export.order_payload(_order(order_type=t), MODEL)[0]["type"] == t
 
 
 # ---------- picking ----------

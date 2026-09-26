@@ -17,14 +17,8 @@ LOGGER = logging.getLogger(__name__)
 API_URL = "https://wml.pp.ua/api"
 _TIMEOUT = 20
 
-# Notion order `type` -> WML content-request type id
-ORDER_TYPE_IDS = {
-    "ad request": 1,
-    "custom": 2,
-    "short": 3,
-    "call": 4,
-    "verif reddit": 5,
-}
+# Order types the CRM accepts — sent by name, same spelling as Notion's `type`
+ORDER_TYPES = ("ad request", "custom", "short", "call", "verif reddit")
 
 
 class WmlApiError(RuntimeError):

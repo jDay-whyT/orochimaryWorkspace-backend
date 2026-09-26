@@ -13,7 +13,7 @@ from typing import Any
 
 from app.config import Config
 from app.services.notion import NotionClient, NotionModel, NotionOrder
-from app.services.wml_api import ORDER_TYPE_IDS, WmlApi
+from app.services.wml_api import ORDER_TYPES, WmlApi
 
 LOGGER = logging.getLogger(__name__)
 
@@ -29,8 +29,8 @@ def order_payload(order: NotionOrder, model: NotionModel | None) -> tuple[dict[s
         return None, "Tango"
     if (order.status or "").strip().lower() == "canceled":
         return None, "отменён"
-    type_id = ORDER_TYPE_IDS.get((order.order_type or "").strip().lower())
-    if type_id is None:
+    order_type = (order.order_type or "").strip().lower()
+    if order_type not in ORDER_TYPES:
         return None, f"тип «{order.order_type or '—'}»"
     if not order.in_date:
         return None, "нет даты in"
@@ -39,7 +39,7 @@ def order_payload(order: NotionOrder, model: NotionModel | None) -> tuple[dict[s
         "profile": model.title,
         "title": order.title,
         "in": order.in_date[:10],
-        "type": type_id,
+        "type": order_type,
     }
     if order.count is not None:
         payload["count"] = order.count
