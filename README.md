@@ -105,7 +105,6 @@ app/
     ├── formatting.py             # Форматирование дат, текста
     ├── accounting.py              # Прогресс файлов
     ├── content_mapping.py          # content type → DB field
-    ├── patterns.py                 # Regex паттерны
     ├── telegram.py                  # safe_answer/safe_edit_message — flood-control retry
     └── locks.py                      # per-(chat,user) asyncio.Lock, общий для текста и callback
 ```
