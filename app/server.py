@@ -14,6 +14,7 @@ from app.config import load_config
 from app.handlers.notifications import update_board
 from app.handlers.reddit import update_reddit_board
 from app.services import activity_log
+from app.services.reminders import run_daily_reminders
 from app.services.status_sync import run_status_sync
 from app.services.wml_sync import run_wml_sync
 
@@ -104,6 +105,13 @@ async def create_app() -> web.Application:
         await activity_log.send_daily_digest(request.app["bot"], request.app["config"])
         return web.json_response({"ok": True})
 
+    async def internal_daily_reminders(request: web.Request) -> web.Response:
+        secret = config.internal_secret
+        if not secret or not hmac.compare_digest(request.headers.get("X-Internal-Secret", ""), secret):
+            return web.json_response({"ok": False}, status=403)
+        await run_daily_reminders(request.app["bot"], request.app["config"], request.app["notion"])
+        return web.json_response({"ok": True})
+
     async def telegram_webhook(request: web.Request) -> web.Response:
         # Validate secret first (before parsing body, to fail fast on bad actors).
         secret = config.telegram_webhook_secret
@@ -160,6 +168,7 @@ async def create_app() -> web.Application:
     app.router.add_post("/internal/update-reddit-board", internal_update_reddit_board)
     app.router.add_post("/internal/scrape-wml", internal_scrape_wml)
     app.router.add_post("/internal/activity-digest", internal_activity_digest)
+    app.router.add_post("/internal/daily-reminders", internal_daily_reminders)
 
     # Scout Mini App API
     app.router.add_post("/api/scout/models", api_scout_models)

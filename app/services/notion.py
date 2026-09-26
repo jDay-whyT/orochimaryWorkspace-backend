@@ -81,8 +81,10 @@ class NotionAccounting:
     basic_files: int = 0
     event_files: int = 0
     request_files: int = 0
+    tango_files: int = 0
     comment: str | None = None
     status: str | None = None
+    assist: str | None = None  # manager of the model (e.g. "robin")
     last_edited: str | None = None
     content: list[str] | None = None
 
@@ -411,6 +413,28 @@ class NotionClient:
         data = await self._request("POST", url, json=payload)
         
         return [_parse_order(item) for item in data.get("results", [])]
+
+    async def query_all_open_orders(self, database_id: str) -> list[NotionOrder]:
+        """Every open order across all models, paginated (oldest first)."""
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        base: dict[str, Any] = {
+            "page_size": 100,
+            "filter": {"and": [
+                {"property": "out", "date": {"is_empty": True}},
+                {"property": "status", "select": {"equals": "Open"}},
+            ]},
+            "sorts": [{"property": "in", "direction": "ascending"}],
+        }
+        results: list[NotionOrder] = []
+        cursor: str | None = None
+        while True:
+            payload = dict(base, start_cursor=cursor) if cursor else base
+            data = await self._request("POST", url, json=payload)
+            results.extend(_parse_order(item) for item in data.get("results", []))
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
+        return results
 
     async def create_order(
         self,
@@ -1579,8 +1603,10 @@ def _parse_accounting(item: dict[str, Any]) -> NotionAccounting:
         basic_files=basic_files,
         event_files=event_files,
         request_files=request_files,
+        tango_files=int(_extract_number(item, "tango_files") or 0),
         comment=_extract_rich_text(item, "comments"),
         status=_extract_status(item, "status"),
+        assist=_extract_select(item, "assist"),
         last_edited=last_edited,
         content=_extract_multi_select(item, "Content"),
     )

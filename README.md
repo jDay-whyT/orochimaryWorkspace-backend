@@ -48,6 +48,9 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `REDIS_URL` | ⚠️ | Redis URL, например `redis://localhost:6379/0` |
 | `WML_USERNAME` | ⚠️ | Логин WML CRM (для /internal/scrape-wml) |
 | `WML_PASSWORD` | ⚠️ | Пароль WML CRM (для /internal/scrape-wml) |
+| `MANAGER_TELEGRAM_IDS` | ❌ | Менеджер (поле `assist` в Accounting) → Telegram ID для напоминаний: `"robin:123,di:456"` |
+| `OVERDUE_ORDER_DAYS` | ❌ | Заказ «долго открыт», если дней больше этого (по умолчанию 3) |
+| `LOW_CONTENT_THRESHOLD` | ❌ | «Мало контента» — меньше стольких файлов за месяц (по умолчанию 30) |
 
 ## Структура проекта
 
@@ -267,6 +270,19 @@ gcloud scheduler jobs create http activity-digest \
   --http-method=POST \
   --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
 ```
+
+Утренние напоминания: долго открытые заказы (каждый день) и мало контента (20-го и 27-го). Владелец получает всё, менеджеры из `MANAGER_TELEGRAM_IDS` — только свои модели; молчит если нечего напомнить:
+```bash
+gcloud scheduler jobs create http daily-reminders \
+  --location=europe-west1 \
+  --schedule="0 10 * * *" \
+  --time-zone="Europe/Brussels" \
+  --uri="https://YOUR_CLOUD_RUN_URL/internal/daily-reminders" \
+  --http-method=POST \
+  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
+```
+
+Синхронизация статусов Models → Accounting (текущий месяц) и отчёт о расхождениях проекта WML↔Notion идут внутри `wml-crm-sync`, отдельная задача не нужна.
 
 ### Первый запуск бордов
 

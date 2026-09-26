@@ -2,7 +2,7 @@ import base64
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from zoneinfo import ZoneInfo
 
 
@@ -49,6 +49,10 @@ class Config:
     google_service_account_info: dict | None = None
     wml_username: str = ""
     wml_password: str = ""
+    # Accounting `assist` value (e.g. "robin") -> manager's Telegram ID, for reminders
+    manager_telegram_ids: dict[str, int] = field(default_factory=dict)
+    overdue_order_days: int = 3
+    low_content_threshold: int = 30
 
 
 def _parse_mini_app_viewers(value: str) -> tuple[set[int], set[str]]:
@@ -67,6 +71,27 @@ def _parse_mini_app_viewers(value: str) -> tuple[set[int], set[str]]:
             except ValueError:
                 pass
     return ids, handles
+
+
+def _parse_manager_ids(value: str) -> dict[str, int]:
+    """Parse MANAGER_TELEGRAM_IDS: "robin:123,di:456" (manager name is case-insensitive)."""
+    result: dict[str, int] = {}
+    for part in value.split(","):
+        name, _, raw_id = part.partition(":")
+        name = name.strip().lower()
+        try:
+            if name:
+                result[name] = int(raw_id.strip())
+        except ValueError:
+            continue
+    return result
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
 
 
 def _parse_user_ids(value: str) -> set[int]:
@@ -260,6 +285,9 @@ def load_config(validate: bool = True) -> Config:
         salary_sheet_id=salary_sheet_id,
         google_service_account_info=google_service_account_info,
         wml_username=wml_username,
+        manager_telegram_ids=_parse_manager_ids(os.getenv("MANAGER_TELEGRAM_IDS", "")),
+        overdue_order_days=_int_env("OVERDUE_ORDER_DAYS", 3),
+        low_content_threshold=_int_env("LOW_CONTENT_THRESHOLD", 30),
         wml_password=wml_password,
     )
     
