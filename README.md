@@ -69,8 +69,7 @@ app/
 │   ├── nlp_callbacks.py       # CRM action UI: orders/shoots/files/notes через кнопки карточки модели
 │   ├── reddit.py               # /reddit борд
 │   ├── notifications.py        # /shoots борд
-│   ├── tango.py                # /tango расписание (Google Sheets)
-│   └── group_manager.py        # group triggers
+│   └── tango.py                # /tango расписание (Google Sheets)
 ├── router/
 │   ├── dispatcher.py          # NLP routing pipeline (model-name search only)
 │   ├── entities_v2.py          # Entity extraction (model name)
