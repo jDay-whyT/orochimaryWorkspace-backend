@@ -257,6 +257,17 @@ gcloud scheduler jobs create http wml-crm-sync \
   --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
 ```
 
+Вечерняя сводка действий редакторов (кроме владельца): заказы, съёмки, файлы. Пишется владельцу, молчит если действий не было:
+```bash
+gcloud scheduler jobs create http activity-digest \
+  --location=europe-west1 \
+  --schedule="0 21 * * *" \
+  --time-zone="Europe/Brussels" \
+  --uri="https://YOUR_CLOUD_RUN_URL/internal/activity-digest" \
+  --http-method=POST \
+  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
+```
+
 ### Первый запуск бордов
 
 После первого деплоя — вызови каждый endpoint вручную или через `/shoots` и `/reddit`. Бот залогирует `message_id` нового сообщения. Добавь его в Cloud Run ENV как `BOARD_MESSAGE_ID` и `REDDIT_BOARD_MESSAGE_ID` соответственно, затем задеплой снова.

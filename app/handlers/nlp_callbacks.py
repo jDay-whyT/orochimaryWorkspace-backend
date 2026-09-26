@@ -40,6 +40,7 @@ from app.config import Config
 from app.filters.topic_access import TopicAccessCallbackFilter
 from app.roles import is_authorized, is_editor
 from app.services import NotionClient
+from app.services import activity_log
 from app.services import accounting as accounting_cache
 from app.services import orders as orders_cache
 from app.services import planner as planner_cache
@@ -1576,9 +1577,14 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
             location=location,
             title=title,
             status=auto_status,
+            author=activity_log.author_label(query.from_user),
         )
         planner_cache.clear_cache(model_id)
         recent_models.add(user_id, model_id, model_name)
+        await activity_log.record(
+            config, query.from_user, "shoot", model_name,
+            f"{shoot_date.strftime('%d.%m')} · {location}",
+        )
         ct_str = ", ".join(content_types) if content_types else "—"
 
         from app.keyboards.inline import nlp_action_complete_keyboard
@@ -1835,6 +1841,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
                     in_date=in_date,
                     count=count,
                     title=title,
+                    author=activity_log.author_label(query.from_user),
                 )
                 orders_cache.clear_cache(model_id)
             else:
@@ -1847,10 +1854,14 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
                         in_date=in_date,
                         count=1,
                         title=title,
+                        author=activity_log.author_label(query.from_user),
                     )
                 orders_cache.clear_cache(model_id)
 
             recent_models.add(user_id, model_id, model_name)
+            await activity_log.record(
+                config, query.from_user, "order", model_name, f"{order_type} × {count}",
+            )
 
             from app.router.entities_v2 import get_order_type_display_name
             from app.keyboards.inline import nlp_action_complete_keyboard
@@ -2333,6 +2344,9 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
 
         accounting_cache.clear_cache(model_id, yyyy_mm)
         recent_models.add(user_id, model_id, model_name)
+        await activity_log.record(
+            config, query.from_user, "files", model_name, f"{count} · {content_type}",
+        )
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
 

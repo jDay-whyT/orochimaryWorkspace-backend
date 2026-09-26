@@ -13,6 +13,7 @@ from app.bot import create_dispatcher
 from app.config import load_config
 from app.handlers.notifications import update_board
 from app.handlers.reddit import update_reddit_board
+from app.services import activity_log
 from app.services.wml_sync import run_wml_sync
 
 logging.basicConfig(
@@ -42,6 +43,7 @@ async def create_app() -> web.Application:
         app["redis"] = AioRedis.from_url(config.redis_url, decode_responses=True)
         LOGGER.info("Scout Redis client initialized")
     dp["redis"] = app.get("redis")  # exposes the same client to aiogram handler DI
+    activity_log.init(app.get("redis"))
 
     # Deduplication: track last 200 update_ids to skip Telegram re-deliveries.
     # deque(maxlen=200) keeps insertion order so we can evict the oldest ID
@@ -90,6 +92,13 @@ async def create_app() -> web.Application:
         if not secret or not hmac.compare_digest(request.headers.get("X-Internal-Secret", ""), secret):
             return web.json_response({"ok": False}, status=403)
         await run_wml_sync(request.app["bot"], request.app["config"], request.app["notion"], request.app.get("redis"))
+        return web.json_response({"ok": True})
+
+    async def internal_activity_digest(request: web.Request) -> web.Response:
+        secret = config.internal_secret
+        if not secret or not hmac.compare_digest(request.headers.get("X-Internal-Secret", ""), secret):
+            return web.json_response({"ok": False}, status=403)
+        await activity_log.send_daily_digest(request.app["bot"], request.app["config"])
         return web.json_response({"ok": True})
 
     async def telegram_webhook(request: web.Request) -> web.Response:
@@ -147,6 +156,7 @@ async def create_app() -> web.Application:
     app.router.add_post("/internal/update-board", internal_update_board)
     app.router.add_post("/internal/update-reddit-board", internal_update_reddit_board)
     app.router.add_post("/internal/scrape-wml", internal_scrape_wml)
+    app.router.add_post("/internal/activity-digest", internal_activity_digest)
 
     # Scout Mini App API
     app.router.add_post("/api/scout/models", api_scout_models)

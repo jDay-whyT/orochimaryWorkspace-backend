@@ -422,6 +422,7 @@ class NotionClient:
         title: str,
         comments: str | None = None,
         from_project: str | None = None,
+        author: str | None = None,
     ) -> str:
         """Create a new order. Returns page ID."""
         properties: dict[str, Any] = {
@@ -438,6 +439,9 @@ class NotionClient:
 
         if from_project:
             properties["from"] = {"select": {"name": from_project}}
+
+        if author:
+            properties["author"] = {"rich_text": [{"text": {"content": author}}]}
 
         payload = {
             "parent": {"database_id": database_id},
@@ -591,6 +595,7 @@ class NotionClient:
         title: str,
         comments: str | None = None,
         status: str | None = None,
+        author: str | None = None,
     ) -> str:
         """Create a new shoot. Returns page ID."""
         shoot_status = status or "planned"
@@ -605,6 +610,9 @@ class NotionClient:
 
         if comments:
             properties["comments"] = {"rich_text": [{"text": {"content": comments}}]}
+
+        if author:
+            properties["author"] = {"rich_text": [{"text": {"content": author}}]}
 
         payload = {
             "parent": {"database_id": database_id},
