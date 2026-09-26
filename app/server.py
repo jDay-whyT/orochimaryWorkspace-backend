@@ -14,6 +14,7 @@ from app.config import load_config
 from app.handlers.notifications import update_board
 from app.handlers.reddit import update_reddit_board
 from app.services import activity_log
+from app.services.forms_watch import run_forms_watch
 from app.services.reminders import run_daily_reminders
 from app.services.status_sync import run_status_sync
 from app.services.wml_sync import run_wml_sync
@@ -94,7 +95,8 @@ async def create_app() -> web.Application:
         if not secret or not hmac.compare_digest(request.headers.get("X-Internal-Secret", ""), secret):
             return web.json_response({"ok": False}, status=403)
         await run_wml_sync(request.app["bot"], request.app["config"], request.app["notion"], request.app.get("redis"))
-        # Independent of WML: runs even if the scrape failed.
+        # Independent of WML: run even if the scrape failed.
+        await run_forms_watch(request.app["bot"], request.app["config"], request.app["notion"], request.app.get("redis"))
         await run_status_sync(request.app["bot"], request.app["config"], request.app["notion"], request.app.get("redis"))
         return web.json_response({"ok": True})
 

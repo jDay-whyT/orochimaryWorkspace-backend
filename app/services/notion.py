@@ -848,6 +848,25 @@ class NotionClient:
             cursor = data.get("next_cursor")
         return results
 
+    async def query_pages_created_after(self, database_id: str, iso_time: str) -> list[dict[str, Any]]:
+        """Raw pages created on/after `iso_time`, oldest first, paginated."""
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        base: dict[str, Any] = {
+            "page_size": 100,
+            "filter": {"timestamp": "created_time", "created_time": {"on_or_after": iso_time}},
+            "sorts": [{"timestamp": "created_time", "direction": "ascending"}],
+        }
+        results: list[dict[str, Any]] = []
+        cursor: str | None = None
+        while True:
+            payload = dict(base, start_cursor=cursor) if cursor else base
+            data = await self._request("POST", url, json=payload)
+            results.extend(data.get("results", []))
+            if not data.get("has_more"):
+                break
+            cursor = data.get("next_cursor")
+        return results
+
     async def query_tango_accounting(self, database_id: str) -> list[NotionAccounting]:
         """
         Fetch persistent Tango accounting records (Content contains "Tango").
