@@ -843,6 +843,10 @@ class NotionClient:
 
         return results
 
+    async def update_page_properties(self, page_id: str, properties: dict[str, Any]) -> None:
+        """PATCH several properties of a page in one request."""
+        await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json={"properties": properties})
+
     async def update_page_title(self, page_id: str, title: str) -> None:
         """Overwrite a page's Title property."""
         payload = {"properties": {"Title": {"title": [{"text": {"content": title}}]}}}
