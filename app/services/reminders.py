@@ -1,7 +1,8 @@
 """Morning reminders: long-open orders (daily) and low monthly content (on set days).
 
-The owner gets the full list; each manager (Accounting `assist`, mapped via
-MANAGER_TELEGRAM_IDS) gets only their own models. Silent when nothing is due.
+The owner gets the full list in DM; each manager (Accounting `assist`, mapped via
+MANAGER_TELEGRAM_IDS) gets only their own models — in DM or in a group topic.
+Silent when nothing is due.
 One scheduled call: POST /internal/daily-reminders.
 """
 
@@ -18,6 +19,7 @@ from app.services.notion import NotionAccounting, NotionClient
 LOGGER = logging.getLogger(__name__)
 
 CONTENT_REMINDER_DAYS = (20, 27)
+CONTENT_STATUSES = ("work", "new")
 
 
 def _key(page_id: str | None) -> str:
@@ -36,15 +38,19 @@ def total_files(record: NotionAccounting) -> int:
     return record.files + record.tango_files
 
 
-def _route(lines_by_manager: dict[str | None, list[str]], config: Config) -> dict[int, list[str]]:
-    """Owner: everything. Mapped managers: their own lines. Same chat never gets it twice."""
-    out: dict[int, list[str]] = defaultdict(list)
+Target = tuple[int, int | None]  # (chat_id, topic thread id or None)
+
+
+def _route(lines_by_manager: dict[str | None, list[str]], config: Config) -> dict[Target, list[str]]:
+    """Owner: everything. Mapped managers: their own lines. Same target never gets it twice."""
+    owner: Target | None = (config.owner_telegram_id, None) if config.owner_telegram_id else None
+    out: dict[Target, list[str]] = defaultdict(list)
     for manager, lines in lines_by_manager.items():
-        if config.owner_telegram_id:
-            out[config.owner_telegram_id].extend(lines)
-        manager_id = config.manager_telegram_ids.get((manager or "").strip().lower())
-        if manager_id and manager_id != config.owner_telegram_id:
-            out[manager_id].extend(lines)
+        if owner:
+            out[owner].extend(lines)
+        target = config.manager_targets.get((manager or "").strip().lower())
+        if target and target != owner:
+            out[target].extend(lines)
     return out
 
 
@@ -73,9 +79,9 @@ async def overdue_orders(config: Config, notion: NotionClient, today: date) -> d
 
 
 async def low_content(config: Config, notion: NotionClient, today: date) -> dict[str | None, list[str]]:
-    """Models in `work` with fewer than LOW_CONTENT_THRESHOLD files this month."""
+    """Models in `work`/`new` with fewer than LOW_CONTENT_THRESHOLD files this month."""
     models = [m for m in await notion.query_all_models(config.db_models)
-              if (m.status or "").strip().lower() == "work"]
+              if (m.status or "").strip().lower() in CONTENT_STATUSES]
     records = await notion.query_accounting_for_month(config.db_accounting, today.strftime("%Y-%m"))
     record_of = {_key(r.model_id): r for r in records if r.model_id}
 
@@ -94,11 +100,12 @@ async def low_content(config: Config, notion: NotionClient, today: date) -> dict
     return grouped
 
 
-async def _send(bot: Bot, chat_id: int, header: str, lines: list[str]) -> None:
+async def _send(bot: Bot, target: Target, header: str, lines: list[str]) -> None:
     text = f"{header} ({len(lines)})\n\n" + "\n".join(lines)
     if len(text) > 4000:
         text = text[: text.rfind("\n", 0, 4000)] + "\n…"
-    await bot.send_message(chat_id, text, parse_mode="HTML")
+    chat_id, thread_id = target
+    await bot.send_message(chat_id, text, parse_mode="HTML", message_thread_id=thread_id)
 
 
 async def run_daily_reminders(bot: Bot, config: Config, notion: NotionClient) -> None:
@@ -113,14 +120,14 @@ async def run_daily_reminders(bot: Bot, config: Config, notion: NotionClient) ->
     for header, build in jobs:
         try:
             per_chat = _route(await build(config, notion, today), config)
-            for chat_id, lines in per_chat.items():
+            for target, lines in per_chat.items():
                 if not lines:
                     continue
                 try:
-                    await _send(bot, chat_id, header, lines)
+                    await _send(bot, target, header, lines)
                 except Exception:
                     # e.g. a manager who never pressed Start — others still get theirs
-                    LOGGER.exception("Reminder %s not delivered to chat %s", build.__name__, chat_id)
+                    LOGGER.exception("Reminder %s not delivered to %s", build.__name__, target)
         except Exception as e:
             LOGGER.exception("Reminder failed: %s", build.__name__)
             if config.owner_telegram_id:

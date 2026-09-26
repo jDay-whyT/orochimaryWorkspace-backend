@@ -48,7 +48,7 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `REDIS_URL` | ⚠️ | Redis URL, например `redis://localhost:6379/0` |
 | `WML_USERNAME` | ⚠️ | Логин WML CRM (для /internal/scrape-wml) |
 | `WML_PASSWORD` | ⚠️ | Пароль WML CRM (для /internal/scrape-wml) |
-| `MANAGER_TELEGRAM_IDS` | ❌ | Менеджер (поле `assist` в Accounting) → Telegram ID для напоминаний: `"robin:123,di:456"` |
+| `MANAGER_TELEGRAM_IDS` | ❌ | Куда слать напоминания менеджеру (поле `assist` в Accounting): `"robin:-100123/25612,di:456"` — `чат/топик` для топика группы, просто ID для лички |
 | `OVERDUE_ORDER_DAYS` | ❌ | Заказ «долго открыт», если дней больше этого (по умолчанию 3) |
 | `LOW_CONTENT_THRESHOLD` | ❌ | «Мало контента» — меньше стольких файлов за месяц (по умолчанию 30) |
 
@@ -271,7 +271,7 @@ gcloud scheduler jobs create http activity-digest \
   --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
 ```
 
-Утренние напоминания: долго открытые заказы (каждый день) и мало контента (20-го и 27-го). Владелец получает всё, менеджеры из `MANAGER_TELEGRAM_IDS` — только свои модели; молчит если нечего напомнить:
+Утренние напоминания: долго открытые заказы (каждый день) и мало контента у моделей `work`/`new` (20-го и 27-го). Владелец получает всё в личку, менеджеры из `MANAGER_TELEGRAM_IDS` — только свои модели (в личку или в топик группы); молчит если нечего напомнить:
 ```bash
 gcloud scheduler jobs create http daily-reminders \
   --location=europe-west1 \
