@@ -5,9 +5,7 @@ exception disappear silently: any failure is reported to the owner via
 Telegram instead of the job just quietly doing nothing.
 """
 import asyncio
-import hashlib
 import logging
-from html import escape
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -252,7 +250,10 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient, redis) 
         if diff:
             project_diffs.append(diff)
 
-    await _report_project_diffs(bot, config, redis, project_diffs)
+    if project_diffs:
+        # log only: the hourly Telegram report was noise for the owner
+        LOGGER.info("WML project differs from Notion (%d): %s", len(project_diffs),
+                    [(d.name, d.notion_project, d.wml_office) for d in project_diffs])
 
 
 @dataclass
@@ -272,32 +273,6 @@ def project_diff(profile: WmlProfile, model: NotionModel) -> ProjectDiff | None:
     if not wml_project or wml_project.lower() == (model.project or "").strip().lower():
         return None
     return ProjectDiff(profile.name, model.project, office or None, bool(profile.tango_date))
-
-
-PROJECT_DIFF_SIG_KEY = "wml:project_diff_sig"
-
-
-async def _report_project_diffs(bot, config: Config, redis, diffs: list[ProjectDiff]) -> None:
-    """Send the owner one list of project mismatches, only when the list changes."""
-    if not diffs:
-        return
-    lines = sorted(
-        f"• <b>{escape(d.name)}</b>: Notion «{escape(d.notion_project or '—')}» · "
-        f"WML офис «{escape(d.wml_office or '—')}»{' · Tango' if d.has_tango else ''}"
-        for d in diffs
-    )
-    sig = hashlib.sha1("\n".join(lines).encode("utf-8")).hexdigest()
-    if redis is not None and await redis.get(PROJECT_DIFF_SIG_KEY) == sig:
-        return
-    text = (
-        f"🔎 <b>Проект в WML отличается от Notion</b> ({len(lines)})\n"
-        "Пока только отчёт — в Notion ничего не меняю.\n\n" + "\n".join(lines)
-    )
-    if len(text) > 4000:
-        text = text[: text.rfind("\n", 0, 4000)] + "\n…"
-    await bot.send_message(chat_id=config.owner_telegram_id, text=text, parse_mode="HTML")
-    if redis is not None:
-        await redis.set(PROJECT_DIFF_SIG_KEY, sig)
 
 
 async def _notify_new_profile(bot, config: Config, session: requests.Session, profile: WmlProfile, redis) -> None:

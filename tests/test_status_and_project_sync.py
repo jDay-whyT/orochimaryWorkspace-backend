@@ -97,7 +97,7 @@ async def test_records_without_model_or_status_are_skipped():
 
 
 @pytest.mark.asyncio
-async def test_run_reports_changes_and_duplicates_once():
+async def test_run_reports_only_duplicates_once():
     models = [NotionModel(page_id="aaaa", title="TANGO 8", status="stop")]
     records = [
         NotionAccounting(page_id="acc1", title="", model_id="aaaa", status="work", last_edited="2026-09-01"),
@@ -109,9 +109,8 @@ async def test_run_reports_changes_and_duplicates_once():
     for _ in range(2):
         await run_status_sync(bot, _config(apply=False), _notion(models, records), redis)
     texts = [c.args[1] for c in bot.send_message.await_args_list]
-    assert len(texts) == 2  # status report + duplicates report, not repeated on the 2nd run
-    assert any("Дубли" in t and "TANGO 8" in t for t in texts)
-    assert any("ничего не меняю" in t for t in texts)
+    assert len(texts) == 1  # duplicates only (status diffs go to the log), not repeated on the 2nd run
+    assert "Дубли" in texts[0] and "TANGO 8" in texts[0]
 
 
 @pytest.mark.asyncio
@@ -140,33 +139,6 @@ def test_project_diff_tango_only_when_no_office():
     model = NotionModel(page_id="p", title="ROBIN", project="TANGO")
     assert wml_sync.project_diff(_profile(tango_date="01.09.2026"), model) is None
     assert wml_sync.project_diff(_profile(), model) is None  # WML has nothing to say
-
-
-class _FakeRedis:
-    def __init__(self):
-        self.kv = {}
-
-    async def get(self, k):
-        return self.kv.get(k)
-
-    async def set(self, k, v):
-        self.kv[k] = v
-
-
-@pytest.mark.asyncio
-async def test_project_report_sent_once_until_list_changes():
-    bot = SimpleNamespace(send_message=AsyncMock())
-    redis = _FakeRedis()
-    diffs = [wml_sync.ProjectDiff("ROBIN", "КИЕВ", "GRAND", False)]
-
-    await wml_sync._report_project_diffs(bot, _config(), redis, diffs)
-    await wml_sync._report_project_diffs(bot, _config(), redis, diffs)
-    assert bot.send_message.await_count == 1
-    assert "ничего не меняю" in bot.send_message.await_args.kwargs["text"]
-
-    diffs.append(wml_sync.ProjectDiff("EVA", None, "TANGO", True))
-    await wml_sync._report_project_diffs(bot, _config(), redis, diffs)
-    assert bot.send_message.await_count == 2
 
 
 # ---------- working record selection ----------

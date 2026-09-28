@@ -31,7 +31,6 @@ _MODEL_TO_ACCOUNTING = {
     "looted": "stop",
 }
 
-REPORT_SIG_KEY = "status_sync:report_sig"
 DUPLICATES_SIG_KEY = "status_sync:duplicates_sig"
 
 
@@ -92,13 +91,7 @@ async def run_status_sync(bot: Bot, config: Config, notion: NotionClient, redis=
         changes, duplicates = await sync_accounting_status(config, notion, apply=config.status_sync_apply)
         if not config.owner_telegram_id:
             return
-        if changes and not config.status_sync_apply:
-            await _report(
-                bot, config, redis, REPORT_SIG_KEY,
-                "🔎 <b>Статусы Accounting ≠ Models</b>\n"
-                "Пока только отчёт — ничего не меняю (включить: STATUS_SYNC_APPLY=1).",
-                changes,
-            )
+        # report-only status diffs go to the log only: the hourly message was noise for the owner
         if duplicates:
             await _report(
                 bot, config, redis, DUPLICATES_SIG_KEY,
