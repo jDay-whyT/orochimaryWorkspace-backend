@@ -329,35 +329,15 @@ def nlp_shoot_content_keyboard(
     s = f":{k}" if k else ""
     builder = InlineKeyboardBuilder()
 
-    # Группа 1: Основные типы
-    row1 = []
-    for ct in ["main", "new main", "basic"]:
-        mark = "✓ " if ct in selected else ""
-        row1.append(InlineKeyboardButton(
-            text=f"{mark}{ct}",
-            callback_data=f"nlp:sct:{ct}{s}",
-        ))
-    builder.row(*row1)
+    from app.utils.constants import NLP_SHOOT_CONTENT_TYPES
 
-    # Группа 2: Платформы
-    row2 = []
-    for ct in ["twitter", "reddit", "fansly"]:
-        mark = "✓ " if ct in selected else ""
-        row2.append(InlineKeyboardButton(
-            text=f"{mark}{ct}",
-            callback_data=f"nlp:sct:{ct}{s}",
-        ))
-    builder.row(*row2)
-
-    # Группа 3: Специальные
-    row3 = []
-    for ct in ["SFS", "posting", "event"]:
-        mark = "✓ " if ct in selected else ""
-        row3.append(InlineKeyboardButton(
-            text=f"{mark}{ct}",
-            callback_data=f"nlp:sct:{ct}{s}",
-        ))
-    builder.row(*row3)
+    # values are exactly the Planner `content` options
+    types = list(NLP_SHOOT_CONTENT_TYPES)
+    for i in range(0, len(types), 3):
+        builder.row(*[
+            InlineKeyboardButton(text=f"{'✓ ' if ct in selected else ''}{ct}", callback_data=f"nlp:sct:{ct}{s}")
+            for ct in types[i:i + 3]
+        ])
 
     builder.row(InlineKeyboardButton(text="✅ Done", callback_data=f"nlp:scd:done{s}"))
     builder.row(nlp_back_button(model_id))
@@ -420,7 +400,7 @@ def nlp_close_order_select_keyboard(
 # ==================== NLP Files Keyboard ====================
 
 def nlp_files_qty_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
-    """Quick file-count selection. model_id in memory."""
+    """Quick file-count selection (second step, after the type). model_id in memory."""
     s = f":{k}" if k else ""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -429,49 +409,40 @@ def nlp_files_qty_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="80", callback_data=f"nlp:af:80{s}"),
             InlineKeyboardButton(text="Enter", callback_data=f"nlp:af:custom{s}"),
         ],
-        [nlp_back_button(model_id)],
+        [InlineKeyboardButton(text="← Back", callback_data=f"nlp:af:back{s}")],
     ])
 
 
 def nlp_files_content_type_keyboard(model_id: str) -> InlineKeyboardMarkup:
-    """Level 1 content-type menu for adding files in NLP flow."""
+    """First step of adding files: the Accounting column (Request opens its kinds)."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
+            InlineKeyboardButton(text="OF", callback_data="nlp:fct:of"),
             InlineKeyboardButton(text="Reddit", callback_data="nlp:fct:reddit"),
             InlineKeyboardButton(text="Twitter", callback_data="nlp:fct:twitter"),
         ],
         [
-            InlineKeyboardButton(text="OF ▶", callback_data="nlp:fct:of"),
-            InlineKeyboardButton(text="Extras ▶", callback_data="nlp:fct:extras"),
+            InlineKeyboardButton(text="Fansly", callback_data="nlp:fct:fansly"),
+            InlineKeyboardButton(text="Request ▶", callback_data="nlp:fct:req"),
         ],
         [nlp_back_button(model_id)],
     ])
 
 
-def nlp_files_of_type_keyboard() -> InlineKeyboardMarkup:
-    """Level 2 OF submenu for adding files."""
+def nlp_files_request_type_keyboard() -> InlineKeyboardMarkup:
+    """Kinds of requests: counted in request_files, the kind is tagged in Content."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="Main Pack", callback_data="nlp:fct:main_pack"),
-            InlineKeyboardButton(text="New Main", callback_data="nlp:fct:new_main"),
-        ],
-        [
-            InlineKeyboardButton(text="Basic", callback_data="nlp:fct:basic"),
-            InlineKeyboardButton(text="Event", callback_data="nlp:fct:event"),
-        ],
-        [InlineKeyboardButton(text="Request", callback_data="nlp:fct:request")],
-        [InlineKeyboardButton(text="← Back", callback_data="nlp:fct:back")],
-    ])
-
-
-def nlp_files_extras_type_keyboard() -> InlineKeyboardMarkup:
-    """Level 2 Extras submenu for adding files."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Fansly", callback_data="nlp:fct:fansly")],
-        [
+            InlineKeyboardButton(text="Pornhub", callback_data="nlp:fct:pornhub"),
             InlineKeyboardButton(text="Instagram", callback_data="nlp:fct:instagram"),
             InlineKeyboardButton(text="Snapchat", callback_data="nlp:fct:snapchat"),
         ],
+        [
+            InlineKeyboardButton(text="Event", callback_data="nlp:fct:event"),
+            InlineKeyboardButton(text="SFS", callback_data="nlp:fct:sfs"),
+            InlineKeyboardButton(text="Ad request", callback_data="nlp:fct:ad request"),
+        ],
+        [InlineKeyboardButton(text="Other request", callback_data="nlp:fct:request")],
         [InlineKeyboardButton(text="← Back", callback_data="nlp:fct:back")],
     ])
 

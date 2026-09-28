@@ -63,6 +63,7 @@ async def test_remove_keyboard_on_success():
         "step": "awaiting_count",
         "model_id": "model-1",
         "model_name": "Model",
+        "content_type": "reddit",
         "screen_message_id": 111,
         "prompt_message_id": 222,
     }
@@ -139,3 +140,62 @@ async def test_reset_from_model_card():
         message_id=query.message.message_id,
         reply_markup=None,
     )
+
+
+# ---------- add files: type first, then amount ----------
+
+def _files_query(data, user_id=1):
+    from types import SimpleNamespace
+    q = MagicMock()
+    q.data = data
+    q.from_user = SimpleNamespace(id=user_id, username="m", full_name="M")
+    q.message = MagicMock()
+    q.message.chat.id = 100
+    q.message.message_id = 111
+    q.answer = AsyncMock()
+    return q
+
+
+@pytest.mark.asyncio
+async def test_request_kind_counts_in_request_files_and_tags_the_kind(monkeypatch):
+    from zoneinfo import ZoneInfo
+    from app.handlers import nlp_callbacks as nc
+
+    config = MagicMock()
+    config.timezone = ZoneInfo("UTC")
+    config.allowed_editors = {1}
+    notion = AsyncMock()
+    record = MagicMock(page_id="acc-1", request_files=5)
+    notion.get_monthly_record.return_value = record
+
+    text = await nc.save_files(config, notion, _files_query("x").from_user, "m-1", "Model", 10, "pornhub")
+    notion.update_accounting_files_by_type.assert_awaited_with("acc-1", "request_files", 15)
+    notion.add_to_accounting_content.assert_awaited_with("acc-1", "pornhub")
+    assert "+<b>10</b> Pornhub · Request total <b>15</b>" in text
+
+
+@pytest.mark.asyncio
+async def test_plain_of_adds_no_content_tag():
+    from zoneinfo import ZoneInfo
+    from app.handlers import nlp_callbacks as nc
+
+    config = MagicMock()
+    config.timezone = ZoneInfo("UTC")
+    notion = AsyncMock()
+    notion.get_monthly_record.return_value = MagicMock(page_id="acc-1", of_files=40)
+    await nc.save_files(config, notion, _files_query("x").from_user, "m-1", "Model", 20, "of")
+    notion.update_accounting_files_by_type.assert_awaited_with("acc-1", "of_files", 60)
+    notion.add_to_accounting_content.assert_not_awaited()
+
+
+def test_files_type_menu_matches_notion_columns():
+    from app.keyboards.inline import nlp_files_content_type_keyboard, nlp_files_request_type_keyboard
+    from app.utils.content_mapping import get_field_for_content_type
+
+    top = [b.callback_data.split(":")[2] for row in nlp_files_content_type_keyboard("m").inline_keyboard for b in row
+           if b.callback_data.startswith("nlp:fct:")]
+    assert top == ["of", "reddit", "twitter", "fansly", "req"]
+    kinds = [b.callback_data.split(":")[2] for row in nlp_files_request_type_keyboard().inline_keyboard for b in row
+             if b.callback_data not in ("nlp:fct:back",)]
+    assert kinds == ["pornhub", "instagram", "snapchat", "event", "sfs", "ad request", "request"]
+    assert all(get_field_for_content_type(k) == "request_files" for k in kinds)

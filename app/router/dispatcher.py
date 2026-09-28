@@ -613,7 +613,7 @@ MAX_FILES_INPUT = 1500  # configurable upper limit for manual file count
 
 
 async def _handle_custom_files_input(message, text, user_state, config, notion, memory_state):
-    """Handle free-text number input for nlp_files flow (awaiting_count)."""
+    """Typed amount in the nlp_files flow (the type was chosen before): save right away."""
     from app.roles import is_editor
 
     user_id = message.from_user.id
@@ -631,28 +631,27 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
 
     model_id = user_state.get("model_id", "")
     model_name = user_state.get("model_name", "")
-    memory_state.update(
-        chat_id,
-        user_id,
-        flow="nlp_files",
-        step="awaiting_content_type",
-        count=count,
-    )
+    content_type = user_state.get("content_type")
+    if not model_id or not content_type:
+        await message.answer("❌ Session expired, try again.")
+        memory_state.clear(chat_id, user_id)
+        return
+
+    from app.handlers.nlp_callbacks import save_files
+    from app.keyboards.inline import nlp_action_complete_keyboard
+
+    try:
+        confirm = await save_files(config, notion, message.from_user, model_id, model_name, count, content_type)
+    except Exception:
+        LOGGER.exception("Failed to add files")
+        await message.answer("❌ Notion error — try later")
+        memory_state.clear(chat_id, user_id)
+        return
 
     await _clear_previous_screen_keyboard(message, memory_state)
     await _cleanup_prompt_message(message, memory_state)
-    from app.keyboards.inline import nlp_files_content_type_keyboard
-    sent = await message.answer(
-        f"📁 <b>{html.escape(model_name)}</b> · {count} files\n\nChoose content type:",
-        reply_markup=nlp_files_content_type_keyboard(model_id),
-        parse_mode="HTML",
-    )
-    _remember_screen_message(
-        memory_state,
-        chat_id,
-        message.from_user.id,
-        sent.message_id if sent else None,
-    )
+    await message.answer(confirm, reply_markup=nlp_action_complete_keyboard(model_id), parse_mode="HTML")
+    memory_state.clear(chat_id, user_id)
 
 
 async def _handle_note_input(message, text, user_state, config, notion, memory_state):

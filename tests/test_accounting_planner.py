@@ -309,11 +309,13 @@ class TestNlpShootContentTypes:
 
         assert "twitter" in NLP_SHOOT_CONTENT_TYPES
         assert "reddit" in NLP_SHOOT_CONTENT_TYPES
-        assert "main" in NLP_SHOOT_CONTENT_TYPES
-        assert "SFS" in NLP_SHOOT_CONTENT_TYPES
         assert "posting" in NLP_SHOOT_CONTENT_TYPES
         assert "fansly" in NLP_SHOOT_CONTENT_TYPES
-        assert len(NLP_SHOOT_CONTENT_TYPES) == 9
+        # exactly the Planner `content` options, without the "main" duplicate
+        assert set(NLP_SHOOT_CONTENT_TYPES) == {
+            "main pack", "new main", "basic", "event", "twitter", "reddit",
+            "fansly", "instagram", "snapchat", "sfs", "posting",
+        }
 
 
 class TestFilesMonthLimit:

@@ -1165,10 +1165,11 @@ async def _handle_files_menu_action(
         return
 
     if action == "add":
-        from app.keyboards.inline import nlp_files_qty_keyboard
+        from app.keyboards.inline import nlp_files_content_type_keyboard
         k = generate_token()
         memory_state.set(chat_id, user_id, {
             "flow": "nlp_files",
+            "step": "awaiting_content_type",
             "model_id": model_id,
             "model_name": model_name,
             "k": k,
@@ -1176,8 +1177,8 @@ async def _handle_files_menu_action(
         await _clear_previous_screen_keyboard(query, memory_state)
         try:
             msg = await safe_edit_message(query, 
-                f"📁 <b>{html.escape(model_name)}</b> · How many files?",
-                reply_markup=nlp_files_qty_keyboard(model_id, k),
+                f"📁 <b>{html.escape(model_name)}</b> · Which files?",
+                reply_markup=nlp_files_content_type_keyboard(model_id),
                 parse_mode="HTML",
             )
         except TelegramBadRequest as e:
@@ -2171,8 +2172,57 @@ async def _handle_report_accounting(query, config, notion, memory_state):
 #                          ADD FILES CALLBACK
 # ============================================================================
 
+async def save_files(config, notion, user, model_id, model_name, count, content_type, recent_models=None) -> str:
+    """Add `count` files of `content_type` to the model's monthly record; returns the confirmation text."""
+    from app.utils.content_mapping import content_tag, label
+
+    field_name = _get_field_for_content_type(content_type)
+    yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
+    record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+    if not record:
+        await notion.create_accounting_record(
+            config.db_accounting, model_id, model_name, count, yyyy_mm, content_type=content_type,
+        )
+        total = count
+    else:
+        total = int(getattr(record, field_name, 0) or 0) + count
+        await notion.update_accounting_files_by_type(record.page_id, field_name, total)
+        tag = content_tag(content_type)
+        if tag:
+            await notion.add_to_accounting_content(record.page_id, tag)
+
+    accounting_cache.clear_cache(model_id, yyyy_mm)
+    if recent_models is not None:
+        recent_models.add(user.id, model_id, model_name)
+    await activity_log.record(config, user, "files", model_name, f"{count} · {content_type}")
+    LOGGER.info("Added files: model=%s type=%s count=%d", model_id, content_type, count)
+
+    column = "Request total" if field_name == "request_files" and content_type != "request" else "total"
+    return (
+        f"✅ Files added — <b>{html.escape(model_name)}</b>\n"
+        f"+<b>{count}</b> {html.escape(label(content_type))} · {column} <b>{total}</b>"
+    )
+
+
+async def _show_files_types(query, memory_state, model_id, model_name):
+    from app.keyboards.inline import nlp_files_content_type_keyboard
+
+    chat_id, user_id = _state_ids_from_query(query)
+    memory_state.update(chat_id, user_id, flow="nlp_files", step="awaiting_content_type", content_type=None)
+    await _clear_previous_screen_keyboard(query, memory_state)
+    msg = await safe_edit_message(
+        query,
+        f"📁 <b>{html.escape(model_name)}</b> · Which files?",
+        reply_markup=nlp_files_content_type_keyboard(model_id),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+
+
 async def _handle_add_files(query, parts, config, notion, memory_state, recent_models):
-    """Handle add files from CRM card. Callback: nlp:af:{count|custom}[:{k}]"""
+    """Second step of adding files: the amount. Callback: nlp:af:{count|custom|back}[:{k}]"""
+    from app.utils.content_mapping import label
+
     if len(parts) < 3:
         return
 
@@ -2181,44 +2231,26 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
     state = memory_state.get(chat_id, user_id)
     model_id = state.get("model_id") if state else None
     model_name = state.get("model_name", "") if state else ""
+    content_type = state.get("content_type") if state else None
     if not model_id:
         await _session_expired(query, memory_state)
         return
 
-    # Back from content type selection -> quick count buttons
     if value == "back":
-        from app.keyboards.inline import nlp_files_qty_keyboard
-        k = generate_token()
-        memory_state.set(chat_id, user_id, {
-            "flow": "nlp_files",
-            "step": "awaiting_count",
-            "model_id": model_id,
-            "model_name": model_name,
-            "k": k,
-        })
-        await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await safe_edit_message(query, 
-            f"📁 <b>{html.escape(model_name)}</b> · How many files?",
-            reply_markup=nlp_files_qty_keyboard(model_id, k),
-            parse_mode="HTML",
-        )
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+        await _show_files_types(query, memory_state, model_id, model_name)
         return
 
-    # Custom input: switch to awaiting_count step for free-text entry
+    if not content_type:
+        await _session_expired(query, memory_state)
+        return
+
     if value == "custom":
-        k = generate_token()
-        memory_state.set(chat_id, user_id, {
-            "flow": "nlp_files",
-            "step": "awaiting_count",
-            "model_id": model_id,
-            "model_name": model_name,
-            "k": k,
-        })
+        memory_state.update(chat_id, user_id, flow="nlp_files", step="awaiting_count", k=generate_token())
         from app.keyboards.inline import nlp_back_keyboard
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await safe_edit_message(query, 
-            "Enter the number of files:",
+        msg = await safe_edit_message(
+            query,
+            f"📁 <b>{html.escape(model_name)}</b> · {html.escape(label(content_type))}\n\nEnter the number of files:",
             parse_mode="HTML",
             reply_markup=nlp_back_keyboard(model_id),
         )
@@ -2230,86 +2262,62 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
         await safe_query_answer(query, "Unknown value", show_alert=True)
         return
 
-    count = int(value)
-
     if not is_editor(user_id, config):
         await safe_edit_message(query, "❌ No access")
         return
 
-    memory_state.update(
-        chat_id,
-        user_id,
-        flow="nlp_files",
-        step="awaiting_content_type",
-        count=count,
-    )
-    from app.keyboards.inline import nlp_files_content_type_keyboard
-    await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await safe_edit_message(query, 
-        f"📁 <b>{html.escape(model_name)}</b> · {count} files\n\nChoose content type:",
-        reply_markup=nlp_files_content_type_keyboard(model_id),
-        parse_mode="HTML",
-    )
-    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+    _fct_key = (user_id, "fct")
+    if _fct_key in _oc_in_progress:
+        await safe_query_answer(query)
+        return
+    _oc_in_progress.add(_fct_key)
+    try:
+        text = await save_files(config, notion, query.from_user, model_id, model_name, int(value), content_type, recent_models)
+        await _clear_previous_screen_keyboard(query, memory_state)
+        await _cleanup_prompt_message(query, memory_state)
+        from app.keyboards.inline import nlp_action_complete_keyboard
+        await _safe_confirm(query, text, reply_markup=nlp_action_complete_keyboard(model_id), parse_mode="HTML")
+        memory_state.clear(chat_id, user_id)
+    except Exception as e:
+        LOGGER.exception("Failed to add files: %s", e)
+        await safe_edit_message(query, "❌ Notion error — try later", parse_mode=None)
+        memory_state.clear(chat_id, user_id)
+    finally:
+        _oc_in_progress.discard(_fct_key)
 
 
 async def _handle_files_content_type(query, parts, config, notion, memory_state, recent_models):
-    """Finalize add files after selecting content type. Callback: nlp:fct:{type}."""
+    """First step of adding files: the type. Callback: nlp:fct:{type|req|back}."""
+    from app.keyboards.inline import nlp_files_qty_keyboard, nlp_files_request_type_keyboard
+    from app.utils.content_mapping import label
+
     if len(parts) < 3:
         return
 
     content_type = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
-    if not state:
+    model_id = state.get("model_id") if state else None
+    model_name = state.get("model_name", "") if state else ""
+    if not model_id:
         await _session_expired(query, memory_state)
-        return
-
-    model_id = state.get("model_id")
-    model_name = state.get("model_name", "")
-    count = int(state.get("count") or 0)
-    if not model_id or count <= 0:
-        await _session_expired(query, memory_state)
-        return
-
-    from app.keyboards.inline import (
-        nlp_files_content_type_keyboard,
-        nlp_files_of_type_keyboard,
-        nlp_files_extras_type_keyboard,
-    )
-
-    if content_type == "of":
-        await _clear_previous_screen_keyboard(query, memory_state)
-        await safe_edit_message(
-            query,
-            f"📁 <b>{html.escape(model_name)}</b> · {count} files\n\nChoose OF content type:",
-            reply_markup=nlp_files_of_type_keyboard(),
-            parse_mode="HTML",
-        )
-        return
-
-    if content_type == "extras":
-        await _clear_previous_screen_keyboard(query, memory_state)
-        await safe_edit_message(
-            query,
-            f"📁 <b>{html.escape(model_name)}</b> · {count} files\n\nChoose Extras content type:",
-            reply_markup=nlp_files_extras_type_keyboard(),
-            parse_mode="HTML",
-        )
         return
 
     if content_type == "back":
+        await _show_files_types(query, memory_state, model_id, model_name)
+        return
+
+    if content_type == "req":
         await _clear_previous_screen_keyboard(query, memory_state)
         await safe_edit_message(
             query,
-            f"📁 <b>{html.escape(model_name)}</b> · {count} files\n\nChoose content type:",
-            reply_markup=nlp_files_content_type_keyboard(model_id),
+            f"📁 <b>{html.escape(model_name)}</b> · Which request?",
+            reply_markup=nlp_files_request_type_keyboard(),
             parse_mode="HTML",
         )
         return
 
-    field_name = _get_field_for_content_type(content_type)
-    if not field_name:
+    if not _get_field_for_content_type(content_type):
         await safe_query_answer(query, "Unknown type", show_alert=True)
         return
 
@@ -2318,61 +2326,16 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
         memory_state.clear(chat_id, user_id)
         return
 
-    _fct_key = (user_id, "fct")
-    if _fct_key in _oc_in_progress:
-        await safe_query_answer(query)
-        return
-    _oc_in_progress.add(_fct_key)
-
-    try:
-        yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
-        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
-        if not record:
-            page_id = await notion.create_accounting_record(
-                config.db_accounting,
-                model_id,
-                model_name,
-                count,
-                yyyy_mm,
-                content_type=content_type,
-            )
-        else:
-            current_value = int(getattr(record, field_name, 0) or 0)
-            new_value = current_value + count
-            await notion.update_accounting_files_by_type(record.page_id, field_name, new_value)
-            await notion.add_to_accounting_content(record.page_id, content_type)
-            page_id = record.page_id
-
-        accounting_cache.clear_cache(model_id, yyyy_mm)
-        recent_models.add(user_id, model_id, model_name)
-        await activity_log.record(
-            config, query.from_user, "files", model_name, f"{count} · {content_type}",
-        )
-        await _clear_previous_screen_keyboard(query, memory_state)
-        await _cleanup_prompt_message(query, memory_state)
-
-        from app.keyboards.inline import nlp_action_complete_keyboard
-        display_type_mapping = {
-            "main_pack": "Main Pack",
-            "new_main": "New Main",
-            "instagram": "Instagram",
-            "snapchat": "Snapchat",
-        }
-        display_type = display_type_mapping.get(content_type, content_type.replace("_", " ").title())
-        await _safe_confirm(
-            query,
-            f"✅ Files added — <b>{html.escape(model_name)}</b>\n+<b>{count}</b> {display_type} · total <b>{new_value if record else count}</b>",
-            reply_markup=nlp_action_complete_keyboard(model_id),
-            parse_mode="HTML",
-        )
-        memory_state.clear(chat_id, user_id)
-        LOGGER.info("Added files by type: page=%s model=%s type=%s count=%d", page_id, model_id, content_type, count)
-    except Exception as e:
-        LOGGER.exception("Failed to add files by type: %s", e)
-        await safe_edit_message(query, "❌ Notion error — try later", parse_mode=None)
-        memory_state.clear(chat_id, user_id)
-    finally:
-        _oc_in_progress.discard(_fct_key)
+    k = generate_token()
+    memory_state.update(chat_id, user_id, flow="nlp_files", step="awaiting_amount", content_type=content_type, k=k)
+    await _clear_previous_screen_keyboard(query, memory_state)
+    msg = await safe_edit_message(
+        query,
+        f"📁 <b>{html.escape(model_name)}</b> · {html.escape(label(content_type))}\n\nHow many files?",
+        reply_markup=nlp_files_qty_keyboard(model_id, k),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
 # ============================================================================

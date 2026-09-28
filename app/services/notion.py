@@ -1230,7 +1230,7 @@ class NotionClient:
         Title format: "{MODEL_NAME} {месяц_ru_lower} {year}" e.g. "КЛЕЩ февраль 2026"
         """
         from app.utils.formatting import MONTHS_RU_LOWER
-        from app.utils.content_mapping import get_field_for_content_type
+        from app.utils.content_mapping import content_tag, get_field_for_content_type
 
         model = await self.get_model(model_page_id)
         status = (
@@ -1256,8 +1256,9 @@ class NotionClient:
             "status": {"status": {"name": status}},
         }
 
-        if content_type and content_type != "no content":
-            properties["Content"] = {"multi_select": [{"name": content_type}]}
+        tag = content_tag(content_type) if content_type else None
+        if tag:
+            properties["Content"] = {"multi_select": [{"name": tag}]}
 
         payload = {
             "parent": {"database_id": database_id},
