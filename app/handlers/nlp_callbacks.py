@@ -1232,12 +1232,76 @@ async def _handle_files_menu_action(
         return
 
 
+_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+_OPEN_SHOOT_STATUSES = {"planned", "scheduled", "rescheduled"}
+_MAX_LISTED_SHOOTS = 6
+
+
+def _shoot_date(shoot) -> date | None:
+    try:
+        return date.fromisoformat((shoot.date or "")[:10])
+    except ValueError:
+        return None
+
+
+def _shoot_label(shoot) -> str:
+    d = _shoot_date(shoot)
+    return f"{d.day} {_MONTHS[d.month - 1]}" if d else "no date"
+
+
+def _shoot_line(shoot, today: date, comment: bool = True) -> str:
+    """'29 Sep, Tue · scheduled · main pack, reddit · home' (+ comment line); ⚠️ when overdue."""
+    d = _shoot_date(shoot)
+    parts = [f"{_shoot_label(shoot)}, {_WEEKDAYS[d.weekday()]}" if d else "no date", shoot.status or "planned"]
+    if shoot.content:
+        parts.append(", ".join(shoot.content))
+    if shoot.location:
+        parts.append(shoot.location)
+    line = html.escape(" · ".join(parts))
+    if d and d < today and (shoot.status or "") in _OPEN_SHOOT_STATUSES:
+        line = f"⚠️ {line}"
+    if comment and shoot.comments:
+        first = shoot.comments.strip().splitlines()[0][:80]
+        line += f"\n    💬 {html.escape(first)}"
+    return line
+
+
+async def _load_shoots(config, notion, model_id):
+    """(open shoots by date, last done shoot); queries lag behind writes, so fresh writes are merged in."""
+    from app.services.model_card import _with_recent_writes
+    from app.services.notion import _parse_planner
+
+    try:
+        open_shoots = await notion.query_upcoming_shoots(config.db_planner, model_page_id=model_id)
+    except Exception:
+        LOGGER.warning("shoot menu: failed to load shoots for %s", model_id, exc_info=True)
+        open_shoots = []
+    open_shoots = _with_recent_writes(
+        notion, config.db_planner, model_id, open_shoots, _parse_planner,
+        keep=lambda s: (s.status or "") in _OPEN_SHOOT_STATUSES,
+    )
+    open_shoots.sort(key=lambda s: s.date or "9999")
+    try:
+        last = await notion.query_last_done_shoot(config.db_planner, model_id)
+    except Exception:
+        LOGGER.warning("shoot menu: failed to load the last shoot for %s", model_id, exc_info=True)
+        last = None
+    done = _with_recent_writes(
+        notion, config.db_planner, model_id, [last] if last else [], _parse_planner,
+        keep=lambda s: (s.status or "") == "done",
+    )
+    last = max(done, key=lambda s: s.date or "", default=None)
+    return open_shoots, last
+
+
 async def _show_shoot_menu(
     query: CallbackQuery,
     config: Config,
     notion: NotionClient,
     memory_state: MemoryState,
 ) -> None:
+    """Shoots of the model: the last done one, the upcoming ones; actions for one, or pick one of several."""
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
     if not state or not state.get("model_id"):
@@ -1247,39 +1311,46 @@ async def _show_shoot_menu(
     model_id = state.get("model_id")
     model_name = state.get("model_name", "")
     can_edit = is_editor(user_id, config)
+    today = datetime.now(tz=config.timezone).date()
 
-    shoots = []
-    try:
-        shoots = await planner_cache.get_cached_shoots(notion, config, model_id)
-    except Exception:
-        shoots = []
+    open_shoots, last = await _load_shoots(config, notion, model_id)
+    listed = open_shoots[:_MAX_LISTED_SHOOTS]
 
-    shoot = shoots[0] if shoots else None
-    shoot_text = "none"
-    if shoot:
-        s_date = shoot.date[:10] if shoot.date else "?"
-        s_status = shoot.status or "planned"
-        shoot_text = f"{s_date} ({s_status})"
+    lines = [f"📅 <b>{html.escape(model_name)}</b>", ""]
+    lines.append(f"Last: {_shoot_line(last, today, comment=False)}" if last else "Last: —")
+    lines.append("")
+    if listed:
+        lines.append("Upcoming:" if len(listed) > 1 else "Next:")
+        lines.extend(_shoot_line(s, today) for s in listed)
+        if len(open_shoots) > len(listed):
+            lines.append(f"…and {len(open_shoots) - len(listed)} more")
+    else:
+        lines.append("No upcoming shoots.")
+    if not can_edit:
+        lines += ["", "❌ No access."]
 
-    from app.keyboards.inline import nlp_shoot_menu_keyboard
+    single = len(listed) == 1
     memory_state.set(chat_id, user_id, {
         "flow": "nlp_shoot_menu",
         "step": "menu",
         "model_id": model_id,
         "model_name": model_name,
-        "shoot_id": shoot.page_id if shoot else None,
+        "shoot_ids": [s.page_id for s in listed],
+        "shoot_id": listed[0].page_id if single else None,
+        "shoot_label": _shoot_label(listed[0]) if single else None,
     })
-    text = f"📅 <b>{html.escape(model_name)}</b>\n\nNext: {shoot_text}"
-    if not can_edit:
-        text = f"📅 <b>{html.escape(model_name)}</b>\n\n❌ No access."
+
+    from app.keyboards.inline import nlp_shoot_menu_keyboard
     await _clear_previous_screen_keyboard(query, memory_state)
     try:
-        msg = await safe_edit_message(query, 
-            text,
+        msg = await safe_edit_message(
+            query,
+            "\n".join(lines),
             reply_markup=nlp_shoot_menu_keyboard(
-                has_shoot=bool(shoot),
                 can_edit=can_edit,
                 model_id=model_id,
+                picks=None if single else [_shoot_label(s) for s in listed],
+                actions=single,
             ),
             parse_mode="HTML",
         )
@@ -1287,6 +1358,36 @@ async def _show_shoot_menu(
         if "message is not modified" not in str(e):
             raise
         msg = None
+    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+
+
+async def _show_picked_shoot(query, config, notion, memory_state, index: int) -> None:
+    """Actions for one of several upcoming shoots."""
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id) or {}
+    shoot_ids = state.get("shoot_ids") or []
+    if index >= len(shoot_ids):
+        await _show_shoot_menu(query, config, notion, memory_state)
+        return
+    shoot = await notion.get_shoot(shoot_ids[index])
+    if not shoot:
+        await _show_shoot_menu(query, config, notion, memory_state)
+        return
+    today = datetime.now(tz=config.timezone).date()
+    memory_state.update(chat_id, user_id, shoot_id=shoot.page_id, shoot_label=_shoot_label(shoot))
+
+    from app.keyboards.inline import nlp_shoot_menu_keyboard
+    model_name = state.get("model_name", "")
+    await _clear_previous_screen_keyboard(query, memory_state)
+    msg = await safe_edit_message(
+        query,
+        f"📅 <b>{html.escape(model_name)}</b>\n\n{_shoot_line(shoot, today)}",
+        reply_markup=nlp_shoot_menu_keyboard(
+            can_edit=is_editor(user_id, config), model_id=state.get("model_id", ""),
+            actions=True, from_list=True, new_button=False,
+        ),
+        parse_mode="HTML",
+    )
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
@@ -1341,8 +1442,29 @@ async def _handle_shoot_menu_action(
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
+    if action == "list":
+        await _show_shoot_menu(query, config, notion, memory_state)
+        return
+
+    if action.startswith("pick") and action[4:].isdigit():
+        await _show_picked_shoot(query, config, notion, memory_state, int(action[4:]))
+        return
+
     if not shoot_id:
         await _show_shoot_menu(query, config, notion, memory_state)
+        return
+
+    if action == "close":  # ask first: a stray tap must not mark a shoot done
+        from app.keyboards.inline import nlp_shoot_done_confirm_keyboard
+        label = state.get("shoot_label") or "this shoot"
+        await _clear_previous_screen_keyboard(query, memory_state)
+        msg = await safe_edit_message(
+            query,
+            f"📅 <b>{html.escape(model_name)}</b>\n\nMark {html.escape(label)} as done?",
+            reply_markup=nlp_shoot_done_confirm_keyboard(),
+            parse_mode="HTML",
+        )
+        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
     if action == "reschedule":
@@ -1368,7 +1490,7 @@ async def _handle_shoot_menu_action(
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
-    if action == "close":
+    if action == "closeok":
         await notion.update_shoot_status(shoot_id, "done")
         planner_cache.clear_cache(model_id)
         from app.keyboards.inline import nlp_back_keyboard
@@ -1380,7 +1502,7 @@ async def _handle_shoot_menu_action(
         await _clear_previous_screen_keyboard(query, memory_state)
         from app.keyboards.inline import nlp_action_complete_keyboard
         msg = await safe_edit_message(query, 
-            "✅ Shoot closed",
+            f"✅ Shot done — {html.escape(state.get('shoot_label') or '')}",
             reply_markup=nlp_action_complete_keyboard(model_id),
         )
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)

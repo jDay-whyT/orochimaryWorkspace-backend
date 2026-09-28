@@ -1503,6 +1503,21 @@ class NotionClient:
         LOGGER.info("Created note page_id=%s for model=%s", data["id"], model_page_id)
         return data["id"]
 
+    async def query_last_done_shoot(self, database_id: str, model_page_id: str) -> NotionPlanner | None:
+        """The model's most recent shoot with status done (by date)."""
+        url = f"https://api.notion.com/v1/databases/{database_id}/query"
+        payload = {
+            "page_size": 1,
+            "filter": {"and": [
+                {"property": "status", "select": {"equals": "done"}},
+                {"property": "model", "relation": {"contains": model_page_id}},
+            ]},
+            "sorts": [{"property": "date", "direction": "descending"}],
+        }
+        data = await self._request("POST", url, json=payload)
+        results = data.get("results", [])
+        return _parse_planner(results[0]) if results else None
+
     async def get_recent_notes(
         self,
         database_id: str,

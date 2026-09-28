@@ -49,7 +49,7 @@ class TestAccessAndBackButtons:
         assert texts == ["⬅ Back"]
 
     def test_shoot_menu_has_content_comment_back(self):
-        kb = nlp_shoot_menu_keyboard(has_shoot=True, can_edit=True, model_id="m1")
+        kb = nlp_shoot_menu_keyboard(can_edit=True, model_id="m1", actions=True)
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
         assert "🗂 Content" in texts
         assert "💬 Comment" in texts
@@ -237,3 +237,67 @@ class TestShootContentAndComment:
         )
 
         assert notion.update_shoot_comment.called
+
+
+
+# ---------- shoots menu ----------
+
+class TestShootMenu:
+    @staticmethod
+    def _shoot(pid, day, status="scheduled", content=("main pack",), location="home", comments=None):
+        return NotionPlanner(page_id=pid, title="s", model_id="m1", date=day, status=status,
+                             content=list(content), location=location, comments=comments)
+
+    async def _render(self, monkeypatch, open_shoots, last=None):
+        shown = {}
+
+        async def fake_edit(query, text, reply_markup=None, parse_mode=None):
+            shown["text"], shown["kb"] = text, reply_markup
+            return None
+
+        monkeypatch.setattr(nlp_callbacks, "safe_edit_message", fake_edit)
+        monkeypatch.setattr(nlp_callbacks, "_clear_previous_screen_keyboard", AsyncMock())
+        notion = MagicMock(spec=["query_upcoming_shoots", "query_last_done_shoot"])
+        notion.query_upcoming_shoots = AsyncMock(return_value=open_shoots)
+        notion.query_last_done_shoot = AsyncMock(return_value=last)
+        memory = MemoryState()
+        query = MagicMock()
+        query.from_user.id = 1
+        query.message.chat.id = 100
+        query.message.message_id = 5
+        memory.set(100, 1, {"flow": "nlp_actions", "model_id": "m1", "model_name": "ЗАПАД"})
+        await nlp_callbacks._show_shoot_menu(query, _make_config({1}), notion, memory)
+        buttons = [b.callback_data for row in shown["kb"].inline_keyboard for b in row]
+        return shown["text"], buttons, memory.get(100, 1)
+
+    @pytest.mark.asyncio
+    async def test_one_shoot_shows_its_actions_and_the_last_done(self, monkeypatch):
+        text, buttons, state = await self._render(
+            monkeypatch,
+            [self._shoot("s1", "2099-09-29", comments="white set\nsecond line")],
+            last=self._shoot("s0", "2026-09-20", status="done", content=("reddit",)),
+        )
+        assert "Last: 20 Sep, Sun · done · reddit · home" in text
+        assert "29 Sep, Tue · scheduled · main pack · home" in text and "💬 white set" in text
+        assert "nlp:smn:close" in buttons and "nlp:smn:new" in buttons
+        assert state["shoot_id"] == "s1"
+
+    @pytest.mark.asyncio
+    async def test_several_shoots_are_picked_first(self, monkeypatch):
+        text, buttons, state = await self._render(
+            monkeypatch, [self._shoot("s2", "2099-10-03"), self._shoot("s1", "2099-09-29")],
+        )
+        assert text.index("29 Sep") < text.index("3 Oct")          # by date
+        assert "nlp:smn:pick0" in buttons and "nlp:smn:pick1" in buttons
+        assert "nlp:smn:close" not in buttons                       # nothing acts on a hidden shoot
+        assert state["shoot_ids"] == ["s1", "s2"] and state["shoot_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_overdue_open_shoot_is_flagged(self, monkeypatch):
+        text, _, _ = await self._render(monkeypatch, [self._shoot("s1", "2020-01-02", status="planned")])
+        assert "⚠️ 2 Jan" in text
+
+    def test_done_asks_for_confirmation(self):
+        from app.keyboards.inline import nlp_shoot_done_confirm_keyboard
+        buttons = [b.callback_data for row in nlp_shoot_done_confirm_keyboard().inline_keyboard for b in row]
+        assert buttons == ["nlp:smn:closeok", "nlp:smn:list"]

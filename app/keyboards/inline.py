@@ -194,27 +194,48 @@ def nlp_files_menu_keyboard(can_edit: bool, model_id: str, k: str = "") -> Inlin
 
 
 def nlp_shoot_menu_keyboard(
-    has_shoot: bool,
     can_edit: bool,
     model_id: str,
-    k: str = "",
+    picks: list[str] | None = None,
+    actions: bool = False,
+    from_list: bool = False,
+    new_button: bool = True,
 ) -> InlineKeyboardMarkup:
-    """Shoot module menu for a model."""
-    s = f":{k}" if k else ""
+    """Shoots of a model.
+
+    picks   — date labels of upcoming shoots to choose from (several shoots);
+    actions — show actions for the chosen shoot (one shoot, or one was picked);
+    from_list — the shoot was picked from a list: offer the way back to it.
+    """
     rows: list[list[InlineKeyboardButton]] = []
     if can_edit:
-        rows.append([InlineKeyboardButton(text="➕ Shoot", callback_data=f"nlp:smn:new{s}")])
-        if has_shoot:
+        if new_button:
+            rows.append([InlineKeyboardButton(text="➕ New shoot", callback_data="nlp:smn:new")])
+        if actions:
             rows.append([
-                InlineKeyboardButton(text="↩️ Reschedule", callback_data=f"nlp:smn:reschedule{s}"),
-                InlineKeyboardButton(text="✓ Close", callback_data=f"nlp:smn:close{s}"),
+                InlineKeyboardButton(text="✅ Shot done", callback_data="nlp:smn:close"),
+                InlineKeyboardButton(text="↩️ Reschedule", callback_data="nlp:smn:reschedule"),
             ])
             rows.append([
-                InlineKeyboardButton(text="🗂 Content", callback_data=f"nlp:smn:content{s}"),
-                InlineKeyboardButton(text="💬 Comment", callback_data=f"nlp:smn:comment{s}"),
+                InlineKeyboardButton(text="🗂 Content", callback_data="nlp:smn:content"),
+                InlineKeyboardButton(text="💬 Comment", callback_data="nlp:smn:comment"),
             ])
+        elif picks:
+            buttons = [InlineKeyboardButton(text=f"{label} ▸", callback_data=f"nlp:smn:pick{i}")
+                       for i, label in enumerate(picks)]
+            for i in range(0, len(buttons), 3):
+                rows.append(buttons[i:i + 3])
+    if from_list:
+        rows.append([InlineKeyboardButton(text="← Shoots", callback_data="nlp:smn:list")])
     rows.append([nlp_back_button(model_id)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def nlp_shoot_done_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Yes, done", callback_data="nlp:smn:closeok"),
+        InlineKeyboardButton(text="No", callback_data="nlp:smn:list"),
+    ]])
 
 
 # ==================== NLP Order Keyboards ====================
