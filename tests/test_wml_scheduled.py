@@ -10,6 +10,7 @@ import pytest
 from app.services import wml_scheduled as ws
 from app.services.month_close import CLOSE_IN_PROGRESS_KEY
 from app.services.notion import NotionAccounting, NotionModel, NotionOrder
+from app.services.wml_api import WmlApiError
 
 MODEL = NotionModel(page_id="m-1", title="ТВИКСИ", project="КИЕВ")
 
@@ -20,6 +21,9 @@ class FakeRedis:
 
     async def get(self, k):
         return self.kv.get(k)
+
+    async def hget(self, k, f):
+        return self.h.get(k, {}).get(f)
 
     async def hgetall(self, k):
         return dict(self.h.get(k, {}))
@@ -163,6 +167,81 @@ async def test_files_sent_only_on_change_and_zeroing_is_blocked():
     report = ws.ExportReport()
     await ws.export_files(_config(), _notion([], [_acc(of_files=0)]), redis, api, True, report)
     assert api.upsert_files.call_count == 1 and "обнулились" in report.warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_files_decrease_is_held_once_then_sent_if_unchanged():
+    redis, api = FakeRedis(), _api()
+    await ws.export_files(_config(), _notion([], [_acc(of_files=200)]), redis, api, True, ws.ExportReport())
+    report = ws.ExportReport()
+    await ws.export_files(_config(), _notion([], [_acc(of_files=20)]), redis, api, True, report)
+    assert api.upsert_files.call_count == 1 and "уменьшилось of 200→20" in report.warnings[0]
+    report = ws.ExportReport()
+    await ws.export_files(_config(), _notion([], [_acc(of_files=20)]), redis, api, True, report)
+    assert api.upsert_files.call_count == 2 and not report.warnings  # confirmed by staying the same
+
+
+@pytest.mark.asyncio
+async def test_files_spike_is_held():
+    redis, api = FakeRedis(), _api()
+    await ws.export_files(_config(), _notion([], [_acc(of_files=100)]), redis, api, True, ws.ExportReport())
+    report = ws.ExportReport()
+    await ws.export_files(_config(), _notion([], [_acc(of_files=1000)]), redis, api, True, report)
+    assert api.upsert_files.call_count == 1 and "скачок" in report.warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_files_new_empty_month_is_not_sent():
+    redis, api = FakeRedis(), _api()
+    report = ws.ExportReport()
+    await ws.export_files(_config(), _notion([], [_acc(of_files=0)]), redis, api, True, report)
+    api.upsert_files.assert_not_called()
+    assert report.empty()
+
+
+@pytest.mark.asyncio
+async def test_files_of_model_with_two_live_records_are_not_sent():
+    redis, api = FakeRedis(), _api()
+    report = ws.ExportReport()
+    records = [_acc(), _acc(page_id="a2", title="", of_files=50)]
+    await ws.export_files(_config(), _notion([], records), redis, api, True, report)
+    api.upsert_files.assert_not_called()
+    assert "две живые записи" in report.warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_unknown_profile_is_reported_once():
+    redis, api = FakeRedis(), _api()
+    api.upsert_files.side_effect = WmlApiError("WML API POST /content-request-files: HTTP 422: Profile not found")
+    first, second = ws.ExportReport(), ws.ExportReport()
+    await ws.export_files(_config(), _notion([], [_acc()]), redis, api, True, first)
+    await ws.export_files(_config(), _notion([], [_acc()]), redis, api, True, second)
+    assert "нет такого профиля" in first.warnings[0] and not first.errors
+    assert second.empty()
+    assert api.upsert_files.call_count == 2  # still retried
+
+
+@pytest.mark.asyncio
+async def test_double_entry_order_is_held_once():
+    redis, api = FakeRedis(), _api()
+    orders = [_order("a", title="ТВИКСИ | custom"), _order("b", title="ТВИКСИ | custom")]
+    report = ws.ExportReport()
+    await ws.export_orders(_config(), _notion(orders), redis, api, True, report)
+    api.create_order.assert_not_called()
+    assert len(report.warnings) == 2 and "двойную запись" in report.warnings[0]
+    report = ws.ExportReport()
+    await ws.export_orders(_config(), _notion(orders), redis, api, True, report)
+    assert api.create_order.call_count == 2  # nobody deleted it -> real orders
+
+
+@pytest.mark.asyncio
+async def test_orders_sharing_one_crm_id_are_not_sent():
+    redis, api = FakeRedis(), _api()
+    orders = [_order("a", wml_id=7, count=2), _order("b", wml_id=7, count=3)]
+    report = ws.ExportReport()
+    await ws.export_orders(_config(), _notion(orders), redis, api, True, report)
+    api.update_order.assert_not_called()
+    assert "CRM id 7" in report.warnings[0]
 
 
 # ---------- entry point ----------

@@ -7,6 +7,14 @@ Notion is the source. Redis remembers what was last pushed, so only changes go o
   leave the CRM alone; still open -> send "cancelled";
 - file counts per model/month are upserted when they changed.
 
+Sanity checks before anything goes out:
+- file counts that went down or jumped by more than SPIKE_FILES, and orders that look
+  like a double entry, are held once: sent on the next run only if still unchanged;
+- counts that dropped to 0, models with two live Accounting records and Notion orders
+  sharing one CRM id are not sent at all (warning every run until fixed);
+- a profile the CRM does not know is reported once, then retried silently;
+- a new month with nothing in it yet is not sent.
+
 Until WML_EXPORT_APPLY=1 it only reports what it would do. Skipped while a month
 close is in progress. Never raises.
 """
@@ -32,6 +40,10 @@ LOGGER = logging.getLogger(__name__)
 ORDER_STATE_KEY = "wml:order_state"   # hash: order page id -> last pushed state (json)
 FILES_STATE_KEY = "wml:files_state"   # hash: "profile|month" -> last pushed payload (json)
 MAX_VANISHED_CANCELS = 10             # more at once looks like an outage, not deletions
+HELD_KEY = "wml:held"                 # hash: item key -> fingerprint held back on the last run
+MISSING_PROFILES_KEY = "wml:missing_profiles"  # hash: profile -> 1, already reported as unknown
+SPIKE_FILES = 300                     # a bigger jump of a model's monthly total between runs is suspicious
+_FILE_FIELDS = ("of", "reddit", "twitter", "fansly", "request", "total")
 _SEND_INTERVAL_SECONDS = 0.2
 
 _TRACKED = ("out", "count", "received")
@@ -62,14 +74,73 @@ async def _call(apply: bool, fn, *args) -> Any:
     return result
 
 
+async def _hold_once(redis, apply: bool, key: str, fingerprint: str) -> bool:
+    """True = hold this item now. The same item seen again unchanged next run is let through."""
+    held = await redis.hget(HELD_KEY, key)
+    if held == fingerprint:
+        if apply:
+            await redis.hdel(HELD_KEY, key)
+        return False
+    if apply:
+        await redis.hset(HELD_KEY, key, fingerprint)
+    return True
+
+
+def _is_unknown_profile(error: Exception) -> bool:
+    text = str(error).lower()
+    return "profile not found" in text
+
+
+async def _unknown_profile(redis, apply: bool, profile: str, report: ExportReport) -> None:
+    """Report a profile the CRM doesn't know once; later runs retry it silently."""
+    if await redis.hget(MISSING_PROFILES_KEY, profile):
+        return
+    if apply:
+        await redis.hset(MISSING_PROFILES_KEY, profile, "1")
+    report.warnings.append(f"{profile}: нет такого профиля в CRM — заведи его там, дальше пробую молча")
+
+
+async def _known_profile(redis, apply: bool, profile: str) -> None:
+    if apply:
+        await redis.hdel(MISSING_PROFILES_KEY, profile)
+
+
+def _double_entries(orders) -> set[str]:
+    """Page ids of not-yet-sent orders identical to another order (model, title, type, in, count)."""
+    seen: dict[tuple, str] = {}
+    doubles: set[str] = set()
+    for order in orders:
+        key = (order.model_id, (order.title or "").strip().lower(), order.order_type,
+               (order.in_date or "")[:10], order.count)
+        if key in seen:
+            doubles.add(order.page_id)
+            doubles.add(seen[key])
+        else:
+            seen[key] = order.page_id
+    return {pid for pid in doubles if next(o for o in orders if o.page_id == pid).wml_id is None}
+
+
 async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi, apply: bool, report: ExportReport) -> None:
     orders = await notion.query_all_orders(config.db_orders)
     models = {m.page_id.replace("-", ""): m for m in await notion.query_all_models(config.db_models)}
     state = {k: json.loads(v) for k, v in (await redis.hgetall(ORDER_STATE_KEY) or {}).items()}
     seen: set[str] = set()
 
+    by_wml_id: dict[int, list] = {}
+    for order in orders:
+        if order.wml_id is not None:
+            by_wml_id.setdefault(order.wml_id, []).append(order)
+    shared_ids = {wml_id for wml_id, group in by_wml_id.items() if len(group) > 1}
+    for wml_id in sorted(shared_ids):
+        titles = ", ".join(o.title for o in by_wml_id[wml_id])
+        report.warnings.append(f"CRM id {wml_id} стоит у нескольких заказов ({titles}) — не отправляю, "
+                               "оставь id только у одного")
+    doubles = _double_entries(orders)
+
     for order in orders:
         seen.add(order.page_id)
+        if order.wml_id in shared_ids:
+            continue
         model = models.get((order.model_id or "").replace("-", ""))
         canceled = (order.status or "").strip().lower() == "canceled"
         last = state.get(order.page_id)
@@ -78,7 +149,19 @@ async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi
                 payload, _ = order_payload(order, model)
                 if payload is None or (order.in_date or "")[:10] < config.wml_export_from:
                     continue  # canceled / Tango / unknown type / before the export start
-                resp = await _call(apply, api.create_order, payload)
+                if order.page_id in doubles and await _hold_once(
+                        redis, apply, f"order:{order.page_id}", json.dumps(payload, sort_keys=True)):
+                    report.warnings.append(f"{order.title}: похоже на двойную запись (такой же заказ уже есть) — "
+                                           "задерживаю, если не удалят, отправлю в следующий раз")
+                    continue
+                try:
+                    resp = await _call(apply, api.create_order, payload)
+                except Exception as e:
+                    if _is_unknown_profile(e):
+                        await _unknown_profile(redis, apply, payload["profile"], report)
+                        continue
+                    raise
+                await _known_profile(redis, apply, payload["profile"])
                 if apply:
                     wml_id = int(resp["id"])
                     await notion.set_order_wml_id(order.page_id, wml_id)
@@ -135,6 +218,8 @@ async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi
 
 async def export_files(config: Config, notion: NotionClient, redis, api: WmlApi, apply: bool, report: ExportReport) -> None:
     batch = await pick_files(config, notion, datetime.now(config.timezone).strftime("%Y-%m"))
+    for profile in batch.duplicates:
+        report.warnings.append(f"{profile}: две живые записи в Accounting — файлы не отправляю, лишнюю удали")
     state = await redis.hgetall(FILES_STATE_KEY) or {}
     for _, payload in batch.items:
         key = f"{payload['profile']}|{payload['month']}"
@@ -142,15 +227,33 @@ async def export_files(config: Config, notion: NotionClient, redis, api: WmlApi,
         if state.get(key) == encoded:
             continue
         previous = json.loads(state[key]) if key in state else None
+        if previous is None and payload["total"] == 0:
+            continue  # nothing counted yet this month
         if previous and previous.get("total", 0) > 0 and payload["total"] == 0:
             report.warnings.append(f"{payload['profile']}: цифры обнулились ({batch.month}) — не отправляю")
             continue
+        if previous:
+            went_down = [f for f in _FILE_FIELDS if payload.get(f, 0) < previous.get(f, 0)]
+            jump = payload["total"] - previous.get("total", 0)
+            reason = None
+            if went_down:
+                reason = "уменьшилось " + ", ".join(f"{f} {previous.get(f, 0)}→{payload.get(f, 0)}" for f in went_down)
+            elif jump > SPIKE_FILES:
+                reason = f"скачок total {previous.get('total', 0)}→{payload['total']}"
+            if reason and await _hold_once(redis, apply, f"files:{key}", encoded):
+                report.warnings.append(f"{payload['profile']}: {reason} — задерживаю, "
+                                       "если не поправят, отправлю в следующий раз")
+                continue
         try:
             await _call(apply, api.upsert_files, payload)
+            await _known_profile(redis, apply, payload["profile"])
             if apply:
                 await redis.hset(FILES_STATE_KEY, key, encoded)
             report.files.append(f"{payload['profile']} ({payload['total']})")
         except Exception as e:
+            if _is_unknown_profile(e):
+                await _unknown_profile(redis, apply, payload["profile"], report)
+                continue
             LOGGER.exception("WML files export failed for %s", payload["profile"])
             report.errors.append(f"{payload['profile']}: {e}")
 

@@ -153,6 +153,7 @@ class FilesBatch:
     month: str = ""
     items: list[tuple[Any, dict[str, Any]]] = field(default_factory=list)
     skipped: Counter = field(default_factory=Counter)
+    duplicates: list[str] = field(default_factory=list)  # profiles with >1 live Accounting record
 
 
 async def pick_files(config: Config, notion: NotionClient, calendar_month: str) -> FilesBatch:
@@ -161,7 +162,7 @@ async def pick_files(config: Config, notion: NotionClient, calendar_month: str) 
 
     records = await notion.query_all_accounting(config.db_accounting)
     month = files_month(records, calendar_month)
-    working, _ = working_records(records, month)
+    working, duplicates = working_records(records, month)
     models = {m.page_id.replace("-", ""): m for m in await notion.query_all_models(config.db_models)}
 
     batch = FilesBatch(month=month)
@@ -169,6 +170,9 @@ async def pick_files(config: Config, notion: NotionClient, calendar_month: str) 
         payload, reason = files_payload(record, models.get(model_key), month)
         if payload is None:
             batch.skipped[reason] += 1
+        elif model_key in duplicates:  # which record holds the real numbers is unclear
+            batch.skipped["дубль"] += 1
+            batch.duplicates.append(payload["profile"])
         else:
             batch.items.append((record, payload))
     batch.items.sort(key=lambda item: item[1]["profile"])
