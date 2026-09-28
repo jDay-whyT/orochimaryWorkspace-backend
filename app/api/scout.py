@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+from datetime import datetime
 
 from aiohttp import web
 
@@ -32,6 +34,8 @@ def _extract_user(request: web.Request) -> dict | None:
 def _is_full_access(user_id: int, config, username: str | None = None) -> bool:
     if _DEV_BYPASS and user_id == -1:
         return True
+    if access.manager_assist(user_id, config):
+        return False  # managers see only their own models
     if user_id == config.owner_telegram_id or user_id in config.allowed_editors:
         return True
     if user_id in config.mini_app_viewer_ids:
@@ -41,6 +45,28 @@ def _is_full_access(user_id: int, config, username: str | None = None) -> bool:
         if handle in config.mini_app_viewer_handles:
             return True
     return False
+
+
+_MANAGER_CACHE_SECONDS = 60
+_manager_cache: dict = {}  # {"at", "assist_of": model key -> assist, "models"}; shared by all managers
+
+
+async def _manager_models(request: web.Request, assist: str) -> list:
+    """Models whose working Accounting record has `assist` = this manager."""
+    from app.services.accounting import working_records
+
+    config = request.app["config"]
+    notion = request.app["notion"]
+    cache = _manager_cache
+    now = time.monotonic()
+    if now - cache.get("at", float("-inf")) > _MANAGER_CACHE_SECONDS:
+        records = await notion.query_all_accounting(config.db_accounting)
+        working, _ = working_records(records, datetime.now(config.timezone).strftime("%Y-%m"))
+        cache["assist_of"] = {key: (r.assist or "").strip().lower() for key, r in working.items()}
+        cache["models"] = await notion.query_models(config.db_models, "", limit=200)
+        cache["at"] = now
+    assist = assist.strip().lower()
+    return [m for m in cache["models"] if cache["assist_of"].get(m.page_id.replace("-", "")) == assist]
 
 
 async def _resolve_scout_handle(
@@ -94,6 +120,16 @@ async def api_scout_models(request: web.Request) -> web.Response:
     await access.refresh(config, request.app.get("redis"))
 
     username = user.get("username")
+    assist = access.manager_assist(user_id, config)
+    if assist:
+        models = await _manager_models(request, assist)
+        return web.json_response({
+            "scout": None,
+            "models": [
+                {"id": m.page_id, "name": m.title, "project": m.project, "status": m.status, "scout": m.scout}
+                for m in models
+            ],
+        })
     if _is_full_access(user_id, config, username):
         models = await notion.query_models(config.db_models, "", limit=200)
         if len(models) >= 200:
@@ -149,7 +185,12 @@ async def api_scout_model_card(request: web.Request) -> web.Response:
     await access.refresh(config, request.app.get("redis"))
 
     username = user.get("username")
-    if not _is_full_access(user_id, config, username):
+    assist = access.manager_assist(user_id, config)
+    if assist:
+        allowed = {m.title.lower() for m in await _manager_models(request, assist)}
+        if model_name.lower() not in allowed:
+            return web.json_response({"error": "forbidden"}, status=403)
+    elif not _is_full_access(user_id, config, username):
         handle, scout_models = await _resolve_scout_handle(request, user_id, username)
         if not handle:
             return web.json_response({"error": "unauthorized"}, status=401)

@@ -40,6 +40,8 @@ def _config(**overrides):
     cfg.mini_app_viewer_ids = set()
     cfg.mini_app_viewer_handles = set()
     cfg.db_models = "db_models_id"
+    cfg.db_accounting = "db_accounting_id"
+    cfg.manager_targets = {}
     for k, v in overrides.items():
         setattr(cfg, k, v)
     return cfg
@@ -150,3 +152,43 @@ class TestApiScoutModelCard:
         req = _request({"id": 42}, {"config": cfg, "notion": notion}, match_info={"name": "Ghost"})
         resp = await scout.api_scout_model_card(req)
         assert resp.status == 404
+
+
+class TestManagerSeesOnlyOwnModels:
+    @staticmethod
+    def _setup():
+        from zoneinfo import ZoneInfo
+        from app.services.notion import NotionAccounting
+
+        scout._manager_cache.clear()
+        mine = MagicMock(page_id="aa-11", title="КАПРИ", project="OF", status="work", scout="@s")
+        other = MagicMock(page_id="bb-22", title="ТВИКСИ", project="OF", status="work", scout="@s")
+        notion = MagicMock()
+        notion.query_models = AsyncMock(return_value=[mine, other])
+        notion.query_all_accounting = AsyncMock(return_value=[
+            NotionAccounting(page_id="r1", title="КАПРИ сентябрь 2026", model_id="aa11", assist="ng", status="work"),
+            NotionAccounting(page_id="r2", title="ТВИКСИ сентябрь 2026", model_id="bb22", assist="robin", status="work"),
+        ])
+        cfg = _config(owner_telegram_id=1, allowed_editors={1, 55}, manager_targets={"ng": (55, None)},
+                      timezone=ZoneInfo("Europe/Brussels"))
+        return cfg, notion
+
+    @pytest.mark.asyncio
+    async def test_manager_list_has_only_own_models(self):
+        cfg, notion = self._setup()
+        resp = await scout.api_scout_models(_request({"id": 55}, {"config": cfg, "notion": notion}))
+        assert [m["name"] for m in json.loads(resp.body)["models"]] == ["КАПРИ"]
+
+    @pytest.mark.asyncio
+    async def test_manager_cannot_open_other_card(self):
+        cfg, notion = self._setup()
+        req = _request({"id": 55}, {"config": cfg, "notion": notion},
+                       path="/api/scout/model/ТВИКСИ", match_info={"name": "ТВИКСИ"})
+        resp = await scout.api_scout_model_card(req)
+        assert resp.status == 403
+
+    @pytest.mark.asyncio
+    async def test_owner_still_sees_everything(self):
+        cfg, notion = self._setup()
+        resp = await scout.api_scout_models(_request({"id": 1}, {"config": cfg, "notion": notion}))
+        assert len(json.loads(resp.body)["models"]) == 2

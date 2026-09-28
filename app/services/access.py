@@ -143,6 +143,16 @@ async def revoke(config: Config, redis: Any, user_id: int) -> dict[str, Any] | N
     return info
 
 
+def manager_assist(user_id: int, config: Config) -> str | None:
+    """Accounting `assist` of a manager who gets reminders in DM (env or approved); owner -> None."""
+    if user_id == config.owner_telegram_id:
+        return None
+    for assist, (chat_id, thread_id) in config.manager_targets.items():
+        if chat_id == user_id and thread_id is None:
+            return assist
+    return None
+
+
 def label(user_id: int, info: dict[str, Any]) -> str:
     """@username, else name, else ID."""
     if info.get("username"):
