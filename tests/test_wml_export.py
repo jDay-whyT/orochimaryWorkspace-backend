@@ -11,6 +11,7 @@ from app.services.wml_api import WmlApi, WmlApiError
 
 MODEL = NotionModel(page_id="m-1", title="ТВИКСИ", project="КИЕВ")
 TANGO = NotionModel(page_id="m-2", title="Танго 8", project="TANGO")
+TANGO_NO_PROJECT = NotionModel(page_id="m-3", title="ТАНГО 75", project=None)
 
 
 def _order(**kw):
@@ -37,6 +38,7 @@ def test_payload_closed_by_out_even_if_status_open():
 @pytest.mark.parametrize("order,model,reason", [
     (_order(), None, "нет модели"),
     (_order(), TANGO, "Tango"),
+    (_order(), TANGO_NO_PROJECT, "Tango"),
     (_order(status="Canceled"), MODEL, "отменён"),
     (_order(order_type="mystery"), MODEL, "тип «mystery»"),
     (_order(in_date=None), MODEL, "нет даты in"),
@@ -156,6 +158,7 @@ def test_files_payload_total_falls_back_to_sum():
 @pytest.mark.parametrize("record,model,reason", [
     (_acc(), None, "нет модели"),
     (_acc(), TANGO, "Tango"),
+    (_acc(), TANGO_NO_PROJECT, "Tango"),
     (_acc(content=["Tango"]), MODEL, "Tango"),
     (_acc(status="stop"), MODEL, "stop"),
 ])

@@ -21,11 +21,19 @@ LOGGER = logging.getLogger(__name__)
 _SEND_INTERVAL_SECONDS = 0.2
 
 
+def is_tango_model(model: NotionModel) -> bool:
+    """Project TANGO, or "Танго" in the name: a forgotten project must not leak it to the CRM."""
+    if (model.project or "").strip().upper() == "TANGO":
+        return True
+    title = (model.title or "").lower()
+    return "танго" in title or "tango" in title
+
+
 def order_payload(order: NotionOrder, model: NotionModel | None) -> tuple[dict[str, Any] | None, str | None]:
     """CRM fields for an order, or (None, reason) when it must not be sent."""
     if model is None:
         return None, "нет модели"
-    if (model.project or "").strip().upper() == "TANGO":
+    if is_tango_model(model):
         return None, "Tango"
     if (order.status or "").strip().lower() == "canceled":
         return None, "отменён"
@@ -124,7 +132,7 @@ def files_payload(record, model: NotionModel | None, yyyy_mm: str) -> tuple[dict
     """CRM fields for a model's monthly file counts, or (None, reason)."""
     if model is None:
         return None, "нет модели"
-    if (model.project or "").strip().upper() == "TANGO" or "Tango" in (record.content or []):
+    if is_tango_model(model) or "Tango" in (record.content or []):
         return None, "Tango"
     if (record.status or "").strip().lower() == "stop":
         return None, "stop"
