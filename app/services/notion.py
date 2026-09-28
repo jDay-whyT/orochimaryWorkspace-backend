@@ -852,6 +852,13 @@ class NotionClient:
         payload = {"properties": {"Title": {"title": [{"text": {"content": title}}]}}}
         await self._request("PATCH", f"https://api.notion.com/v1/pages/{page_id}", json=payload)
 
+    async def get_select_options(self, database_id: str, property_name: str) -> list[str]:
+        """Option names of a select / multi-select property, in Notion order."""
+        data = await self._request("GET", f"https://api.notion.com/v1/databases/{database_id}")
+        prop = (data.get("properties") or {}).get(property_name) or {}
+        options = (prop.get(prop.get("type") or "") or {}).get("options") or []
+        return [o["name"] for o in options if o.get("name")]
+
     async def query_all_accounting(self, database_id: str) -> list[NotionAccounting]:
         """Every record in the working Accounting database, paginated."""
         url = f"https://api.notion.com/v1/databases/{database_id}/query"

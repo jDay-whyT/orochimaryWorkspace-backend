@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher
 
 from app.config import Config
 from app.handlers import (
-    accounting_rename, start, nlp_callbacks, notifications, reddit, reports,
+    access, accounting_rename, start, nlp_callbacks, notifications, reddit, reports,
     salary_callbacks, tango, wml_callbacks, wml_export_cmd,
 )
 from app.services import NotionClient
@@ -21,6 +21,7 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, An
     dp = Dispatcher()
 
     # Register handlers in priority order:
+    dp.include_router(access.router)       # /start without access -> request to owner, /access
     dp.include_router(notifications.router) # /shoots command
     dp.include_router(reddit.router)       # /reddit command
     dp.include_router(tango.router)        # /tango command

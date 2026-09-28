@@ -32,7 +32,7 @@ Telegram-бот на **aiogram v3**, который управляет Notion-б
 | `DB_PLANNER` | ✅ | ID базы **Planner** (UUID) |
 | `DB_ACCOUNTING` | ✅ | ID базы **Accounting** (UUID) |
 | `ARCHIVE_PAGE_ID` | ⚠️ | ID архивной страницы Notion для поиска прошлых Reddit accounting баз |
-| `ALLOWED_EDITORS` | ✅ | user_id с доступом к чтению/записи |
+| `ALLOWED_EDITORS` | ✅ | user_id с доступом к чтению/записи (база; новых менеджеров проще добавлять через бота, см. ниже) |
 | `CRM_TOPIC_THREAD_ID` | ✅ | ID топика CRM в Telegram |
 | `MINI_APP_VIEWERS` | ⚠️ | user_id для просмотра мини-апп (все модели, без доступа к боту) |
 | `SCOUTS_CHAT_ID` | ⚠️ | chat_id скаут-чата |
@@ -306,6 +306,8 @@ gcloud scheduler jobs create http daily-reminders \
 ## Troubleshooting
 
 **Бот молчит** — проверь `ALLOWED_EDITORS`, webhook, логи Cloud Run.
+
+**Новый менеджер** — пишет боту /start в личку, владельцу приходит заявка с кнопками значений `assist` из Accounting. Одобренный хранится в Redis (`access:managers`) и добавляется к `ALLOWED_EDITORS`, напоминаниям (`MANAGER_TELEGRAM_IDS`, в личку) и дайджесту (`ACTIVITY_DIGEST_USER_IDS`). `/access` — список и «убрать доступ». Env-значения не меняются.
 
 **401/403 Notion** — проверь `NOTION_TOKEN` и доступ интеграции ко всем базам.
 

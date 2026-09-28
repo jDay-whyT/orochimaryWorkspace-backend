@@ -7,6 +7,7 @@ import os
 from aiohttp import web
 
 from app.api.auth import validate_init_data
+from app.services import access
 
 LOGGER = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ async def api_scout_models(request: web.Request) -> web.Response:
 
     config = request.app["config"]
     notion = request.app["notion"]
+    await access.refresh(config, request.app.get("redis"))
 
     username = user.get("username")
     if _is_full_access(user_id, config, username):
@@ -144,6 +146,7 @@ async def api_scout_model_card(request: web.Request) -> web.Response:
     model_name = request.match_info["name"]
     config = request.app["config"]
     notion = request.app["notion"]
+    await access.refresh(config, request.app.get("redis"))
 
     username = user.get("username")
     if not _is_full_access(user_id, config, username):

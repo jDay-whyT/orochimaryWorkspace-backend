@@ -13,7 +13,7 @@ from app.bot import create_dispatcher
 from app.config import load_config
 from app.handlers.notifications import update_board
 from app.handlers.reddit import update_reddit_board
-from app.services import activity_log
+from app.services import access, activity_log
 from app.services.forms_watch import run_forms_watch
 from app.services.reminders import run_daily_reminders
 from app.services.status_sync import run_status_sync
@@ -48,6 +48,13 @@ async def create_app() -> web.Application:
         LOGGER.info("Scout Redis client initialized")
     dp["redis"] = app.get("redis")  # exposes the same client to aiogram handler DI
     activity_log.init(app.get("redis"))
+
+    # Managers approved in the bot (/start -> owner button) join the env access lists.
+    async def access_middleware(handler, event, data):
+        await access.refresh(config, app.get("redis"))
+        return await handler(event, data)
+
+    dp.update.outer_middleware(access_middleware)
 
     # Deduplication: track last 200 update_ids to skip Telegram re-deliveries.
     # deque(maxlen=200) keeps insertion order so we can evict the oldest ID
@@ -105,6 +112,7 @@ async def create_app() -> web.Application:
         secret = config.internal_secret
         if not secret or not hmac.compare_digest(request.headers.get("X-Internal-Secret", ""), secret):
             return web.json_response({"ok": False}, status=403)
+        await access.refresh(request.app["config"], request.app.get("redis"), force=True)
         await activity_log.send_daily_digest(request.app["bot"], request.app["config"])
         return web.json_response({"ok": True})
 
@@ -112,6 +120,7 @@ async def create_app() -> web.Application:
         secret = config.internal_secret
         if not secret or not hmac.compare_digest(request.headers.get("X-Internal-Secret", ""), secret):
             return web.json_response({"ok": False}, status=403)
+        await access.refresh(request.app["config"], request.app.get("redis"), force=True)
         await run_daily_reminders(request.app["bot"], request.app["config"], request.app["notion"])
         return web.json_response({"ok": True})
 
