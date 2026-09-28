@@ -440,7 +440,6 @@ def nlp_files_request_type_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="Event", callback_data="nlp:fct:event"),
             InlineKeyboardButton(text="SFS", callback_data="nlp:fct:sfs"),
-            InlineKeyboardButton(text="Ad request", callback_data="nlp:fct:ad request"),
         ],
         [InlineKeyboardButton(text="Other request", callback_data="nlp:fct:request")],
         [InlineKeyboardButton(text="← Back", callback_data="nlp:fct:back")],

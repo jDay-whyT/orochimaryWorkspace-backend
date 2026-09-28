@@ -197,5 +197,5 @@ def test_files_type_menu_matches_notion_columns():
     assert top == ["of", "reddit", "twitter", "fansly", "req"]
     kinds = [b.callback_data.split(":")[2] for row in nlp_files_request_type_keyboard().inline_keyboard for b in row
              if b.callback_data not in ("nlp:fct:back",)]
-    assert kinds == ["pornhub", "instagram", "snapchat", "event", "sfs", "ad request", "request"]
+    assert kinds == ["pornhub", "instagram", "snapchat", "event", "sfs", "request"]
     assert all(get_field_for_content_type(k) == "request_files" for k in kinds)
