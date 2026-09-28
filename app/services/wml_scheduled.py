@@ -8,8 +8,8 @@ Notion is the source. Redis remembers what was last pushed, so only changes go o
 - file counts per model/month are upserted when they changed.
 
 Sanity checks before anything goes out:
-- file counts that went down or jumped by more than SPIKE_FILES, and orders that look
-  like a double entry, are held once: sent on the next run only if still unchanged;
+- file counts that went down or jumped by more than SPIKE_FILES are held once:
+  sent on the next run only if still unchanged;
 - counts that dropped to 0, models with two live Accounting records and Notion orders
   sharing one CRM id are not sent at all (warning every run until fixed);
 - a profile the CRM does not know is reported once, then retried silently;
@@ -105,21 +105,6 @@ async def _known_profile(redis, apply: bool, profile: str) -> None:
         await redis.hdel(MISSING_PROFILES_KEY, profile)
 
 
-def _double_entries(orders) -> set[str]:
-    """Page ids of not-yet-sent orders identical to another order (model, title, type, in, count)."""
-    seen: dict[tuple, str] = {}
-    doubles: set[str] = set()
-    for order in orders:
-        key = (order.model_id, (order.title or "").strip().lower(), order.order_type,
-               (order.in_date or "")[:10], order.count)
-        if key in seen:
-            doubles.add(order.page_id)
-            doubles.add(seen[key])
-        else:
-            seen[key] = order.page_id
-    return {pid for pid in doubles if next(o for o in orders if o.page_id == pid).wml_id is None}
-
-
 async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi, apply: bool, report: ExportReport) -> None:
     orders = await notion.query_all_orders(config.db_orders)
     models = {m.page_id.replace("-", ""): m for m in await notion.query_all_models(config.db_models)}
@@ -135,7 +120,6 @@ async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi
         titles = ", ".join(o.title for o in by_wml_id[wml_id])
         report.warnings.append(f"CRM id {wml_id} стоит у нескольких заказов ({titles}) — не отправляю, "
                                "оставь id только у одного")
-    doubles = _double_entries(orders)
 
     for order in orders:
         seen.add(order.page_id)
@@ -149,11 +133,6 @@ async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi
                 payload, _ = order_payload(order, model)
                 if payload is None or (order.in_date or "")[:10] < config.wml_export_from:
                     continue  # canceled / Tango / unknown type / before the export start
-                if order.page_id in doubles and await _hold_once(
-                        redis, apply, f"order:{order.page_id}", json.dumps(payload, sort_keys=True)):
-                    report.warnings.append(f"{order.title}: похоже на двойную запись (такой же заказ уже есть) — "
-                                           "задерживаю, если не удалят, отправлю в следующий раз")
-                    continue
                 try:
                     resp = await _call(apply, api.create_order, payload)
                 except Exception as e:

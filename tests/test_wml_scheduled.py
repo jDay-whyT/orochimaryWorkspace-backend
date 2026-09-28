@@ -222,16 +222,13 @@ async def test_unknown_profile_is_reported_once():
 
 
 @pytest.mark.asyncio
-async def test_double_entry_order_is_held_once():
+async def test_identical_orders_are_all_created():
+    # several identical orders on one day are normal (entered one by one)
     redis, api = FakeRedis(), _api()
     orders = [_order("a", title="ТВИКСИ | custom"), _order("b", title="ТВИКСИ | custom")]
     report = ws.ExportReport()
     await ws.export_orders(_config(), _notion(orders), redis, api, True, report)
-    api.create_order.assert_not_called()
-    assert len(report.warnings) == 2 and "двойную запись" in report.warnings[0]
-    report = ws.ExportReport()
-    await ws.export_orders(_config(), _notion(orders), redis, api, True, report)
-    assert api.create_order.call_count == 2  # nobody deleted it -> real orders
+    assert api.create_order.call_count == 2 and not report.warnings
 
 
 @pytest.mark.asyncio
