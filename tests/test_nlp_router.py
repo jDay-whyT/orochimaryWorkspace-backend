@@ -204,3 +204,63 @@ class TestStateManagement:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ============================================================================
+#                     TYPO-TOLERANT MODEL SEARCH
+# ============================================================================
+
+_MODELS = [
+    {"id": str(i), "name": n, "aliases": a} for i, (n, a) in enumerate([
+        ("КЛЕЩ", []), ("ТангоКлещ", []), ("КАПРИ", ["kapri"]), ("БЕРЛИН", ["berlín", "berlin"]),
+        ("ВЕНА", []), ("ВЕСНА", []), ("МОНА ЛИЗА", ["мона", "лиза"]), ("Танго 8", []), ("Танго 18", []),
+        ("ТВИКСИ", []), ("ТЕЙСТИ", []),
+    ])
+]
+
+
+async def _resolve(query, recent=None):
+    from unittest.mock import AsyncMock, patch
+    from app.router.model_resolver import resolve_model
+
+    class _Recent:
+        def get(self, user_id):
+            return recent or []
+
+    with patch("app.handlers.models.search_model_by_name_or_alias", AsyncMock(return_value=_MODELS)):
+        return await resolve_model(query, 1, "db", None, _Recent())
+
+
+class TestTypoTolerantSearch:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("query,name", [
+        ("клещ", "КЛЕЩ"), ("kapri", "КАПРИ"), ("Berlin", "БЕРЛИН"), ("berlín", "БЕРЛИН"),
+        ("вена", "ВЕНА"), ("весна", "ВЕСНА"), ("мона", "МОНА ЛИЗА"), ("танго 8", "Танго 8"), ("танго8", "Танго 8"),
+    ])
+    async def test_exact_title_or_alias_is_found(self, query, name):
+        res = await _resolve(query)
+        assert res["status"] == "found" and res["model"]["name"] == name
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("query,name", [
+        ("клеш", "КЛЕЩ"),      # wrong letter
+        ("клещь", "КЛЕЩ"),     # extra letter
+        ("твиски", "ТВИКСИ"),  # swapped letters
+        ("тести", "ТЕЙСТИ"),   # missing letter
+        ("capri", "КАПРИ"),    # typo in an alias
+    ])
+    async def test_one_typo_asks_for_confirmation(self, query, name):
+        res = await _resolve(query)
+        assert res["status"] == "confirm" and res["model"]["name"] == name
+
+    @pytest.mark.asyncio
+    async def test_typo_does_not_jump_to_a_recent_model(self):
+        # "вена" is spelled exactly -> ВЕНА, even though ВЕСНА (1 letter away) was opened recently
+        res = await _resolve("вена", recent=[("5", "ВЕСНА")])
+        assert res["model"]["name"] == "ВЕНА"
+
+    @pytest.mark.asyncio
+    async def test_far_off_query_offers_nearest_or_nothing(self):
+        assert (await _resolve("xyzw"))["status"] == "not_found"
+        res = await _resolve("твиксик")
+        assert res["model"]["name"] == "ТВИКСИ" or "ТВИКСИ" in [m["name"] for m in res["models"]]
