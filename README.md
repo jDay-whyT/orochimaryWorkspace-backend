@@ -1,322 +1,104 @@
 # OROCHIMARY Telegram Bot
 
-Telegram-бот на **aiogram v3**, который управляет Notion-базами **Models / Orders / Planner / Accounting** и работает через **webhook**. Запускается в **Google Cloud Run** (stateless), все настройки приходят из ENV.
+Telegram-бот (aiogram v3) и Telegram Mini App для работы с моделями агентства. Источник данных — Notion (базы **Models**, **Orders**, **Planner**, **Accounting**, **Notes**). Бот работает через webhook на **Google Cloud Run**, состояние хранит в **Redis** (Upstash).
 
-## Кратко о проекте
+## Что умеет
 
-- Бот для управления Notion-базами: **Models**, **Orders**, **Planner**, **Accounting**
-- NLP-роутер: распознаёт намерения из свободного текста без команд
-- Основные флоу: **Orders**, **Planner**, **Accounting**, **Reddit**
-- State: Redis (primary) / in-memory fallback
-- Cloud Run stateless: без корректных ENV и webhook бот не отвечает
+**Менеджерам** (интерфейс на простом английском):
+- написать имя модели → карточка модели → кнопками заказы, съёмки, файлы, заметки;
+- поиск прощает опечатку (1 буква, для длинных имён 2), не различает регистр, ё/е и ударения; латинские варианты имён — через алиасы в Models;
+- напоминания в 12:00: долго открытые заказы и мало контента, только по своим моделям;
+- Mini App: только свои модели (по `assist` в Accounting).
 
-## Требования
+**Владельцу** (на русском):
+- заявки на доступ: новый человек пишет боту /start → кнопка с менеджером (`assist`) → доступ, напоминания и дайджест; `/access` — список и «убрать»;
+- дайджест действий менеджеров в 23:55;
+- `/reports` — зарплатный отчёт в Google Sheets, `/rename_month` — закрытие месяца, `/tango` — расписание стримов;
+- уведомления о новых профилях WML, датах Fansly, новых анкетах, дублях в Accounting;
+- выгрузка в WML CRM дважды в день со сводкой.
 
-- Python **3.12+**
-- **aiogram v3**
-- **Notion integration token** + database IDs
-- **Telegram bot token**
-- **GCP project** + **Cloud Run**
-- **Redis** (опционально, рекомендуется)
+**Доскам в группе:** `/shoots` — съёмки на 7 дней, `/reddit` — Reddit-модели. Обновляются по расписанию.
 
-## ENV переменные
+## Выгрузка в WML CRM
 
-> `ALLOWED_EDITORS` — через запятую: `"123,456"`
+Notion — источник, CRM только получает. Задача `wml-export` в 01:00 и 16:00 (Europe/Brussels):
+- заказы: новые создаются, у отправленных обновляются `out` / `count` / `received`, отменённые и удалённые открытые — `cancelled`; CRM id хранится в Orders `wml_id`;
+- файлы: цифры модели за месяц (апсерт по модели и месяцу), только если изменились;
+- Танго не выгружается;
+- проверки: уменьшение или скачок файлов (>300) задерживаются на одну выгрузку; дубли в Accounting и один CRM id у нескольких заказов не отправляются; неизвестный профиль сообщается один раз;
+- без `WML_EXPORT_APPLY=1` только присылает отчёт; во время `/rename_month` пропускается; одновременно идёт одна выгрузка.
 
-| Переменная | Обязательно | Описание |
-|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | ✅ | Токен бота от @BotFather |
-| `NOTION_TOKEN` | ✅ | Integration token из Notion |
-| `DB_MODELS` | ✅ | ID базы **Models** (UUID) |
-| `DB_ORDERS` | ✅ | ID базы **Orders** (UUID) |
-| `DB_PLANNER` | ✅ | ID базы **Planner** (UUID) |
-| `DB_ACCOUNTING` | ✅ | ID базы **Accounting** (UUID) |
-| `ARCHIVE_PAGE_ID` | ⚠️ | ID архивной страницы Notion для поиска прошлых Reddit accounting баз |
-| `ALLOWED_EDITORS` | ✅ | user_id с доступом к чтению/записи (база; новых менеджеров проще добавлять через бота, см. ниже) |
-| `CRM_TOPIC_THREAD_ID` | ✅ | ID топика CRM в Telegram |
-| `MINI_APP_VIEWERS` | ⚠️ | user_id для просмотра мини-апп (все модели, без доступа к боту) |
-| `SCOUTS_CHAT_ID` | ⚠️ | chat_id скаут-чата |
-| `TELEGRAM_WEBHOOK_SECRET` | ⚠️ | Секрет для X-Telegram-Bot-Api-Secret-Token |
-| `TIMEZONE` | ⚠️ | Таймзона, по умолчанию `Europe/Brussels` |
-| `FILES_PER_MONTH` | ⚠️ | Лимит файлов в месяц, по умолчанию `200` |
-| `INTERNAL_SECRET` | ⚠️ | Секрет для internal endpoints |
-| `MANAGERS_CHAT_ID` | ⚠️ | chat_id группы для борда |
-| `MANAGERS_TOPIC_THREAD_ID` | ⚠️ | topic_thread_id борда съёмок |
-| `REDDIT_BOARD_TOPIC_THREAD_ID` | ⚠️ | topic_thread_id Reddit борда |
-| `BOARD_MESSAGE_ID` | ⚠️ | message_id закреплённого борда съёмок |
-| `REDDIT_BOARD_MESSAGE_ID` | ⚠️ | message_id закреплённого Reddit борда |
-| `REDIS_URL` | ⚠️ | Redis URL, например `redis://localhost:6379/0` |
-| `WML_USERNAME` | ⚠️ | Логин WML CRM (для /internal/scrape-wml) |
-| `WML_PASSWORD` | ⚠️ | Пароль WML CRM (для /internal/scrape-wml) |
-| `MANAGER_TELEGRAM_IDS` | ❌ | Куда слать напоминания менеджеру (поле `assist` в Accounting): `"robin:-100123/25612,di:456"` — `чат/топик` для топика группы, просто ID для лички |
-| `ACTIVITY_DIGEST_USER_IDS` | ❌ | Чьи действия попадают в вечернюю сводку владельцу (Telegram ID через запятую) |
-| `STATUS_SYNC_APPLY` | ❌ | `1` — синхронизация статусов Models → Accounting пишет в Notion; иначе только присылает владельцу список расхождений |
-| `OVERDUE_ORDER_DAYS` | ❌ | Заказ «долго открыт», если дней больше этого (по умолчанию 3) |
-| `LOW_CONTENT_THRESHOLD` | ❌ | «Мало контента» — меньше стольких файлов за месяц (по умолчанию 50) |
+Разовые команды владельца: `/wml_test_orders` (до 100 неотправленных заказов за сентябрь), `/wml_test_files [N]` (файлы, топ N по Total).
 
-## Структура проекта
+## Настройки
+
+Все настройки — переменные окружения Cloud Run (секреты — в GitHub Secrets и Secret Manager). Полный список с значениями по умолчанию — в `app/config.py`. Менеджеров в env больше добавлять не нужно: они одобряются через бота и хранятся в Redis.
+
+## Архитектура: что важно не сломать
+
+1. **Один lock на пользователя для текста и кнопок.** `route_message` и `handle_nlp_callback` работают с одним `memory_state`; оба оборачивают тело в `async with get_user_lock(chat_id, user_id)`.
+2. **После записи в Notion — сброс кэша.** `orders.py` / `planner.py` / `accounting.py` держат TTL-кэш на модель: после `create_/update_/close_*` вызывай `*_cache.clear_cache(...)`. Карточка модели сама видит записи бота: `NotionClient` 2 минуты помнит страницы, которые создал или изменил (поиск по базе Notion отстаёт от записи на несколько секунд).
+3. **Новая клавиатура — гаси старую.** Перед новым экраном вызывай `_clear_previous_screen_keyboard(...)`, иначе старые кнопки ведут в «Session expired».
+4. **Список моделей для поиска** (`app/handlers/models.py`) кэшируется: память 5 минут + копия в Redis + прогрев при старте. Новую модель из WML кэш видит сразу, правку в Notion — в течение 5 минут.
+
+## Структура
 
 ```
 app/
-├── bot.py                   # Dispatcher setup, роутеры
-├── config.py                # Конфиг из ENV
-├── roles.py                 # Role-based access control
-├── server.py                # aiohttp webhook server + mini-app + internal endpoints
-├── api/
-│   ├── auth.py               # Telegram Mini App initData HMAC-SHA256 валидация
-│   └── scout.py               # Scout Mini App API handlers
-├── filters/
-│   ├── flow.py               # FlowFilter
-│   └── topic_access.py        # TopicAccessMessageFilter / TopicAccessCallbackFilter
-├── handlers/
-│   ├── start.py               # /start, NLP fallback
-│   ├── models.py              # Model search handlers для NLP роутинга
-│   ├── nlp_callbacks.py       # CRM action UI: orders/shoots/files/notes через кнопки карточки модели
-│   ├── reddit.py               # /reddit борд
-│   ├── notifications.py        # /shoots борд
-│   └── tango.py                # /tango расписание (Google Sheets)
-├── router/
-│   ├── dispatcher.py          # NLP routing pipeline (model-name search only)
-│   ├── entities_v2.py          # Entity extraction (model name)
-│   ├── command_filters.py      # IGNORE_KEYWORDS + CommandIntent (SEARCH_MODEL/UNKNOWN)
-│   ├── model_resolver.py       # Fuzzy model matching
-│   └── prefilter.py            # Pre-filter (gibberish, length)
-├── services/
-│   ├── notion.py               # Notion API client
-│   ├── models.py                # Models service (поиск/чтение карточек моделей)
-│   ├── orders.py                 # Orders: TTL-кеш открытых заказов
-│   ├── planner.py                # Planner: TTL-кеш съёмок
-│   ├── accounting.py              # Accounting: TTL-кеш месячных записей
-│   ├── model_card.py             # CRM карточка модели
-│   ├── scout_card.py              # Скаут карточка
-│   ├── sheets.py                   # Google Sheets client (для /tango)
-│   └── tango_schedule.py            # Парсинг расписания из Sheets
-├── keyboards/
-│   ├── inline.py               # Все inline-клавиатуры NLP-флоу
-│   └── calendar.py              # Календарь для выбора дат
-├── state/
-│   ├── memory.py                # In-memory state (fallback)
-│   ├── recent.py                 # Recent models (in-memory)
-│   ├── redis_state.py            # Redis-backed state (primary)
-│   ├── redis_recent.py            # Redis recent models
-│   └── token.py                   # Anti-stale token helpers (k) для NLP-клавиатур
-└── utils/
-    ├── constants.py             # Константы (статусы заказов/планера/аккаунтинга и др.)
-    ├── formatting.py             # Форматирование дат, текста
-    ├── accounting.py              # Прогресс файлов
-    ├── content_mapping.py          # content type → DB field
-    ├── telegram.py                  # safe_answer/safe_edit_message — flood-control retry
-    └── locks.py                      # per-(chat,user) asyncio.Lock, общий для текста и callback
+├── server.py            # aiohttp: webhook, internal endpoints, Mini App API и статика
+├── bot.py               # роутеры aiogram
+├── config.py            # настройки из env
+├── api/                 # Mini App: initData-проверка, модели, карточка
+├── handlers/            # access, nlp_callbacks (карточка и шаги), start, отчёты, WML, доски, Танго
+├── router/              # разбор текста: имя модели, поиск с опечатками (model_resolver)
+├── services/            # Notion-клиент, карточки, выгрузка в CRM, напоминания, дайджест, синхронизации
+├── keyboards/           # inline-клавиатуры
+├── state/               # Redis / in-memory состояние диалогов и недавние модели
+└── utils/               # форматирование, локи, Telegram-помощники
+frontend/                # Mini App (React/Vite)
+tests/                   # pytest
 ```
 
-## Архитектура: state, локи, кеш
+## Расписание (Cloud Scheduler, europe-west1)
 
-Это не просто справочник — это инварианты, которые ловили реальные продовые баги (2026-07-27), так что при добавлении нового флоу их нужно соблюдать:
+| Задача | Когда | Endpoint |
+|---|---|---|
+| `update-shoots-board` | каждые 3 ч | `/internal/update-board` |
+| `update-reddit-board` (us-central1) | каждые 3 ч | `/internal/update-reddit-board` |
+| `wml-scraper` | каждый час | `/internal/scrape-wml` — новые профили WML, даты Fansly, анкеты, статусы Accounting |
+| `daily-reminders` | 12:00 | `/internal/daily-reminders` |
+| `activity-digest` | 23:55 | `/internal/activity-digest` |
+| `wml-export` | 01:00 и 16:00 | `/internal/wml-export` |
 
-1. **Один lock на пользователя для текста и callback.** `route_message` (текстовые сообщения) и `handle_nlp_callback` (нажатия inline-кнопок) — два разных роутера, но оба читают/пишут один и тот же `memory_state` для данного `(chat_id, user_id)`. Без общего лока (`app/utils/locks.get_user_lock`) быстрое сообщение + нажатие кнопки от одного юзера обрабатываются параллельными корутинами и могут перезаписать состояние друг друга — например, подтверждение заказа читает `model_id`, который параллельный текстовый поиск уже заменил на другую модель (или очистил). Оба хендлера оборачивают всё тело в `async with get_user_lock(chat_id, user_id):`.
-2. **Каждая запись в Notion → clear_cache.** `orders.py` / `planner.py` / `accounting.py` держат in-memory TTL-кеш (60с) на модель. Любой `notion.create_/update_/close_/reschedule_*` вызов обязан сопровождаться соответствующим `*_cache.clear_cache(model_id, ...)` сразу после успешной записи — иначе бот до 60 секунд показывает старые данные (заказ, помеченный закрытым, всё ещё выглядит открытым).
-3. **Новая клавиатура — гаси старую.** Перед тем как открыть новый экран (`memory_state.set(...)` с новым токеном `k`), вызови `_clear_previous_screen_keyboard(...)`, читая текущий `screen_message_id` из состояния **до** его перезаписи. Иначе старая клавиатура остаётся кликабельной, а нажатие на неё после смены токена валится в "Сессия устарела, откройте модель заново".
+Все `/internal/*` требуют заголовок `X-Internal-Secret`. Новую задачу проще всего создать по образцу существующей (`gcloud scheduler jobs describe daily-reminders --location europe-west1`).
 
-## NLP команды
+## Деплой
 
-Free-text intent recognition used to have ~13 keyword-based intents (кастом/шорт/
-съемка/файлы/etc). Usage data (30 days, July 2026) showed 99% of real traffic was
-just a bare model name, so the keyword classifier was removed. Now:
+Push в `main` не деплоит. Деплой — вручную: GitHub → Actions → **Deploy TG Bot (Cloud Run)** → Run workflow. Workflow задаёт только свои переменные, остальные (таймаут, доступ, флаги) сохраняются в сервисе.
 
-| Фраза | Что делает |
-|---|---|
-| `стейдж` (любое имя модели) | CRM карточка модели — с неё кнопками создаются заказы, съёмки, файлы, заметки |
-| `/shoots` | Борд съёмок на 7 дней |
-| `/reddit` | Reddit борд по всем моделям |
-
-Старые keyword-команды (`три кастома стейдж`, `стейдж 30 файлов`, `шут стейдж` и
-т.п.) больше не выполняют действие напрямую — слова из старого словаря просто
-игнорируются при поиске имени модели (`IGNORE_KEYWORDS`), так что "стейдж 30
-файлов" по-прежнему находит модель "стейдж" и показывает карточку.
-
-## Типы заказов (Orders)
-
-| Тип | Описание |
-|---|---|
-| `custom` | Кастом (создаётся по одному) |
-| `short` | Шорт (count в одну запись) |
-| `verif reddit` | Верификация Reddit (default 10 шт) |
-| `call` | Колл |
-| `ad request` | Ad Request |
-
-Для типов `short` и `verif reddit` доступно частичное закрытие через кнопку **Внести часть** — накапливает `received`. При `received >= count` заказ закрывается автоматически.
-
-## Reddit борд (`/reddit`)
-
-Показывает карточки по всем Reddit-моделям (источник: Accounting `Content=reddit`, `status=work`):
-
+Разовое изменение переменной без деплоя кода:
+```bash
+gcloud run services update orochimary-bot --region europe-west1 --update-env-vars KEY=value
 ```
-Reddit · апр 2026 — 14 моделей
-ШАНЕЛЬ  28 апр (Пт)
-└ scheduled
-| last: 15 апр
-▸ reddit: 90 | вериф: 7/20
-💬 комментарий
-```
+Значение с запятыми: `--update-env-vars '^;^KEY=a,b,c'`.
 
-Автообновление каждые 3 часа через Cloud Scheduler → `POST /internal/update-reddit-board`.
-
-## Борд съёмок (`/shoots`)
-
-Показывает съёмки на 7 дней вперёд. Автообновление через Cloud Scheduler → `POST /internal/update-board`.
-
-## Скаут карточка
-
-```
-ШАНЕЛЬ · work · СБОРНАЯ
-└ @scout → @assist
-| es, eng < b1
-| anal: plug, fingers  |  calls: No
-| traffic: Reddit, Twitter
-| rent: no
-▸ content: Reddit 90
-▸ last shoot: 15 апр · posting, reddit
-▸ next shoot: 28 апр · twitter
-orders
-| done: 11  |  open: 5
-```
-
-## Accounting
-
-- 1 запись на модель в месяц
-- Title: `"{MODEL_NAME} {месяц_ru} {год}"` — например `"ШАНЕЛЬ апрель 2026"`
-- Поля по типам: `of_files`, `reddit_files`, `twitter_files`, `fansly_files`, `social_files`, `request_files`
-- Лимит: `FILES_PER_MONTH` (default 200)
-
-## Локальный запуск
+## Локально
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-export $(cat .env | xargs)
-python -m app.server
+python -m pytest            # тесты
+python -m app.server        # сервер на :8080, проверка: curl localhost:8080/healthz
 ```
 
-Проверка:
-```bash
-curl http://localhost:8080/healthz
-```
+## Если что-то не так
 
-## Деплой в Cloud Run
-
-```bash
-docker build -t orochimary-bot .
-docker tag orochimary-bot gcr.io/YOUR_PROJECT/orochimary-bot:latest
-docker push gcr.io/YOUR_PROJECT/orochimary-bot:latest
-
-gcloud run deploy orochimary-bot \
-  --image gcr.io/YOUR_PROJECT/orochimary-bot:latest \
-  --region europe-west1 \
-  --platform managed \
-  --set-env-vars ARCHIVE_PAGE_ID=22332beee7a08089b33ed051a223f63f \
-  --allow-unauthenticated
-```
-
-### Webhook
-
-```bash
-curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
-  -H "Content-Type: application/json" \
-  -d "{\"url\":\"https://YOUR_DOMAIN/tg/webhook\",\"secret_token\":\"$TELEGRAM_WEBHOOK_SECRET\"}"
-```
-
-### Cloud Scheduler
-
-Борд съёмок (каждые 3 часа):
-```bash
-gcloud scheduler jobs create http update-shoots-board \
-  --location=europe-west1 \
-  --schedule="0 */3 * * *" \
-  --time-zone="UTC" \
-  --uri="https://YOUR_CLOUD_RUN_URL/internal/update-board" \
-  --http-method=POST \
-  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
-```
-
-Reddit борд (каждые 3 часа):
-```bash
-gcloud scheduler jobs create http update-reddit-board \
-  --location=europe-west1 \
-  --schedule="0 */3 * * *" \
-  --time-zone="UTC" \
-  --uri="https://YOUR_CLOUD_RUN_URL/internal/update-reddit-board" \
-  --http-method=POST \
-  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
-```
-
-WML CRM sync (новые модели + Fansly-даты, частота настраивается — например раз в час):
-```bash
-gcloud scheduler jobs create http wml-crm-sync \
-  --location=europe-west1 \
-  --schedule="0 * * * *" \
-  --time-zone="UTC" \
-  --uri="https://YOUR_CLOUD_RUN_URL/internal/scrape-wml" \
-  --http-method=POST \
-  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
-```
-
-Сводка действий за день пользователей из `ACTIVITY_DIGEST_USER_IDS`: заказы, съёмки, файлы. В 23:55, чтобы попали все записи дня; молчит если действий не было:
-```bash
-gcloud scheduler jobs create http activity-digest \
-  --location=europe-west1 \
-  --schedule="55 23 * * *" \
-  --time-zone="Europe/Brussels" \
-  --uri="https://YOUR_CLOUD_RUN_URL/internal/activity-digest" \
-  --http-method=POST \
-  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
-```
-
-Напоминания в 12:00: долго открытые заказы (каждый день) и мало контента у моделей `work`/`new` (20-го и 27-го). Владелец получает всё в личку, менеджеры из `MANAGER_TELEGRAM_IDS` — только свои модели (в личку или в топик группы); молчит если нечего напомнить:
-```bash
-gcloud scheduler jobs create http daily-reminders \
-  --location=europe-west1 \
-  --schedule="0 12 * * *" \
-  --time-zone="Europe/Brussels" \
-  --uri="https://YOUR_CLOUD_RUN_URL/internal/daily-reminders" \
-  --http-method=POST \
-  --headers="X-Internal-Secret=YOUR_INTERNAL_SECRET"
-```
-
-Синхронизация статусов Models → Accounting (текущий месяц) и отчёт о расхождениях проекта WML↔Notion идут внутри `wml-crm-sync`, отдельная задача не нужна.
-
-### Первый запуск бордов
-
-После первого деплоя — вызови каждый endpoint вручную или через `/shoots` и `/reddit`. Бот залогирует `message_id` нового сообщения. Добавь его в Cloud Run ENV как `BOARD_MESSAGE_ID` и `REDDIT_BOARD_MESSAGE_ID` соответственно, затем задеплой снова.
-
-## Endpoints
-
-| Endpoint | Описание |
-|---|---|
-| `GET /` | Info |
-| `GET /healthz` | Healthcheck |
-| `POST /tg/webhook` | Telegram webhook |
-| `POST /internal/update-board` | Обновление борда съёмок |
-| `POST /internal/update-reddit-board` | Обновление Reddit борда |
-| `POST /api/scout/models` | Mini App: список моделей для скаута |
-| `GET /api/scout/model/{name}` | Mini App: карточка модели по имени |
-| `POST /api/scout/verify` | Mini App: HMAC-валидация Telegram initData (`app/api/auth.py`) |
-| `GET /` `GET /{tail:.*}` | Раздача Scout Mini App (статика + SPA fallback), если собран `frontend/dist` (или `/app/static` в Docker) |
-
-## Troubleshooting
-
-**Бот молчит** — проверь `ALLOWED_EDITORS`, webhook, логи Cloud Run.
-
-**Новый менеджер** — пишет боту /start в личку, владельцу приходит заявка с кнопками значений `assist` из Accounting. Одобренный хранится в Redis (`access:managers`) и добавляется к `ALLOWED_EDITORS`, напоминаниям (`MANAGER_TELEGRAM_IDS`, в личку) и дайджесту (`ACTIVITY_DIGEST_USER_IDS`). `/access` — список и «убрать доступ». Env-значения не меняются.
-
-**401/403 Notion** — проверь `NOTION_TOKEN` и доступ интеграции ко всем базам.
-
-**Redis недоступен** — бот упадёт на старте если `REDIS_URL` задан но Redis не отвечает. Убери `REDIS_URL` для fallback на in-memory.
-
-**Timeouts** — увеличь timeout или уменьши concurrency в Cloud Run.
-
-**Борд не обновляется** — проверь `BOARD_MESSAGE_ID` / `REDDIT_BOARD_MESSAGE_ID` в ENV и что `MANAGERS_CHAT_ID` указан верно (с минусом).
+- **Бот молчит** — логи Cloud Run; человек есть в доступе (`/access`)? webhook на месте?
+- **«Session expired»** — нажата кнопка со старого экрана, открой модель заново.
+- **Модель не находится** — проверь имя/алиас в Models; правка в Notion видна боту в течение 5 минут.
+- **Ошибка выгрузки в CRM** — текст приходит в сводке; «Profile not found» = профиля нет в WML, «Out must be ≥ In» = опечатка в датах заказа.
+- **401/403 Notion** — токен и доступ интеграции ко всем базам.
 
 ## License
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
+[GNU General Public License v3.0](LICENSE)
