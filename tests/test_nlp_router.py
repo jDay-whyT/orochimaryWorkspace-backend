@@ -225,7 +225,7 @@ async def _resolve(query, recent=None):
         def get(self, user_id):
             return recent or []
 
-    with patch("app.handlers.models.search_model_by_name_or_alias", AsyncMock(return_value=_MODELS)):
+    with patch("app.handlers.models.list_models", AsyncMock(return_value=_MODELS)):
         return await resolve_model(query, 1, "db", None, _Recent())
 
 
@@ -287,7 +287,7 @@ class TestTypoTolerantSearch:
         from app.router.model_resolver import resolve_model
 
         models = [{"id": "1", "name": "КАПРИ", "aliases": ["kapri"]}, {"id": "2", "name": "КАПРИ 2", "aliases": ["kapri"]}]
-        with patch("app.handlers.models.search_model_by_name_or_alias", AsyncMock(return_value=models)):
+        with patch("app.handlers.models.list_models", AsyncMock(return_value=models)):
             res = await resolve_model("kapri", 1, "db", None, type("R", (), {"get": lambda self, u: []})())
         assert res["status"] == "multiple" and len(res["models"]) == 2
 

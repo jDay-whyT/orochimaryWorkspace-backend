@@ -13,6 +13,7 @@ from app.bot import create_dispatcher
 from app.config import load_config
 from app.handlers.notifications import update_board
 from app.handlers.reddit import update_reddit_board
+from app.handlers import models as models_list
 from app.services import access, activity_log
 from app.services.forms_watch import run_forms_watch
 from app.services.reminders import run_daily_reminders
@@ -48,6 +49,13 @@ async def create_app() -> web.Application:
         LOGGER.info("Scout Redis client initialized")
     dp["redis"] = app.get("redis")  # exposes the same client to aiogram handler DI
     activity_log.init(app.get("redis"))
+    models_list.init(app.get("redis"))
+
+    async def warm_models(_app: web.Application) -> None:
+        # the first message after a cold start should not wait for the full Models scan
+        _app["models_warmup"] = asyncio.create_task(models_list.warm_up(config.db_models, notion))
+
+    app.on_startup.append(warm_models)
 
     # Managers approved in the bot (/start -> owner button) join the env access lists.
     async def access_middleware(handler, event, data):

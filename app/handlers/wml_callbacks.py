@@ -72,6 +72,8 @@ async def cb_wml_add(query: CallbackQuery, config: Config, notion: NotionClient,
         if not project and has_tango_date:
             project = "TANGO"
 
+        from app.handlers import models as models_list
+
         await notion.create_model_from_wml(
             database_id=config.db_models,
             title=title,
@@ -81,6 +83,7 @@ async def cb_wml_add(query: CallbackQuery, config: Config, notion: NotionClient,
             location=detail.location,
             comment=detail.comment,
         )
+        await models_list.invalidate()  # the new model must be findable right away
 
         extra_lines = []
         if detail.tg_content_manager:

@@ -215,10 +215,10 @@ async def resolve_model(
             return {"status": "found", "model": m, "models": []}
 
     # Step 2: all models from Notion
-    from app.handlers.models import search_model_by_name_or_alias
+    from app.handlers.models import list_models
 
     try:
-        all_models = await search_model_by_name_or_alias(query, db_models, notion)
+        all_models = await list_models(query, db_models, notion)
     except Exception as e:
         LOGGER.exception("Failed to search models: %s", e)
         return {"status": "not_found", "model": None, "models": []}
