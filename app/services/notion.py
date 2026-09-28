@@ -653,7 +653,7 @@ class NotionClient:
         self,
         database_id: str,
         model_page_id: str,
-        shoot_date: date,
+        shoot_date: date | None,
         content: list[str],
         location: str,
         title: str,
@@ -666,11 +666,13 @@ class NotionClient:
         properties: dict[str, Any] = {
             "Title": {"title": [{"text": {"content": title}}]},
             "model": {"relation": [{"id": model_page_id}]},
-            "date": {"date": {"start": shoot_date.isoformat()}},
             "status": {"select": {"name": shoot_status}},
             "location": {"select": {"name": location}},
             "content": {"multi_select": [{"name": c} for c in content]},
         }
+
+        if shoot_date is not None:
+            properties["date"] = {"date": {"start": shoot_date.isoformat()}}
 
         if comments:
             properties["comments"] = {"rich_text": [{"text": {"content": comments}}]}

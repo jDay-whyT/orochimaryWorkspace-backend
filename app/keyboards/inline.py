@@ -312,16 +312,74 @@ def nlp_report_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
 # ==================== NLP Shoot Keyboards ====================
 
 def nlp_shoot_date_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
-    """Date selection for shoot. model_id in memory."""
+    """New date when rescheduling a shoot. model_id in memory."""
     s = f":{k}" if k else ""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="Tomorrow", callback_data=f"nlp:sd:tomorrow{s}"),
             InlineKeyboardButton(text="Day after tomorrow", callback_data=f"nlp:sd:day_after{s}"),
         ],
-        [InlineKeyboardButton(text="📅 Other date", callback_data=f"nlp:sd:custom{s}")],
+        [InlineKeyboardButton(text="📅 Pick a date", callback_data=f"nlp:sd:cal{s}")],
         [nlp_back_button(model_id)],
     ])
+
+
+def nlp_shoot_new_date_keyboard(model_id: str, today) -> InlineKeyboardMarkup:
+    """First step of a new shoot: the day (or 'no date yet')."""
+    from datetime import timedelta
+
+    quick = [("Today", today), ("Tomorrow", today + timedelta(days=1)), ("Day after", today + timedelta(days=2))]
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=label, callback_data=f"nlp:sn:d:{d.isoformat()}") for label, d in quick],
+        [InlineKeyboardButton(text="📅 Pick a date", callback_data="nlp:sn:cal")],
+        [InlineKeyboardButton(text="❓ No date yet", callback_data="nlp:sn:nodate")],
+        [nlp_back_button(model_id)],
+    ])
+
+
+def nlp_shoot_comment_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Skip →", callback_data="nlp:sn:skip")],
+    ])
+
+
+_CAL_MONTHS = ["January", "February", "March", "April", "May", "June",
+               "July", "August", "September", "October", "November", "December"]
+
+
+def nlp_calendar_keyboard(year: int, month: int, min_date, back_callback: str, today=None) -> InlineKeyboardMarkup:
+    """Month grid of day buttons (Monday first). Days before `min_date` are not selectable.
+
+    Callbacks: nlp:cal:d:<YYYY-MM-DD> pick a day, nlp:cal:m:<YYYY-MM> another month, nlp:cal:x nothing.
+    """
+    import calendar as _calendar
+    from datetime import date as _date
+
+    prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
+    next_y, next_m = (year + 1, 1) if month == 12 else (year, month + 1)
+    can_go_back = min_date is None or (prev_y, prev_m) >= (min_date.year, min_date.month)
+    rows = [[
+        InlineKeyboardButton(text="◀" if can_go_back else " ",
+                             callback_data=f"nlp:cal:m:{prev_y}-{prev_m:02d}" if can_go_back else "nlp:cal:x"),
+        InlineKeyboardButton(text=f"{_CAL_MONTHS[month - 1]} {year}", callback_data="nlp:cal:x"),
+        InlineKeyboardButton(text="▶", callback_data=f"nlp:cal:m:{next_y}-{next_m:02d}"),
+    ]]
+    rows.append([InlineKeyboardButton(text=d, callback_data="nlp:cal:x") for d in ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]])
+    for week in _calendar.Calendar(firstweekday=0).monthdayscalendar(year, month):
+        row = []
+        for day in week:
+            if day == 0:
+                row.append(InlineKeyboardButton(text=" ", callback_data="nlp:cal:x"))
+                continue
+            d = _date(year, month, day)
+            if min_date is not None and d < min_date:
+                row.append(InlineKeyboardButton(text="·", callback_data="nlp:cal:x"))
+            else:
+                text = f"•{day}" if today is not None and d == today else str(day)
+                row.append(InlineKeyboardButton(text=text, callback_data=f"nlp:cal:d:{d.isoformat()}"))
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="← Back", callback_data=back_callback)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def nlp_shoot_location_keyboard(

@@ -152,7 +152,7 @@ STALE_MSG = "Session expired, open the model again"
 # if state was lost (bot restart, 30-min TTL expiry) clicking a stale
 # disambiguation button should still open the model card, not error out.
 _NO_TOKEN_ACTIONS = {"x", "bk", "noop", "om", "op", "cp", "fm", "smn", "sctm",
-                     "more_actions", "done", "sm", "fct"}
+                     "more_actions", "done", "sm", "fct", "sn", "cal"}
 
 
 async def _safe_edit_reply_markup(bot, chat_id: int, message_id: int) -> None:
@@ -485,6 +485,10 @@ async def _handle_nlp_callback_impl(
         # ===== Shoot Callbacks =====
         elif action == "sd":
             await _handle_shoot_date(query, parts, config, notion, memory_state, recent_models)
+        elif action == "sn":
+            await _handle_new_shoot(query, parts, config, notion, memory_state, recent_models)
+        elif action == "cal":
+            await _handle_calendar(query, parts, config, notion, memory_state, recent_models)
         elif action == "sl":
             await _handle_shoot_location(query, parts, config, notion, memory_state, recent_models)
         # ===== Order Callbacks =====
@@ -1423,23 +1427,14 @@ async def _handle_shoot_menu_action(
     shoot_id = state.get("shoot_id")
 
     if action == "new":
-        from app.keyboards.inline import nlp_shoot_content_keyboard
-        k = generate_token()
         memory_state.set(chat_id, user_id, {
             "flow": "nlp_shoot",
-            "step": "awaiting_content",
+            "step": "awaiting_date",
             "model_id": model_id,
             "model_name": model_name,
             "content_types": [],
-            "k": k,
         })
-        await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await safe_edit_message(query, 
-            f"📅 <b>{html.escape(model_name)}</b> · Choose content:",
-            reply_markup=nlp_shoot_content_keyboard([], model_id, k),
-            parse_mode="HTML",
-        )
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+        await _show_new_shoot_date(query, config, memory_state)
         return
 
     if action == "list":
@@ -1561,6 +1556,12 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
         shoot_date = today + timedelta(days=1)
     elif date_choice == "day_after":
         shoot_date = today + timedelta(days=2)
+    elif date_choice == "cal":
+        memory_state.update(chat_id, user_id, cal_for="shoot_move")
+        await _show_calendar(query, config, memory_state, back_callback="nlp:smn:reschedule")
+        return
+    elif _iso_date(date_choice):
+        shoot_date = _iso_date(date_choice)
     elif date_choice == "custom":
         memory_state.update(chat_id, user_id, step="awaiting_custom_date")
         from app.keyboards.inline import nlp_back_keyboard
@@ -1643,96 +1644,207 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
 
 
 async def _handle_shoot_location(query, parts, config, notion, memory_state, recent_models):
-    """Handle shoot location selection. Callback: nlp:sl:{location}[:{k}]"""
-    # Acknowledge immediately to prevent Telegram from retrying the callback
-    # while the slow Notion API call is in-flight.
+    """New shoot: location picked -> ask for a comment. Callback: nlp:sl:{location}[:{k}]"""
     await safe_query_answer(query)
-
-    if len(parts) < 3:
+    if len(parts) < 3 or parts[2] not in {"home", "rent"}:
         return
-
-    location = parts[2]
-    if location not in {"home", "rent"}:
-        return
-
     chat_id, user_id = _state_ids_from_query(query)
-
     state = memory_state.get(chat_id, user_id)
-    if not state:
+    if not state or not state.get("date_chosen") and not state.get("shoot_date"):
         await _session_expired(query, memory_state)
         return
-
-    # Re-entry guard: prevent duplicate Notion writes on double-tap / Telegram retry
-    if state.get("shoot_location_processing"):
-        await safe_query_answer(query, "Please wait...")
+    if not is_editor(user_id, config):
+        await safe_edit_message(query, "❌ No access")
+        memory_state.clear(chat_id, user_id)
         return
 
+    from app.keyboards.inline import nlp_shoot_comment_keyboard
+    memory_state.update(chat_id, user_id, flow="nlp_shoot", step="awaiting_new_shoot_comment", location=parts[2])
+    await _clear_previous_screen_keyboard(query, memory_state)
+    msg = await safe_edit_message(
+        query,
+        f"💬 <b>{html.escape(state.get('model_name', ''))}</b> · Comment for the shoot?\n\nType it, or skip.",
+        reply_markup=nlp_shoot_comment_keyboard(),
+        parse_mode="HTML",
+    )
+    message_id = msg.message_id if msg else query.message.message_id
+    memory_state.update(chat_id, user_id, prompt_message_id=message_id)
+    _remember_screen_message(memory_state, chat_id, user_id, message_id)
+
+
+def _iso_date(value: str) -> date | None:
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+async def create_new_shoot(config, notion, user, state: dict, comment: str | None, recent_models=None) -> str:
+    """Create the shoot collected in `state`; returns the confirmation text.
+
+    With a day the status is scheduled, without one it is planned (no date).
+    """
     model_id = state.get("model_id", "")
     model_name = state.get("model_name", "")
-    shoot_date_str = state.get("shoot_date")
+    shoot_date = _iso_date(state.get("shoot_date") or "")
     content_types = state.get("content_types", [])
+    location = state.get("location") or "home"
+    status = "scheduled" if shoot_date else "planned"
+    day = shoot_date.strftime("%d.%m") if shoot_date else "no date"
 
-    if not shoot_date_str:
+    await notion.create_shoot(
+        database_id=config.db_planner,
+        model_page_id=model_id,
+        shoot_date=shoot_date,
+        content=content_types,
+        location=location,
+        title=f"{model_name} · {day}",
+        comments=comment or None,
+        status=status,
+        author=activity_log.author_label(user),
+    )
+    planner_cache.clear_cache(model_id)
+    if recent_models is not None:
+        recent_models.add(user.id, model_id, model_name)
+    await activity_log.record(config, user, "shoot", model_name, f"{day} · {location}")
+
+    lines = [
+        f"✅ Shoot created — <b>{html.escape(model_name)}</b>",
+        html.escape(f"{day} · {', '.join(content_types) or '—'} · {location} · {status}"),
+    ]
+    if comment:
+        lines.append(f"💬 {html.escape(comment[:200])}")
+    return "\n".join(lines)
+
+
+async def _show_new_shoot_date(query, config, memory_state) -> None:
+    from app.keyboards.inline import nlp_shoot_new_date_keyboard
+
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id) or {}
+    memory_state.update(chat_id, user_id, step="awaiting_date", cal_for=None)
+    await _clear_previous_screen_keyboard(query, memory_state)
+    msg = await safe_edit_message(
+        query,
+        f"📅 <b>{html.escape(state.get('model_name', ''))}</b> · When is the shoot?",
+        reply_markup=nlp_shoot_new_date_keyboard(state.get("model_id", ""), today_in_tz(config.timezone)),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+
+
+async def _show_calendar(query, config, memory_state, back_callback: str, month: str | None = None) -> None:
+    from app.keyboards.inline import nlp_calendar_keyboard
+
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id) or {}
+    today = today_in_tz(config.timezone)
+    year, mon = (int(month[:4]), int(month[5:7])) if month else (today.year, today.month)
+    memory_state.update(chat_id, user_id, cal_back=back_callback)
+    await _clear_previous_screen_keyboard(query, memory_state)
+    msg = await safe_edit_message(
+        query,
+        f"📅 <b>{html.escape(state.get('model_name', ''))}</b> · Pick a date:",
+        reply_markup=nlp_calendar_keyboard(year, mon, min_date=today, back_callback=back_callback, today=today),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+
+
+async def _new_shoot_day_chosen(query, memory_state, shoot_date: date | None) -> None:
+    """Day picked (or 'no date yet') -> content."""
+    from app.keyboards.inline import nlp_shoot_content_keyboard
+
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id) or {}
+    k = generate_token()
+    memory_state.update(
+        chat_id, user_id, flow="nlp_shoot", step="awaiting_content", date_chosen=True,
+        shoot_date=shoot_date.isoformat() if shoot_date else None, cal_for=None, k=k,
+    )
+    day = shoot_date.strftime("%d.%m") if shoot_date else "no date yet"
+    await _clear_previous_screen_keyboard(query, memory_state)
+    msg = await safe_edit_message(
+        query,
+        f"📅 <b>{html.escape(state.get('model_name', ''))}</b> · {day}\n\nChoose content:",
+        reply_markup=nlp_shoot_content_keyboard(state.get("content_types", []), state.get("model_id", ""), k),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+
+
+async def _handle_new_shoot(query, parts, config, notion, memory_state, recent_models):
+    """New shoot steps. Callbacks: nlp:sn:d:<date> | sn:cal | sn:nodate | sn:back | sn:skip"""
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
+    if not state or state.get("flow") != "nlp_shoot" or not state.get("model_id"):
+        await _session_expired(query, memory_state)
+        return
+    action = parts[2] if len(parts) > 2 else ""
+
+    if action == "d" and len(parts) > 3 and _iso_date(parts[3]):
+        await _new_shoot_day_chosen(query, memory_state, _iso_date(parts[3]))
+    elif action == "nodate":
+        await _new_shoot_day_chosen(query, memory_state, None)
+    elif action == "cal":
+        memory_state.update(chat_id, user_id, cal_for="shoot_new")
+        await _show_calendar(query, config, memory_state, back_callback="nlp:sn:back")
+    elif action == "back":
+        await _show_new_shoot_date(query, config, memory_state)
+    elif action == "skip":
+        await _finish_new_shoot(query, config, notion, memory_state, recent_models, comment=None)
+    else:
+        await safe_query_answer(query)
+
+
+async def _finish_new_shoot(query, config, notion, memory_state, recent_models, comment):
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
+    if not state or state.get("step") != "awaiting_new_shoot_comment":
+        await _session_expired(query, memory_state)
+        return
+    if state.get("shoot_location_processing"):  # double tap / Telegram retry
+        await safe_query_answer(query, "Please wait...")
+        return
+    memory_state.update(chat_id, user_id, shoot_location_processing=True)
+    await safe_query_answer(query)
+    try:
+        text = await create_new_shoot(config, notion, query.from_user, state, comment, recent_models)
+        from app.keyboards.inline import nlp_action_complete_keyboard
+        await _clear_previous_screen_keyboard(query, memory_state)
+        await _safe_confirm(query, text, reply_markup=nlp_action_complete_keyboard(state.get("model_id", "")),
+                            parse_mode="HTML")
+    except Exception as e:
+        LOGGER.exception("Failed to create shoot: %s", e)
+        await safe_edit_message(query, "❌ Notion error — try later")
+    memory_state.clear(chat_id, user_id)
+
+
+async def _handle_calendar(query, parts, config, notion, memory_state, recent_models):
+    """Calendar buttons. Callbacks: nlp:cal:d:<YYYY-MM-DD> | cal:m:<YYYY-MM> | cal:x"""
+    action = parts[2] if len(parts) > 2 else "x"
+    value = parts[3] if len(parts) > 3 else ""
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
+    if action == "x":
+        await safe_query_answer(query)
+        return
+    if not state or not state.get("cal_for"):
         await _session_expired(query, memory_state)
         return
 
-    shoot_date = date.fromisoformat(shoot_date_str)
-
-    if not is_editor(user_id, config):
-        try:
-            await safe_edit_message(query, "❌ No access")
-        except Exception:
-            # Ignore "message is not modified" and similar edit errors
-            pass
-        memory_state.clear(chat_id, user_id)
+    if action == "m" and len(value) == 7:
+        await _show_calendar(query, config, memory_state, back_callback=state.get("cal_back") or "nlp:x:c", month=value)
         return
 
-    memory_state.update(chat_id, user_id, shoot_location_processing=True)
-
-    auto_status = _compute_shoot_status(shoot_date.isoformat(), content_types)
-    title = f"{model_name} · {shoot_date.strftime('%d.%m')}"
-
-    try:
-        await notion.create_shoot(
-            database_id=config.db_planner,
-            model_page_id=model_id,
-            shoot_date=shoot_date,
-            content=content_types,
-            location=location,
-            title=title,
-            status=auto_status,
-            author=activity_log.author_label(query.from_user),
-        )
-        planner_cache.clear_cache(model_id)
-        recent_models.add(user_id, model_id, model_name)
-        await activity_log.record(
-            config, query.from_user, "shoot", model_name,
-            f"{shoot_date.strftime('%d.%m')} · {location}",
-        )
-        ct_str = ", ".join(content_types) if content_types else "—"
-
-        from app.keyboards.inline import nlp_action_complete_keyboard
-        await _clear_previous_screen_keyboard(query, memory_state)
-        await _cleanup_prompt_message(query, memory_state)
-        await _safe_confirm(
-            query,
-            f"✅ Shoot created — <b>{html.escape(model_name)}</b>\n{shoot_date.strftime('%d.%m')} · {ct_str} · {auto_status}",
-            reply_markup=nlp_action_complete_keyboard(model_id),
-            parse_mode="HTML",
-        )
-        memory_state.clear(chat_id, user_id)
-    except Exception as e:
-        LOGGER.exception("Failed to create shoot: %s", e)
-        try:
-            await safe_edit_message(query, "❌ Notion error — try later")
-        except Exception:
-            pass
-        memory_state.clear(chat_id, user_id)
-    finally:
-        # Release processing lock in case state was not cleared (e.g. partial failure)
-        current_state = memory_state.get(chat_id, user_id)
-        if current_state:
-            memory_state.update(chat_id, user_id, shoot_location_processing=False)
+    picked = _iso_date(value) if action == "d" else None
+    if not picked:
+        await safe_query_answer(query)
+        return
+    if state["cal_for"] == "shoot_new":
+        await _new_shoot_day_chosen(query, memory_state, picked)
+    elif state["cal_for"] == "shoot_move":
+        await _handle_shoot_date(query, ["nlp", "sd", picked.isoformat()], config, notion, memory_state, recent_models)
 
 
 # ============================================================================
@@ -2519,18 +2631,15 @@ async def _handle_shoot_content_done(query, parts, config, notion, memory_state,
     model_id = state.get("model_id", "")
     step = state.get("step", "")
 
-    if step == "awaiting_content" and state.get("shoot_date"):
-        shoot_date = state.get("shoot_date")
-        if isinstance(shoot_date, str):
-            shoot_date = datetime.fromisoformat(shoot_date).date()
-
+    if step == "awaiting_content" and (state.get("date_chosen") or state.get("shoot_date")):
         k = generate_token()
         memory_state.set(chat_id, user_id, {
             "flow": "nlp_shoot",
             "step": "awaiting_location",
             "model_id": model_id,
             "model_name": model_name,
-            "shoot_date": shoot_date.isoformat(),
+            "shoot_date": state.get("shoot_date"),
+            "date_chosen": True,
             "content_types": content_types,
             "k": k,
         })

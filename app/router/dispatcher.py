@@ -654,6 +654,38 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
     memory_state.clear(chat_id, user_id)
 
 
+async def _handle_new_shoot_comment_input(message, text, user_state, config, notion, memory_state):
+    """Comment typed for a new shoot: create it."""
+    from app.roles import is_editor
+
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    if not is_editor(user_id, config):
+        await message.answer("❌ No permission.")
+        memory_state.clear(chat_id, user_id)
+        return
+    comment = (text or "").strip()
+    if len(comment) > MAX_COMMENT_LENGTH:
+        await message.answer(f"❌ Comment is too long (max {MAX_COMMENT_LENGTH} characters).")
+        return
+
+    from app.handlers.nlp_callbacks import create_new_shoot
+    from app.keyboards.inline import nlp_action_complete_keyboard
+
+    try:
+        confirm = await create_new_shoot(config, notion, message.from_user, user_state, comment)
+    except Exception:
+        LOGGER.exception("Failed to create shoot")
+        await message.answer("❌ Notion error — try later")
+        memory_state.clear(chat_id, user_id)
+        return
+    await _clear_previous_screen_keyboard(message, memory_state)
+    await _cleanup_prompt_message(message, memory_state)
+    await message.answer(confirm, reply_markup=nlp_action_complete_keyboard(user_state.get("model_id", "")),
+                         parse_mode="HTML")
+    memory_state.clear(chat_id, user_id)
+
+
 async def _handle_note_input(message, text, user_state, config, notion, memory_state):
     """Handle note text input for nlp_note flow."""
     user_id = message.from_user.id
@@ -957,6 +989,7 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
 _NLP_TEXT_HANDLERS: dict[tuple[str | None, str], object] = {
     (None, "awaiting_custom_date"): _handle_custom_date_input,
     ("nlp_files", "awaiting_count"): _handle_custom_files_input,
+    ("nlp_shoot", "awaiting_new_shoot_comment"): _handle_new_shoot_comment_input,
     (None, "awaiting_shoot_comment"): _handle_shoot_comment_input,
     ("nlp_accounting_comment", "awaiting_accounting_comment"): _handle_accounting_comment_input,
     ("nlp_note", "awaiting_text"): _handle_note_input,

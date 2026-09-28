@@ -301,3 +301,94 @@ class TestShootMenu:
         from app.keyboards.inline import nlp_shoot_done_confirm_keyboard
         buttons = [b.callback_data for row in nlp_shoot_done_confirm_keyboard().inline_keyboard for b in row]
         assert buttons == ["nlp:smn:closeok", "nlp:smn:list"]
+
+
+# ---------- new shoot: day -> content -> location -> comment ----------
+
+class TestNewShootFlow:
+    @staticmethod
+    def _setup(monkeypatch):
+        screens = []
+
+        async def fake_edit(query, text, reply_markup=None, parse_mode=None):
+            screens.append((text, reply_markup))
+            return None
+
+        monkeypatch.setattr(nlp_callbacks, "safe_edit_message", fake_edit)
+        monkeypatch.setattr(nlp_callbacks, "_safe_confirm", AsyncMock())
+        monkeypatch.setattr(nlp_callbacks, "_clear_previous_screen_keyboard", AsyncMock())
+        monkeypatch.setattr(nlp_callbacks, "safe_query_answer", AsyncMock())
+        monkeypatch.setattr(nlp_callbacks.activity_log, "record", AsyncMock())
+        memory = MemoryState()
+        query = MagicMock()
+        query.from_user.id = 1
+        query.from_user.username = "m"
+        query.message.chat.id = 100
+        query.message.message_id = 5
+        notion = AsyncMock()
+        config = _make_config({1})
+        config.timezone = ZoneInfo("Europe/Brussels")
+        return screens, memory, query, notion, config
+
+    @staticmethod
+    def _callbacks(markup):
+        return [b.callback_data for row in markup.inline_keyboard for b in row]
+
+    @pytest.mark.asyncio
+    async def test_day_first_then_content_location_comment(self, monkeypatch):
+        screens, memory, query, notion, config = self._setup(monkeypatch)
+        memory.set(100, 1, {"flow": "nlp_shoot_menu", "model_id": "m1", "model_name": "ЗАПАД"})
+        await nlp_callbacks._handle_shoot_menu_action(query, ["nlp", "smn", "new"], config, notion, memory, MagicMock())
+        assert "When is the shoot?" in screens[-1][0]
+        assert "nlp:sn:nodate" in self._callbacks(screens[-1][1])
+
+        await nlp_callbacks._handle_new_shoot(query, ["nlp", "sn", "d", "2099-10-03"], config, notion, memory, MagicMock())
+        assert "03.10" in screens[-1][0] and "Choose content" in screens[-1][0]
+        memory.update(100, 1, content_types=["main pack"])
+        await nlp_callbacks._handle_shoot_content_done(query, ["nlp", "scd", "done"], config, notion, memory, MagicMock())
+        assert "Location" in screens[-1][0]
+        await nlp_callbacks._handle_shoot_location(query, ["nlp", "sl", "rent"], config, notion, memory, MagicMock())
+        assert "Comment for the shoot" in screens[-1][0]
+        notion.create_shoot.assert_not_awaited()
+
+        await nlp_callbacks._handle_new_shoot(query, ["nlp", "sn", "skip"], config, notion, memory, MagicMock())
+        kwargs = notion.create_shoot.await_args.kwargs
+        assert kwargs["status"] == "scheduled" and kwargs["shoot_date"] == date(2099, 10, 3)
+        assert kwargs["location"] == "rent" and kwargs["content"] == ["main pack"] and kwargs["comments"] is None
+
+    @pytest.mark.asyncio
+    async def test_no_date_yet_is_planned_without_date(self, monkeypatch):
+        screens, memory, query, notion, config = self._setup(monkeypatch)
+        memory.set(100, 1, {"flow": "nlp_shoot", "step": "awaiting_date", "model_id": "m1", "model_name": "M",
+                            "content_types": []})
+        await nlp_callbacks._handle_new_shoot(query, ["nlp", "sn", "nodate"], config, notion, memory, MagicMock())
+        await nlp_callbacks._handle_shoot_content_done(query, ["nlp", "scd", "done"], config, notion, memory, MagicMock())
+        await nlp_callbacks._handle_shoot_location(query, ["nlp", "sl", "home"], config, notion, memory, MagicMock())
+        text = await nlp_callbacks.create_new_shoot(config, notion, query.from_user, memory.get(100, 1), "bring the red set")
+        kwargs = notion.create_shoot.await_args.kwargs
+        assert kwargs["status"] == "planned" and kwargs["shoot_date"] is None
+        assert kwargs["comments"] == "bring the red set" and "no date" in text
+
+    @pytest.mark.asyncio
+    async def test_calendar_pick_and_month_navigation(self, monkeypatch):
+        screens, memory, query, notion, config = self._setup(monkeypatch)
+        memory.set(100, 1, {"flow": "nlp_shoot", "step": "awaiting_date", "model_id": "m1", "model_name": "M",
+                            "content_types": []})
+        await nlp_callbacks._handle_new_shoot(query, ["nlp", "sn", "cal"], config, notion, memory, MagicMock())
+        assert "nlp:sn:back" in self._callbacks(screens[-1][1])
+        await nlp_callbacks._handle_calendar(query, ["nlp", "cal", "m", "2099-02"], config, notion, memory, MagicMock())
+        days = [c for c in self._callbacks(screens[-1][1]) if c.startswith("nlp:cal:d:")]
+        assert days[0] == "nlp:cal:d:2099-02-01" and days[-1] == "nlp:cal:d:2099-02-28"
+        await nlp_callbacks._handle_calendar(query, ["nlp", "cal", "d", "2099-02-14"], config, notion, memory, MagicMock())
+        assert memory.get(100, 1)["shoot_date"] == "2099-02-14" and "Choose content" in screens[-1][0]
+
+
+def test_calendar_blocks_past_days():
+    from app.keyboards.inline import nlp_calendar_keyboard
+    kb = nlp_calendar_keyboard(2026, 9, min_date=date(2026, 9, 15), back_callback="nlp:sn:back", today=date(2026, 9, 15))
+    calls = [b.callback_data for row in kb.inline_keyboard for b in row]
+    texts = [b.text for row in kb.inline_keyboard for b in row]
+    assert "nlp:cal:d:2026-09-14" not in calls and "nlp:cal:d:2026-09-15" in calls
+    assert "•15" in texts                                  # today marked
+    assert calls[0] == "nlp:cal:x"                          # no way back before the min month
+    assert all(len(c.encode()) < 64 for c in calls)
