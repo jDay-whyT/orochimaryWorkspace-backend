@@ -202,8 +202,6 @@ class TestStateManagement:
         assert result["prompt_message_id"] is None
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
 
 
 # ============================================================================
@@ -263,4 +261,36 @@ class TestTypoTolerantSearch:
     async def test_far_off_query_offers_nearest_or_nothing(self):
         assert (await _resolve("xyzw"))["status"] == "not_found"
         res = await _resolve("твиксик")
-        assert res["model"]["name"] == "ТВИКСИ" or "ТВИКСИ" in [m["name"] for m in res["models"]]
+        found = [res["model"]["name"]] if res["model"] else [m["name"] for m in res["models"]]
+        assert "ТВИКСИ" in found
+
+    @pytest.mark.asyncio
+    async def test_recent_substring_does_not_beat_exact_title(self):
+        # ТангоКлещ was opened recently, but "клещ" is exactly КЛЕЩ
+        res = await _resolve("клещ", recent=[("1", "ТангоКлещ")])
+        assert res["status"] == "found" and res["model"]["name"] == "КЛЕЩ"
+
+    @pytest.mark.asyncio
+    async def test_short_piece_of_a_name_is_confirmed(self):
+        res = await _resolve("тви")
+        assert res["status"] == "confirm" and res["model"]["name"] == "ТВИКСИ"
+
+    def test_normalization_keeps_short_i(self):
+        from app.router.model_resolver import normalize_model_name
+        assert normalize_model_name("МАЙЯ") != normalize_model_name("МАИЯ")
+        assert normalize_model_name("Berlín") == "berlin"
+        assert normalize_model_name("Ёлка") == "елка"
+
+    @pytest.mark.asyncio
+    async def test_same_alias_on_two_models_asks(self):
+        from unittest.mock import AsyncMock, patch
+        from app.router.model_resolver import resolve_model
+
+        models = [{"id": "1", "name": "КАПРИ", "aliases": ["kapri"]}, {"id": "2", "name": "КАПРИ 2", "aliases": ["kapri"]}]
+        with patch("app.handlers.models.search_model_by_name_or_alias", AsyncMock(return_value=models)):
+            res = await resolve_model("kapri", 1, "db", None, type("R", (), {"get": lambda self, u: []})())
+        assert res["status"] == "multiple" and len(res["models"]) == 2
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

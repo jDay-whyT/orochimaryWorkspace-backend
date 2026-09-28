@@ -28,14 +28,22 @@ FUZZY_MIN_QUERY_LENGTH = 4
 MAX_DISAMBIGUATION_BUTTONS = 5
 
 
+def _fold_char(ch: str) -> str:
+    """Drop accents (í → i, ñ → n) and fold ё → е; й stays a separate letter."""
+    if ch == "ё":
+        return "е"
+    if ch == "й":
+        return ch
+    return "".join(c for c in unicodedata.normalize("NFKD", ch) if not unicodedata.combining(c))
+
+
 def normalize_model_name(name: str) -> str:
     """
     Normalize model name for matching.
 
     "Black-Pearl" → "black pearl", "Берлин" → "берлин", "Berlín" → "berlin", "Ёж" → "еж"
     """
-    result = unicodedata.normalize("NFKD", name.lower())
-    result = "".join(ch for ch in result if not unicodedata.combining(ch))
+    result = "".join(_fold_char(ch) for ch in name.lower())
     result = result.replace("-", " ").replace("_", " ")
     # Collapse multiple spaces
     result = " ".join(result.split())
@@ -196,16 +204,15 @@ async def resolve_model(
     if not query or len(query) < MIN_QUERY_LENGTH:
         return {"status": "not_found", "model": None, "models": []}
 
-    # Step 1: recent models — only exact / substring hits short-circuit
+    # Step 1: recent models — only an exact hit short-circuits; anything looser
+    # goes through the full list, where another model may match exactly
     recent = recent_models.get(user_id)
     if recent:
-        recent_matches = [m for m in match_recent_models(query, recent) if m["match_type"] != "fuzzy"]
-        if len(recent_matches) == 1:
-            m = recent_matches[0]
-            LOGGER.info("Model resolved from recent: %s (score=%.2f, type=%s)", m["name"], m["score"], m["match_type"])
+        exact = [m for m in match_recent_models(query, recent) if m["match_type"] == "exact"]
+        if len(exact) == 1:
+            m = exact[0]
+            LOGGER.info("Model resolved from recent: %s", m["name"])
             return {"status": "found", "model": m, "models": []}
-        if len(recent_matches) > 1 and recent_matches[0]["score"] >= 0.98:
-            return {"status": "found", "model": recent_matches[0], "models": []}
 
     # Step 2: all models from Notion
     from app.handlers.models import search_model_by_name_or_alias
@@ -225,12 +232,17 @@ async def resolve_model(
         return {"status": "not_found", "model": None, "models": []}
 
     top = scored[0]
+    tied = [m for m in scored if m["score"] == top["score"]]
     if top["score"] >= 0.98:
-        return {"status": "found", "model": top, "models": []}
+        if len(tied) == 1:
+            return {"status": "found", "model": top, "models": []}
+        return {"status": "multiple", "model": None, "models": tied[:MAX_DISAMBIGUATION_BUTTONS]}
 
     if len(scored) == 1:
-        # Typo / fuzzy-only single match → require confirmation
-        if top["match_type"] == "fuzzy":
+        # A short piece of the name ("вес" → ВЕСНА) or a typo → ask first
+        if top["match_type"] == "fuzzy" or max(
+            fuzzy_score(query, n) for n in [top["name"], *top.get("aliases", [])]
+        ) < FUZZY_THRESHOLD_GENERAL:
             return {"status": "confirm", "model": top, "models": []}
         return {"status": "found", "model": top, "models": []}
 
