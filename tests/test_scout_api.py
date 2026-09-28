@@ -165,6 +165,7 @@ class TestManagerSeesOnlyOwnModels:
         other = MagicMock(page_id="bb-22", title="ТВИКСИ", project="OF", status="work", scout="@s")
         notion = MagicMock()
         notion.query_models = AsyncMock(return_value=[mine, other])
+        notion.query_all_models = AsyncMock(return_value=[mine, other])
         notion.query_all_accounting = AsyncMock(return_value=[
             NotionAccounting(page_id="r1", title="КАПРИ сентябрь 2026", model_id="aa11", assist="ng", status="work"),
             NotionAccounting(page_id="r2", title="ТВИКСИ сентябрь 2026", model_id="bb22", assist="robin", status="work"),

@@ -22,6 +22,8 @@ class FakeConfig:
     digest_user_ids: set = field(default_factory=lambda: {DI_ID})
     owner_telegram_id: int = OWNER_ID
     db_accounting: str = "acc-db"
+    mini_app_viewer_ids: set = field(default_factory=lambda: {77})
+    mini_app_viewer_handles: set = field(default_factory=lambda: {"@viewer"})
 
 
 class FakeRedis:
@@ -209,3 +211,19 @@ async def test_owner_revokes_from_access_list(config, redis):
     await access_handlers.access_callback(query, config, redis)
     assert NEW_ID not in config.allowed_editors
     assert "ng" not in config.manager_targets
+
+
+@pytest.mark.asyncio
+async def test_mini_app_viewers_are_not_sent_to_the_owner(config):
+    f = access_handlers.WithoutAccess()
+    assert await f(_message(77), config) is False
+    assert await f(_message(88, username="Viewer"), config) is False
+
+
+@pytest.mark.asyncio
+async def test_two_managers_on_one_assist_both_count_as_managers(config, redis):
+    await access.approve(config, redis, NEW_ID, "ng")
+    await access.approve(config, redis, NEW_ID + 1, "ng")
+    assert access.manager_assist(NEW_ID, config) == "ng"
+    assert access.manager_assist(NEW_ID + 1, config) == "ng"   # not full mini-app access
+    assert config.manager_targets["ng"] == (NEW_ID, None)       # reminders: the first one's DM

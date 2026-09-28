@@ -28,7 +28,10 @@ class WithoutAccess(BaseFilter):
 
     async def __call__(self, message: Message, config: Config) -> bool:
         user = message.from_user
-        return bool(user) and user.id != config.owner_telegram_id and user.id not in config.allowed_editors
+        if not user or user.id == config.owner_telegram_id or user.id in config.allowed_editors:
+            return False
+        handle = f"@{(user.username or '').lower()}"
+        return user.id not in config.mini_app_viewer_ids and handle not in config.mini_app_viewer_handles
 
 
 def _request_keyboard(user_id: int, assists: list[str]) -> InlineKeyboardMarkup:

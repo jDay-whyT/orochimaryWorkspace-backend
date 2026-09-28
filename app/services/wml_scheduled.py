@@ -37,6 +37,8 @@ from app.services.wml_export import order_payload, pick_files
 
 LOGGER = logging.getLogger(__name__)
 
+EXPORT_LOCK_KEY = "wml:export_lock"   # one export at a time (scheduler retry / manual run)
+EXPORT_LOCK_SECONDS = 900
 ORDER_STATE_KEY = "wml:order_state"   # hash: order page id -> last pushed state (json)
 FILES_STATE_KEY = "wml:files_state"   # hash: "profile|month" -> last pushed payload (json)
 MAX_VANISHED_CANCELS = 10             # more at once looks like an outage, not deletions
@@ -129,6 +131,11 @@ async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi
         canceled = (order.status or "").strip().lower() == "canceled"
         last = state.get(order.page_id)
         try:
+            if order.wml_id is None and last and last.get("wml_id"):
+                # created in the CRM earlier but its id never reached Notion: finish that, don't create again
+                if apply:
+                    await notion.set_order_wml_id(order.page_id, int(last["wml_id"]))
+                continue
             if order.wml_id is None:
                 payload, _ = order_payload(order, model)
                 if payload is None or (order.in_date or "")[:10] < config.wml_export_from:
@@ -143,9 +150,10 @@ async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi
                 await _known_profile(redis, apply, payload["profile"])
                 if apply:
                     wml_id = int(resp["id"])
-                    await notion.set_order_wml_id(order.page_id, wml_id)
                     fields = {k: payload[k] for k in _TRACKED if k in payload}
+                    # Redis first: if the Notion write fails, the next run finds the id here
                     await redis.hset(ORDER_STATE_KEY, order.page_id, _state(wml_id, fields, "active", "out" in payload))
+                    await notion.set_order_wml_id(order.page_id, wml_id)
                 report.created.append(order.title)
                 continue
 
@@ -263,15 +271,21 @@ async def run_wml_export(bot: Bot, config: Config, notion: NotionClient, redis) 
     if await redis.get(CLOSE_IN_PROGRESS_KEY):
         LOGGER.info("WML export skipped: month close in progress")
         return
+    if not await redis.set(EXPORT_LOCK_KEY, "1", nx=True, ex=EXPORT_LOCK_SECONDS):
+        LOGGER.info("WML export skipped: another export is running")
+        return
     apply = config.wml_export_apply
     api = WmlApi(config.wml_username, config.wml_password)
     report = ExportReport()
-    for step in (export_orders, export_files):
-        try:
-            await step(config, notion, redis, api, apply, report)
-        except Exception as e:
-            LOGGER.exception("WML export step %s failed", step.__name__)
-            report.errors.append(f"{step.__name__}: {e}")
+    try:
+        for step in (export_orders, export_files):
+            try:
+                await step(config, notion, redis, api, apply, report)
+            except Exception as e:
+                LOGGER.exception("WML export step %s failed", step.__name__)
+                report.errors.append(f"{step.__name__}: {e}")
+    finally:
+        await redis.delete(EXPORT_LOCK_KEY)
     if report.empty() or not config.owner_telegram_id:
         return
     try:

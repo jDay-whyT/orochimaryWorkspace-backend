@@ -22,6 +22,15 @@ class FakeRedis:
     async def get(self, k):
         return self.kv.get(k)
 
+    async def set(self, k, v, nx=False, ex=None):
+        if nx and k in self.kv:
+            return None
+        self.kv[k] = v
+        return True
+
+    async def delete(self, k):
+        self.kv.pop(k, None)
+
     async def hget(self, k, f):
         return self.h.get(k, {}).get(f)
 
@@ -256,3 +265,31 @@ async def test_skipped_during_month_close_and_silent_when_nothing_happens(monkey
     monkeypatch.setattr(ws, "WmlApi", lambda *a: _api())
     await ws.run_wml_export(bot, _config(apply=False), _notion([]), redis)
     bot.send_message.assert_not_awaited()  # nothing to do -> no message
+
+
+@pytest.mark.asyncio
+async def test_crm_id_saved_before_notion_so_a_failed_notion_write_is_not_a_duplicate():
+    redis, api = FakeRedis(), _api()
+    notion = _notion([_order("a")])
+    notion.set_order_wml_id.side_effect = RuntimeError("Notion 502")
+    report = ws.ExportReport()
+    await ws.export_orders(_config(), notion, redis, api, True, report)
+    assert api.create_order.call_count == 1 and report.errors
+    notion.set_order_wml_id.side_effect = None
+    await ws.export_orders(_config(), notion, redis, api, True, ws.ExportReport())
+    assert api.create_order.call_count == 1          # not created again
+    notion.set_order_wml_id.assert_awaited_with("a", 501)
+
+
+@pytest.mark.asyncio
+async def test_second_export_is_skipped_while_one_is_running(monkeypatch):
+    redis = FakeRedis()
+    redis.kv[ws.EXPORT_LOCK_KEY] = "1"
+    notion = _notion([_order("new")])
+    monkeypatch.setattr(ws, "WmlApi", lambda *a: _api())
+    await ws.run_wml_export(SimpleNamespace(send_message=AsyncMock()), _config(), notion, redis)
+    notion.query_all_orders.assert_not_awaited()
+    redis.kv.clear()
+    await ws.run_wml_export(SimpleNamespace(send_message=AsyncMock()), _config(), notion, redis)
+    notion.query_all_orders.assert_awaited()
+    assert ws.EXPORT_LOCK_KEY not in redis.kv        # released afterwards

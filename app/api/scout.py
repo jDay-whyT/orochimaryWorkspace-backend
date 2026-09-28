@@ -63,7 +63,7 @@ async def _manager_models(request: web.Request, assist: str) -> list:
         records = await notion.query_all_accounting(config.db_accounting)
         working, _ = working_records(records, datetime.now(config.timezone).strftime("%Y-%m"))
         cache["assist_of"] = {key: (r.assist or "").strip().lower() for key, r in working.items()}
-        cache["models"] = await notion.query_models(config.db_models, "", limit=200)
+        cache["models"] = await notion.query_all_models(config.db_models)
         cache["at"] = now
     assist = assist.strip().lower()
     return [m for m in cache["models"] if cache["assist_of"].get(m.page_id.replace("-", "")) == assist]

@@ -25,11 +25,12 @@ from app.services.notion import _extract_multi_select, _extract_title
 LOGGER = logging.getLogger(__name__)
 
 CACHE_SECONDS = 300
+RETRY_AFTER_FAILURE_SECONDS = 30
 REDIS_KEY = "models:list"
 REDIS_TTL_SECONDS = 24 * 60 * 60
 
 _redis: Any = None
-_cache: dict[str, Any] = {"at": float("-inf"), "models": None}
+_cache: dict[str, Any] = {"at": float("-inf"), "models": None, "generation": 0}
 _prop_ids: dict[str, str] = {}
 _refresh_task: asyncio.Task | None = None
 _lock = asyncio.Lock()
@@ -43,7 +44,7 @@ def init(redis: Any) -> None:
 
 async def invalidate() -> None:
     """Forget the list (a model was added); the next call reloads it."""
-    _cache.update(at=float("-inf"), models=None)
+    _cache.update(at=float("-inf"), models=None, generation=_cache["generation"] + 1)
     if _redis is not None:
         try:
             await _redis.delete(REDIS_KEY)
@@ -91,11 +92,16 @@ async def _refresh(db_id: str, notion: NotionClient) -> list[dict[str, Any]] | N
         if _cache["models"] is not None and time.monotonic() - _cache["at"] < CACHE_SECONDS:
             return _cache["models"]  # another caller just refreshed it
         started = time.monotonic()
+        generation = _cache["generation"]
         try:
             models = await _fetch(db_id, notion)
         except Exception:
             LOGGER.exception("models cache: loading from Notion failed")
+            if _cache["models"] is not None:  # retry in a while, not on every message
+                _cache["at"] = time.monotonic() - CACHE_SECONDS + RETRY_AFTER_FAILURE_SECONDS
             return _cache["models"]
+        if generation != _cache["generation"]:
+            return models  # invalidated meanwhile (a model was added): this list may miss it
         _cache.update(at=time.monotonic(), models=models)
         LOGGER.info("models cache: loaded %d models in %.1fs", len(models), time.monotonic() - started)
         if _redis is not None:
@@ -149,6 +155,7 @@ async def list_models(name: str, db_id: str, notion: NotionClient) -> list[dict[
     except Exception:
         LOGGER.warning("models cache: quick title search failed", exc_info=True)
         quick = []
-    if quick:
-        return quick
-    return await task or []
+    wanted = name.strip().lower()
+    if any(m["name"].strip().lower() == wanted for m in quick):
+        return quick  # exact title hit: safe to answer before the full list (aliases) is in
+    return await task or quick

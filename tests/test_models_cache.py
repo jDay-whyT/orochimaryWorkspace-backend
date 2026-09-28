@@ -146,3 +146,48 @@ async def test_notion_failure_keeps_previous_list():
     assert len(await ml.list_models("клещ", "db", notion)) == 2
     await asyncio.gather(ml._refresh_task)
     assert len(ml._cache["models"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_cold_title_hit_that_is_not_exact_waits_for_aliases():
+    # "клещ" is the alias of КЛЕЩ-2; the title search alone would only see КЛЕЩЕНКО
+    notion = FakeNotion([_page("1", "КЛЕЩЕНКО"), _page("2", "КЛЕЩ-2", ["клещ"])])
+    models = await ml.list_models("клещ", "db", notion)
+    assert {m["name"] for m in models} == {"КЛЕЩЕНКО", "КЛЕЩ-2"}   # full list, alias included
+
+
+@pytest.mark.asyncio
+async def test_failed_refresh_is_not_retried_on_every_message():
+    notion = FakeNotion(PAGES)
+    await ml.warm_up("db", notion)
+    ml._cache["at"] -= ml.CACHE_SECONDS + 1
+
+    async def boom(*a, **k):
+        raise RuntimeError("Notion down")
+
+    notion._request = boom
+    await ml.list_models("клещ", "db", notion)
+    await ml._refresh_task
+    task = ml._refresh_task
+    await ml.list_models("клещ", "db", notion)
+    assert ml._refresh_task is task   # no new refresh right after the failure
+
+
+@pytest.mark.asyncio
+async def test_invalidate_during_refresh_is_not_undone():
+    notion = FakeNotion(PAGES)
+    started = asyncio.Event()
+    original = notion._request
+
+    async def slow(method, url, json=None):
+        if method == "POST":
+            started.set()
+            await asyncio.sleep(0.05)
+        return await original(method, url, json=json)
+
+    notion._request = slow
+    task = asyncio.create_task(ml._refresh("db", notion))
+    await started.wait()
+    await ml.invalidate()
+    await task
+    assert ml._cache["models"] is None   # the old list did not come back

@@ -36,6 +36,7 @@ class _Base:
     targets: dict[str, tuple[int, int | None]]
     digest: set[int]
     last_refresh: float = float("-inf")
+    approved_assist: dict[int, str] = None  # approved user -> assist (several users may share one)
 
 
 # keyed by id(config): Config is frozen, so the env snapshot can't live on it
@@ -62,10 +63,14 @@ def apply(config: Config, managers: dict[int, dict[str, Any]]) -> None:
     editors = set(base.editors) | set(managers)
     targets = dict(base.targets)
     digest = set(base.digest) | set(managers)
+    approved_assist: dict[int, str] = {}
     for user_id, info in managers.items():
         assist = (info.get("assist") or "").strip().lower()
-        if assist and assist != NO_ASSIST and assist not in base.targets:
-            targets[assist] = (user_id, None)
+        if assist and assist != NO_ASSIST:
+            approved_assist[user_id] = assist
+            if assist not in targets:  # reminders go to one DM per assist (the first approved)
+                targets[assist] = (user_id, None)
+    base.approved_assist = approved_assist
     config.allowed_editors.clear()
     config.allowed_editors.update(editors)
     config.manager_targets.clear()
@@ -147,6 +152,9 @@ def manager_assist(user_id: int, config: Config) -> str | None:
     """Accounting `assist` of a manager who gets reminders in DM (env or approved); owner -> None."""
     if user_id == config.owner_telegram_id:
         return None
+    approved = _base(config).approved_assist or {}
+    if user_id in approved:
+        return approved[user_id]
     for assist, (chat_id, thread_id) in config.manager_targets.items():
         if chat_id == user_id and thread_id is None:
             return assist
