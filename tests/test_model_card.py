@@ -408,3 +408,89 @@ class TestModelCardHelpers:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ============================================================================
+#     CARD AFTER AN ACTION ("+ More"): no stale cache, no Notion query lag
+# ============================================================================
+
+class TestCardAfterWrite:
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        from app.services.model_card import clear_card_cache
+        clear_card_cache()
+        yield
+        clear_card_cache()
+
+    @staticmethod
+    def _config():
+        from zoneinfo import ZoneInfo
+        cfg = MagicMock()
+        cfg.timezone = ZoneInfo("Europe/Brussels")
+        cfg.files_per_month = 200
+        cfg.db_orders, cfg.db_planner, cfg.db_accounting, cfg.db_notes = "db-orders", "db-planner", "db-acc", ""
+        return cfg
+
+    @staticmethod
+    def _order_page(pid, status="Open", out=None, model="model-1"):
+        return {
+            "object": "page", "id": pid, "parent": {"database_id": "db-orders"},
+            "properties": {
+                "Title": {"type": "title", "title": [{"plain_text": "M | custom 1/1"}]},
+                "model": {"type": "relation", "relation": [{"id": model}]},
+                "type": {"type": "select", "select": {"name": "custom"}},
+                "in": {"type": "date", "date": {"start": "2099-01-01"}},
+                "out": {"type": "date", "date": {"start": out} if out else None},
+                "status": {"type": "select", "select": {"name": status}},
+                "count": {"type": "number", "number": 1},
+            },
+        }
+
+    def _notion(self, open_orders):
+        from app.services.notion import NotionClient
+        notion = object.__new__(NotionClient)
+        notion._recent_pages, notion._created_pages, notion._model_writes = {}, set(), {}
+        notion.query_open_orders = AsyncMock(return_value=open_orders)
+        notion.query_upcoming_shoots = AsyncMock(return_value=[])
+        notion.get_monthly_record = AsyncMock(return_value=None)
+        notion.get_recent_notes = AsyncMock(return_value=[])
+        return notion
+
+    @pytest.mark.asyncio
+    async def test_new_order_shows_up_although_the_query_lags(self):
+        from app.services.model_card import build_model_card
+        notion = self._notion([])
+        text, _ = await build_model_card("model-1", "M", self._config(), notion)
+        assert "📦 Orders: 0 open" in text
+        # the bot creates an order; the database query does not return it yet
+        notion._remember_write("POST", "https://api.notion.com/v1/pages", self._order_page("o-new"))
+        text, count = await build_model_card("model-1", "M", self._config(), notion)
+        assert count == 1 and "📦 Orders: 1 open" in text   # cache skipped, new order merged in
+
+    @pytest.mark.asyncio
+    async def test_closed_order_disappears_although_the_query_lags(self):
+        from app.services.model_card import build_model_card
+        from app.services.notion import _parse_order
+        page = self._order_page("0a1b-2c3d")
+        notion = self._notion([_parse_order(page)])
+        notion._remember_write("PATCH", "https://api.notion.com/v1/pages/0a1b-2c3d",
+                               self._order_page("0a1b-2c3d", status="Done", out="2099-01-02"))
+        _, count = await build_model_card("model-1", "M", self._config(), notion)
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_other_models_writes_do_not_touch_the_card(self):
+        from app.services.model_card import build_model_card
+        notion = self._notion([])
+        await build_model_card("model-1", "M", self._config(), notion)
+        notion._remember_write("POST", "https://api.notion.com/v1/pages", self._order_page("o-x", model="model-2"))
+        _, count = await build_model_card("model-1", "M", self._config(), notion)
+        assert count == 0 and notion.query_open_orders.await_count == 1  # still served from cache
+
+    def test_queries_are_not_remembered_as_writes(self):
+        notion = self._notion([])
+        notion._remember_write("POST", "https://api.notion.com/v1/databases/db-orders/query",
+                               {"object": "list", "results": []})
+        notion._remember_write("POST", "https://api.notion.com/v1/pages", {"object": "page", "id": "p1",
+                               "parent": {"database_id": "db-orders"}, "properties": {}})
+        assert [p["id"] for p in notion.recent_pages_in("db-orders", created_only=True)] == ["p1"]

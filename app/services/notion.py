@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import re
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -92,6 +94,10 @@ class NotionAccounting:
     content: list[str] | None = None
 
 
+RECENT_WRITE_SECONDS = 120
+_PAGE_WRITE_RE = re.compile(r"/v1/pages(/[0-9a-f-]+)?/?$")
+
+
 class NotionClient:
     """
     Async Notion API client with singleton pattern per token.
@@ -117,6 +123,44 @@ class NotionClient:
         self._session_loop: asyncio.AbstractEventLoop | None = None
         # (archive_page_id, kind, month) -> database id; archive DBs never move.
         self._archive_db_cache: dict[tuple[str, str, str], str] = {}
+        # Pages this bot just created/updated: database queries lag a few seconds
+        # behind writes, so screens built right after an action use these instead.
+        self._recent_pages: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._created_pages: set[str] = set()
+        self._model_writes: dict[str, float] = {}  # model id (no dashes) -> last write touching it
+
+    def _remember_write(self, method: str, url: str, data: Any) -> None:
+        if method not in ("POST", "PATCH") or not _PAGE_WRITE_RE.search(url):
+            return
+        if not isinstance(data, dict) or data.get("object") != "page" or not data.get("id"):
+            return
+        now = time.monotonic()
+        created = method == "POST" or data["id"] in self._created_pages
+        if created:
+            self._created_pages.add(data["id"])
+        self._recent_pages[data["id"]] = (now, data)
+        for rel in ((data.get("properties") or {}).get("model") or {}).get("relation") or []:
+            if rel.get("id"):
+                self._model_writes[rel["id"].replace("-", "")] = now
+        for page_id, (at, _) in list(self._recent_pages.items()):
+            if now - at > RECENT_WRITE_SECONDS:
+                del self._recent_pages[page_id]
+                self._created_pages.discard(page_id)
+
+    def last_write_at(self, model_id: str) -> float | None:
+        """time.monotonic() of the bot's last write to a page related to this model."""
+        return self._model_writes.get((model_id or "").replace("-", ""))
+
+    def recent_pages_in(self, database_id: str, created_only: bool = False) -> list[dict[str, Any]]:
+        """Pages of this database the bot wrote in the last RECENT_WRITE_SECONDS (latest version)."""
+        want = (database_id or "").replace("-", "")
+        now = time.monotonic()
+        return [
+            page for page_id, (at, page) in self._recent_pages.items()
+            if now - at <= RECENT_WRITE_SECONDS
+            and (not created_only or page_id in self._created_pages)
+            and ((page.get("parent") or {}).get("database_id") or "").replace("-", "") == want
+        ]
 
     async def _get_session(self) -> aiohttp.ClientSession:
         loop = asyncio.get_running_loop()
@@ -168,7 +212,9 @@ class NotionClient:
             try:
                 async with session.request(method, url, json=json) as response:
                     if response.status < 400:
-                        return await response.json()
+                        data = await response.json()
+                        self._remember_write(method, url, data)
+                        return data
 
                     payload = (await response.text()).strip()
                     short_payload = payload[:200] if payload else "<empty>"

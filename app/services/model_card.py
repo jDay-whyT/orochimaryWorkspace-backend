@@ -7,7 +7,7 @@ import time
 from datetime import date, datetime
 
 from app.config import Config
-from app.services.notion import NotionClient
+from app.services.notion import NotionClient, _parse_accounting, _parse_note, _parse_order, _parse_planner
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,14 +22,21 @@ CARD_CACHE_ERROR_TTL: float = 5.0  # seconds for error/placeholder results
 _card_cache: dict[str, tuple[str, float, bool]] = {}
 
 
-def _cache_get(key: str) -> str | None:
-    """Return cached text if still valid, else None."""
+def _cache_get(key: str, notion: NotionClient | None = None) -> str | None:
+    """Return cached text if still valid, else None.
+
+    A card built before the bot wrote something for this model (order, files,
+    shoot, note...) is stale even inside the TTL.
+    """
     entry = _card_cache.get(key)
     if entry is None:
         return None
     text, ts, is_error = entry
     ttl = CARD_CACHE_ERROR_TTL if is_error else CARD_CACHE_TTL
-    if time.monotonic() - ts > ttl:
+    last_write = getattr(notion, "last_write_at", None) if notion is not None else None
+    written_at = last_write(key) if callable(last_write) else None
+    written_since = isinstance(written_at, (int, float)) and written_at >= ts
+    if time.monotonic() - ts > ttl or written_since:
         _card_cache.pop(key, None)
         return None
     return text
@@ -61,7 +68,7 @@ async def build_model_card_text(
     Results are cached in-memory for CARD_CACHE_TTL seconds.
     """
     cache_key = model_id.lower()
-    cached = _cache_get(cache_key)
+    cached = _cache_get(cache_key, notion)
     if cached is not None:
         return cached
 
@@ -78,7 +85,7 @@ async def build_model_card(
 ) -> tuple[str, int]:
     """Build model card text; returns (card_text, open_orders_count), count is -1 if Notion failed."""
     cache_key = model_id.lower()
-    cached = _cache_get(cache_key)
+    cached = _cache_get(cache_key, notion)
     cached_orders = _orders_count_cache.get(cache_key)
     if cached is not None and cached_orders is not None:
         return cached, cached_orders
@@ -130,6 +137,28 @@ async def _build_card_text_impl(
     )
 
     orders_result, shoots_result, accounting_result, notes_result = results
+
+    # Database queries lag a few seconds behind writes: swap in what the bot just wrote
+    if not isinstance(orders_result, Exception):
+        orders_result = _with_recent_writes(
+            notion, config.db_orders, model_id, orders_result, _parse_order,
+            keep=lambda o: (o.status or "") == "Open" and not o.out_date,
+        )
+    if not isinstance(shoots_result, Exception):
+        shoots_result = _with_recent_writes(
+            notion, config.db_planner, model_id, shoots_result, _parse_planner,
+            keep=lambda s: (s.status or "").lower() in {"planned", "scheduled", "rescheduled", "done"},
+        )
+    if not isinstance(accounting_result, Exception):
+        records = _with_recent_writes(
+            notion, config.db_accounting, model_id, [accounting_result] if accounting_result else [],
+            _parse_accounting, keep=lambda r: True, add_new=accounting_result is None,
+        )
+        accounting_result = records[0] if records else None
+    if config.db_notes and not isinstance(notes_result, Exception):
+        notes_result = _with_recent_writes(
+            notion, config.db_notes, model_id, notes_result, _parse_note, keep=lambda n: True, new_first=True,
+        )
 
     # Orders open count
     if isinstance(orders_result, Exception):
@@ -234,6 +263,40 @@ async def _build_card_text_impl(
 
 
 # ===== Helpers =====
+
+def _with_recent_writes(notion, database_id, model_id, items, parse, keep, add_new=True, new_first=False):
+    """Replace query results with the versions the bot just wrote, drop ones that no
+    longer qualify (e.g. an order just closed) and add pages just created for this model."""
+    recent_pages = getattr(notion, "recent_pages_in", None)
+    if not callable(recent_pages) or not database_id:
+        return items
+    pages = recent_pages(database_id)
+    if not isinstance(pages, list):
+        return items
+    try:
+        fresh = {}
+        for page in pages:
+            parsed = parse(page)
+            fresh[parsed.page_id] = parsed
+    except Exception:
+        LOGGER.warning("model_card: could not use recent writes", exc_info=True)
+        return items
+    if not fresh:
+        return items
+    model_key = (model_id or "").replace("-", "")
+    seen = {item.page_id for item in items}
+    merged = [fresh.get(item.page_id, item) for item in items]
+    merged = [item for item in merged if keep(item)]
+    if add_new:
+        created_ids = {p["id"] for p in recent_pages(database_id, created_only=True)}
+        created = [
+            item for pid, item in fresh.items()
+            if pid in created_ids and pid not in seen
+            and (item.model_id or "").replace("-", "") == model_key and keep(item)
+        ]
+        merged = created + merged if new_first else merged + created
+    return merged
+
 
 _MONTHS_RU = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
