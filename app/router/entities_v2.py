@@ -110,11 +110,11 @@ def validate_model_name(model_name: Optional[str]) -> bool:
 def get_order_type_display_name(order_type: Optional[str]) -> str:
     """Get display name for order type (used by button-driven order flows)."""
     display_names = {
-        "custom": "Кастом",
-        "short": "Шорт",
+        "custom": "Custom",
+        "short": "Short",
         "verif reddit": "verif reddit",
-        "call": "Колл",
+        "call": "Call",
         "ad request": "Ad Request",
         "ad_request": "Ad Request",
     }
-    return display_names.get(order_type, "Неизвестный тип")
+    return display_names.get(order_type, "Unknown type")

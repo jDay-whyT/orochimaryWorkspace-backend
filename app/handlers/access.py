@@ -58,15 +58,15 @@ async def access_request(message: Message, config: Config, notion: NotionClient,
     """/start in DM from someone without access -> request to the owner."""
     user = message.from_user
     if redis is None or not config.owner_telegram_id:
-        await message.answer("⛔ Нет доступа. Обратитесь к админу.")
+        await message.answer("⛔ No access. Contact the admin.")
         return
 
     if not await access.save_request(redis, user.id, user.username, user.full_name or ""):
         request = await access.get_request(redis, user.id) or {}
         if request.get("status") == "rejected":
-            await message.answer("⛔ Нет доступа. Обратитесь к админу.")
+            await message.answer("⛔ No access. Contact the admin.")
         else:
-            await message.answer("⏳ Заявка уже у админа, ждите подтверждения.")
+            await message.answer("⏳ Your request is with the admin, please wait.")
         return
 
     assists = await _assist_options(config, notion)
@@ -80,7 +80,7 @@ async def access_request(message: Message, config: Config, notion: NotionClient,
         parse_mode="HTML",
     )
     LOGGER.info("access: request from user %s (@%s)", user.id, user.username)
-    await message.answer("📨 Заявка отправлена админу. Как только подтвердят — я напишу.")
+    await message.answer("📨 Request sent to the admin. I'll message you once it's approved.")
 
 
 @router.callback_query(F.data.startswith(f"{_PREFIX}:"))
@@ -107,7 +107,7 @@ async def access_callback(query: CallbackQuery, config: Config, redis: Any = Non
         role = "без напоминаний" if assist == access.NO_ASSIST else f"менеджер <b>{html.escape(assist)}</b>"
         await query.message.edit_text(f"✅ Доступ открыт: {html.escape(who)} — {role}.", parse_mode="HTML")
         try:
-            await query.bot.send_message(user_id, "✅ Доступ открыт. Нажмите /start.")
+            await query.bot.send_message(user_id, "✅ Access granted. Press /start.")
         except Exception:
             LOGGER.warning("access: could not notify approved user %s", user_id)
         LOGGER.info("access: approved %s as %s", user_id, assist)

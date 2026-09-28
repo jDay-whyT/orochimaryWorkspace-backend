@@ -140,9 +140,9 @@ async def _build_card_text_impl(
         orders = orders_result
         open_orders_count = len(orders)
         overdue = sum(1 for order in orders if _calc_days_open(order.in_date, today) > 3)
-        orders_line = f"{open_orders_count} откр"
+        orders_line = f"{open_orders_count} open"
         if overdue > 0:
-            orders_line += f" · {overdue} просрочены"
+            orders_line += f" · {overdue} overdue"
 
     # Next shoot
     if isinstance(shoots_result, Exception):
@@ -210,12 +210,12 @@ async def _build_card_text_impl(
     lines = [
         f"📌 <b>{safe_name}</b>",
         "",
-        f"📦 Заказы: {orders_line}",
+        f"📦 Orders: {orders_line}",
         "",
     ]
     if shoot_line is not None:
         lines.extend([f"📅 {shoot_line}", ""])
-    lines.append(f"📁 Файлы ({month_label}): {files_line}")
+    lines.append(f"📁 Files ({month_label}): {files_line}")
 
     # Only the latest note, first line, capped — full text lives in Notion.
     if not isinstance(notes_result, Exception) and notes_result:
@@ -236,8 +236,8 @@ async def _build_card_text_impl(
 # ===== Helpers =====
 
 _MONTHS_RU = [
-    "янв", "фев", "мар", "апр", "май", "июн",
-    "июл", "авг", "сен", "окт", "ноя", "дек",
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ]
 
 

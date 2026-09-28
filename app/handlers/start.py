@@ -33,11 +33,11 @@ async def cmd_start(message: Message, config: Config) -> None:
     LOGGER.info("User %s started bot", user_id)
 
     await message.answer(
-        "👋 Привет! Это бот для ведения моделей.\n\n"
-        "<b>Как работать:</b>\n"
-        "1. Напиши имя модели, например: клещ. Откроется её карточка.\n"
-        "2. Дальше кнопками: 📦 Заказы · 📅 Съёмка · 📁 Файлы · 📝 Заметка.\n\n"
-        "🔔 Я буду присылать уведомления о проблемных моделях.",
+        "👋 Hi! This bot helps you manage models.\n\n"
+        "<b>How it works:</b>\n"
+        "1. Type a model name. Its card opens.\n"
+        "2. Then use the buttons: 📦 Orders · 📅 Shoot · 📁 Files · 📝 Note.\n\n"
+        "🔔 I'll notify you about models that need attention.",
         reply_markup=ReplyKeyboardRemove(),
         parse_mode="HTML",
     )

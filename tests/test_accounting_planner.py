@@ -219,7 +219,7 @@ class TestModelCardDisplay:
         config = _make_config(fpm=200)
         text = await build_model_card_text("m3", "EmptyModel", config, mock_notion)
 
-        assert "📁 Файлы (" in text
+        assert "📁 Files (" in text
         assert ": —" in text
 
 

@@ -32,41 +32,41 @@ class TestAccessAndBackButtons:
     def test_orders_menu_hides_write_buttons_for_viewer(self):
         kb = nlp_orders_menu_keyboard(can_edit=False, has_orders=True, model_id="m1")
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "➕ Заказ" not in texts
-        assert "✅ Закрыть" not in texts
-        assert any("Назад" in t for t in texts)
+        assert "➕ Order" not in texts
+        assert "✓ Close" not in texts
+        assert any("Back" in t for t in texts)
 
     def test_files_menu_only_actions_and_back(self):
         kb = nlp_files_menu_keyboard(can_edit=True, model_id="m1")
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "+ Файлы" in texts
-        assert "💬 Комментарий" in texts
-        assert any("Назад" in t for t in texts)
+        assert "+ Files" in texts
+        assert "💬 Comment" in texts
+        assert any("Back" in t for t in texts)
 
     def test_files_menu_viewer_only_back(self):
         kb = nlp_files_menu_keyboard(can_edit=False, model_id="m1")
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert texts == ["⬅ Назад"]
+        assert texts == ["⬅ Back"]
 
     def test_shoot_menu_has_content_comment_back(self):
         kb = nlp_shoot_menu_keyboard(has_shoot=True, can_edit=True, model_id="m1")
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
         assert "🗂 Content" in texts
-        assert "💬 Коммент" in texts
-        assert any("Назад" in t for t in texts)
+        assert "💬 Comment" in texts
+        assert any("Back" in t for t in texts)
 
 
 class TestOrderCreationDateFlow:
     def test_date_keyboard_before_confirm(self):
         kb = nlp_order_date_keyboard("m1", "t1")
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "✅ Создать" not in texts
-        assert "📅 Другая дата" in texts
+        assert "✅ Create" not in texts
+        assert "📅 Other date" in texts
 
     def test_confirm_keyboard_has_create(self):
         kb = nlp_order_confirm_keyboard("m1", "t2")
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "✓ Создать" in texts
+        assert "✓ Create" in texts
 
 
 class TestOrdersAggregationAndPagination:

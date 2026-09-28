@@ -78,7 +78,7 @@ async def overdue_orders(config: Config, notion: NotionClient, today: date) -> d
             continue
         mid = _key(order.model_id)
         name = models.get(mid) or order.title
-        rows.append((days, manager_of.get(mid), f"• {escape(name)} — {escape(order.order_type or '?')} · {days} дн"))
+        rows.append((days, manager_of.get(mid), f"• {escape(name)} — {escape(order.order_type or '?')} · {days} d"))
 
     grouped: dict[str | None, list[str]] = defaultdict(list)
     for _, manager, line in sorted(rows, key=lambda r: -r[0]):
@@ -100,7 +100,7 @@ async def low_content(config: Config, notion: NotionClient, today: date) -> dict
         if files >= config.low_content_threshold:
             continue
         manager = record.assist if record else None
-        rows.append((files, manager, f"• {escape(model.title)} — {files} файлов"))
+        rows.append((files, manager, f"• {escape(model.title)} — {files} files"))
 
     grouped: dict[str | None, list[str]] = defaultdict(list)
     for _, manager, line in sorted(rows, key=lambda r: r[0]):
@@ -120,9 +120,9 @@ async def run_daily_reminders(bot: Bot, config: Config, notion: NotionClient) ->
     """Scheduled entry point. Never raises; each reminder fails independently."""
     today = datetime.now(config.timezone).date()
 
-    jobs = [("⏳ <b>Заказы открыты дольше {n} дн</b>".format(n=config.overdue_order_days), overdue_orders)]
+    jobs = [("⏳ <b>Orders open longer than {n} days</b>".format(n=config.overdue_order_days), overdue_orders)]
     if today.day in CONTENT_REMINDER_DAYS:
-        jobs.append(("📉 <b>Мало контента за месяц (меньше {n} файлов)</b>".format(n=config.low_content_threshold),
+        jobs.append(("📉 <b>Low content this month (under {n} files)</b>".format(n=config.low_content_threshold),
                      low_content))
 
     for header, build in jobs:

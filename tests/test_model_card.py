@@ -76,9 +76,9 @@ class TestModelCardKeyboard:
         kb = model_card_keyboard("test1")
         row1 = kb.inline_keyboard[0]
         assert len(row1) == 3
-        assert "Заказы" in row1[0].text
-        assert "Съёмка" in row1[1].text
-        assert "Файлы" in row1[2].text
+        assert "Orders" in row1[0].text
+        assert "Shoot" in row1[1].text
+        assert "Files" in row1[2].text
 
     def test_row2_has_note_and_done(self):
         """Row 2: note button + done button."""
@@ -86,11 +86,11 @@ class TestModelCardKeyboard:
         row2 = kb.inline_keyboard[1]
         assert len(row2) == 2
         texts = [btn.text for btn in row2]
-        assert any("Заметка" in t for t in texts)
-        assert any("Готово" in t for t in texts)
-        done_btn = next(b for b in row2 if "Готово" in b.text)
+        assert any("Note" in t for t in texts)
+        assert any("Done" in t for t in texts)
+        done_btn = next(b for b in row2 if "Done" in b.text)
         assert done_btn.callback_data == "nlp:x:c"
-        note_btn = next(b for b in row2 if "Заметка" in b.text)
+        note_btn = next(b for b in row2 if "Note" in b.text)
         assert note_btn.callback_data == "nlp:act:note:test1"
 
     def test_no_report_or_menu_buttons(self):
@@ -144,13 +144,13 @@ class TestFilesQtyKeyboard:
         assert "20" in texts
         assert "50" in texts
         assert "80" in texts
-        assert "Ввод" in texts
+        assert "Enter" in texts
 
     def test_custom_button_callback(self):
         """Ввод button -> nlp:af:custom:{k}."""
         kb = nlp_files_qty_keyboard("model-1", "abc123")
         row1 = kb.inline_keyboard[0]
-        custom_btn = [btn for btn in row1 if btn.text == "Ввод"][0]
+        custom_btn = [btn for btn in row1 if btn.text == "Enter"][0]
         assert custom_btn.callback_data == "nlp:af:custom:abc123"
 
     def test_15_button_callback(self):
@@ -222,10 +222,10 @@ class TestBuildModelCardText:
 
         assert "📌" in text
         assert "МЕЛИСА" in text
-        assert "📦 Заказы: 2 откр · 2 просрочены" in text
-        assert "25 апр</b> · reddit, twitter · planned" in text
-        assert "8 апр</b> · main pack · done" in text
-        assert "📁 Файлы (" in text
+        assert "📦 Orders: 2 open · 2 overdue" in text
+        assert "25 Apr</b> · reddit, twitter · planned" in text
+        assert "8 Apr</b> · main pack · done" in text
+        assert "📁 Files (" in text
         assert "OF: <b>50</b> | Reddit: <b>29</b>" in text
         assert "79/200 (40%)" not in text
 
@@ -253,12 +253,12 @@ class TestBuildModelCardText:
 
         assert "📌" in text
         assert "МЕЛИСА" in text
-        assert "📦 Заказы: —" in text
+        assert "📦 Orders: —" in text
         lines = text.split("\n")
         assert not any("Съёмка" in l for l in lines)
         assert not any("Последняя" in l for l in lines)
         # Files line should be "—"
-        files_line = [l for l in lines if "Файлы" in l][0]
+        files_line = [l for l in lines if "Files" in l][0]
         assert "—" in files_line
 
     @pytest.mark.asyncio
@@ -283,10 +283,10 @@ class TestBuildModelCardText:
             "model-123", "Мелиса", mock_config, mock_notion,
         )
 
-        assert "📦 Заказы: 0 откр" in text
+        assert "📦 Orders: 0 open" in text
         assert "Съёмка" not in text
         assert "Последняя" not in text
-        assert "📁 Файлы (" in text
+        assert "📁 Files (" in text
         assert ": —" in text
 
 
@@ -391,17 +391,17 @@ class TestModelCardHelpers:
     def test_month_ru(self):
         """_month_ru returns correct short month names."""
         from app.services.model_card import _month_ru
-        assert _month_ru(1) == "янв"
-        assert _month_ru(2) == "фев"
-        assert _month_ru(12) == "дек"
+        assert _month_ru(1) == "Jan"
+        assert _month_ru(2) == "Feb"
+        assert _month_ru(12) == "Dec"
         assert _month_ru(0) == "?"
         assert _month_ru(13) == "?"
 
     def test_format_date_card(self):
         """_format_date_card formats ISO date to 'D mon'."""
         from app.services.model_card import _format_date_card
-        assert _format_date_card("2026-02-15") == "15 фев"
-        assert _format_date_card("2026-12-01") == "1 дек"
+        assert _format_date_card("2026-02-15") == "15 Feb"
+        assert _format_date_card("2026-12-01") == "1 Dec"
         assert _format_date_card(None) == "?"
         assert _format_date_card("invalid") == "?"
 

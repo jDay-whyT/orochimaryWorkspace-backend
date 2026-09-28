@@ -165,7 +165,7 @@ async def test_start_request_goes_to_owner_with_assist_buttons(config, redis):
                for b in row]
     assert buttons == [f"acc:ok:{NEW_ID}:ng", f"acc:ok:{NEW_ID}:caramel", f"acc:ok:{NEW_ID}:di",
                        f"acc:ok:{NEW_ID}:-", f"acc:no:{NEW_ID}"]
-    assert "отправлена" in msg.answer.await_args.args[0]
+    assert "Request sent" in msg.answer.await_args.args[0]
 
     # second /start does not ping the owner again
     msg2 = _message(NEW_ID)
@@ -178,7 +178,7 @@ async def test_start_without_redis_just_denies(config):
     msg = _message(NEW_ID)
     await access_handlers.access_request(msg, config, SimpleNamespace(), None)
     msg.bot.send_message.assert_not_awaited()
-    assert "Нет доступа" in msg.answer.await_args.args[0]
+    assert "No access" in msg.answer.await_args.args[0]
 
 
 @pytest.mark.asyncio

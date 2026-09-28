@@ -147,9 +147,9 @@ class TestModelCardModulesOnly:
         row = kb.inline_keyboard[0]
         assert len(row) == 3
         texts = [btn.text for btn in row]
-        assert "Заказы" in texts[0]
-        assert "Съёмка" in texts[1]
-        assert "Файлы" in texts[2]
+        assert "Orders" in texts[0]
+        assert "Shoot" in texts[1]
+        assert "Files" in texts[2]
 
     def test_no_service_buttons(self):
         kb = model_card_keyboard("test1")
@@ -190,6 +190,10 @@ class TestFilesInputParsing:
 
     def test_files_word_then_number(self):
         assert self._parse("файлы 30") == 30
+
+    def test_english_files_word(self):
+        assert self._parse("30 files") == 30
+        assert self._parse("files 30") == 30
 
     def test_min_value(self):
         assert self._parse("1") == 1

@@ -60,8 +60,8 @@ TODAY = date(2026, 9, 26)
 @pytest.mark.asyncio
 async def test_overdue_orders_threshold_and_grouping():
     grouped = await reminders.overdue_orders(_config(), _notion(), TODAY)
-    assert grouped["robin"] == ["• ROBINS_MODEL — custom · 16 дн"]
-    assert grouped["di"] == ["• DIS_MODEL — call · 6 дн"]
+    assert grouped["robin"] == ["• ROBINS_MODEL — custom · 16 d"]
+    assert grouped["di"] == ["• DIS_MODEL — call · 6 d"]
     assert sum(len(v) for v in grouped.values()) == 2  # 1-day and undated orders skipped
 
 
@@ -69,14 +69,14 @@ async def test_overdue_orders_threshold_and_grouping():
 async def test_low_content_counts_tango_and_missing_records():
     grouped = await reminders.low_content(_config(), _notion(), TODAY)
     lines = [line for v in grouped.values() for line in v]
-    assert "• ROBINS_MODEL — 5 файлов" in lines
-    assert "• NO_RECORD — 0 файлов" in lines          # work model with no record this month
+    assert "• ROBINS_MODEL — 5 files" in lines
+    assert "• NO_RECORD — 0 files" in lines          # work model with no record this month
     assert not any("TANGO_MODEL" in l for l in lines)  # 70 Tango files count
     assert not any("DIS_MODEL" in l for l in lines)    # above threshold
     assert not any("STOPPED" in l for l in lines)      # not in work/new
     assert not any("PAUSED" in l for l in lines)       # inactive is skipped too
-    assert "• FRESH — 0 файлов" in lines               # new models count
-    assert grouped[None] == ["• NO_RECORD — 0 файлов", "• FRESH — 0 файлов"]  # unknown manager -> owner only
+    assert "• FRESH — 0 files" in lines               # new models count
+    assert grouped[None] == ["• NO_RECORD — 0 files", "• FRESH — 0 files"]  # unknown manager -> owner only
 
 
 def test_route_owner_gets_all_managers_get_own():
@@ -137,4 +137,4 @@ async def test_low_content_ignores_numbers_on_a_dead_stop_page():
         NotionAccounting(page_id="old", title="REVIVED апрель 2026", model_id="m8", status="stop", files=400),
     ]
     grouped = await reminders.low_content(_config(), notion, TODAY)
-    assert grouped[None] == ["• REVIVED — 0 файлов"]
+    assert grouped[None] == ["• REVIVED — 0 files"]

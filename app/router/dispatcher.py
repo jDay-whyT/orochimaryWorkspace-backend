@@ -61,7 +61,7 @@ async def _safe_delete_or_mark_done(bot, chat_id: int, message_id: int) -> None:
         pass
     try:
         await bot.edit_message_text(
-            "✅ Готово",
+            "✅ Done",
             chat_id=chat_id,
             message_id=message_id,
             reply_markup=None,
@@ -80,7 +80,7 @@ async def _mark_screen_done(message: Message, memory_state: MemoryState) -> None
         return
     try:
         await message.bot.edit_message_text(
-            "✅ Готово",
+            "✅ Done",
             chat_id=chat_id,
             message_id=prev_id,
             reply_markup=None,
@@ -195,7 +195,7 @@ async def _route_message_impl(
                 # (callback validation requires flow=nlp_close_picker). Show prompt.
                 if current_flow == "nlp_close_picker":
                     LOGGER.info("ROUTE_MESSAGE: user=%s in nlp_close_picker, prompting wait", user_id)
-                    await message.answer("⏳ Выберите заказ из списка или нажмите «Назад».")
+                    await message.answer("⏳ Pick an order from the list or press «Back».")
                     return
 
                 # Other abandoned nlp_ flows — clear and reprocess as fresh request.
@@ -248,7 +248,7 @@ async def _route_message_impl(
                 "route_message TIMEOUT in model_resolution user=%s text=%r",
                 user_id, text[:80],
             )
-            await message.answer("⏱ Сервер перегружен, попробуйте через минуту")
+            await message.answer("⏱ Server is busy, try again in a minute")
             return
 
         if resolution["status"] == "found":
@@ -267,7 +267,7 @@ async def _route_message_impl(
                 "k": k,
             })
             await message.answer(
-                f"🔍 Вы имели в виду <b>{html.escape(m['name'])}</b>?",
+                f"🔍 Did you mean <b>{html.escape(m['name'])}</b>?",
                 reply_markup=nlp_confirm_model_keyboard(m["id"], m["name"], k),
                 parse_mode="HTML",
             )
@@ -284,7 +284,7 @@ async def _route_message_impl(
                 "k": k,
             })
             await message.answer(
-                f"🔍 Уточните модель '{html.escape(entities.model_name)}':",
+                f"🔍 Which model '{html.escape(entities.model_name)}':",
                 reply_markup=nlp_model_selection_keyboard(resolution["models"], k),
                 parse_mode="HTML",
             )
@@ -304,21 +304,21 @@ async def _route_message_impl(
                         "k": k,
                     })
                     await message.answer(
-                        f"❌ Модель '{html.escape(entities.model_name)}' не найдена.\n\n"
-                        "Последние модели:",
+                        f"❌ Model '{html.escape(entities.model_name)}' not found.\n\n"
+                        "Recent models:",
                         reply_markup=nlp_not_found_keyboard(recent, k),
                         parse_mode="HTML",
                     )
                 else:
                     await message.answer(
-                        f"❌ Модель '{html.escape(entities.model_name)}' не найдена.",
+                        f"❌ Model '{html.escape(entities.model_name)}' not found.",
                         parse_mode="HTML",
                     )
                 return
 
     elif model_required and not entities.model_name:
         # Intent requires model but none detected
-        await message.answer("❌ Укажите имя модели.")
+        await message.answer("❌ Enter a model name.")
         return
 
     LOGGER.info("Stage model_resolution: %.3fs user=%s", time.time() - _t_model, user_id)
@@ -333,7 +333,7 @@ async def _route_message_impl(
             user_id, text[:80],
         )
         try:
-            await message.answer("⏱ Сервер перегружен, попробуйте через минуту")
+            await message.answer("⏱ Server is busy, try again in a minute")
         except Exception:
             LOGGER.exception("Failed to send timeout fallback to user=%s", user_id)
         return
@@ -413,17 +413,17 @@ async def _handle_shoot_comment_input(message, text, user_state, config, notion,
     if not shoot_id:
         LOGGER.warning("SHOOT_COMMENT_INPUT ABORT: missing shoot_id user=%s", user_id)
         memory_state.clear(chat_id, user_id)
-        await message.answer("❌ Сессия устарела, попробуйте заново.")
+        await message.answer("❌ Session expired, try again.")
         return
 
     comment_text = text.strip()
     if not comment_text:
-        await message.answer("❌ Комментарий не может быть пустым.")
+        await message.answer("❌ Comment can't be empty.")
         return
 
     if len(comment_text) > MAX_COMMENT_LENGTH:
         await message.answer(
-            f"❌ Комментарий слишком длинный (макс. {MAX_COMMENT_LENGTH} символов)."
+            f"❌ Comment is too long (max {MAX_COMMENT_LENGTH} characters)."
         )
         return
 
@@ -432,7 +432,7 @@ async def _handle_shoot_comment_input(message, text, user_state, config, notion,
         if not shoot:
             LOGGER.warning("SHOOT_COMMENT_INPUT: shoot not found shoot_id=%s user=%s", shoot_id, user_id)
             memory_state.clear(chat_id, user_id)
-            await message.answer("❌ Съемка не найдена. Возможно, она была удалена.")
+            await message.answer("❌ Shoot not found. It may have been deleted.")
             return
 
         existing = shoot.comments or ""
@@ -445,7 +445,7 @@ async def _handle_shoot_comment_input(message, text, user_state, config, notion,
         LOGGER.info("SHOOT_COMMENT_INPUT OK user=%s shoot_id=%s", user_id, shoot_id)
         from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
         sent = await message.answer(
-            f"✅ Комментарий добавлен для <b>{html.escape(model_name)}</b>",
+            f"✅ Comment added for <b>{html.escape(model_name)}</b>",
             parse_mode="HTML",
             reply_markup=_nlp_action_complete_keyboard(user_state.get("model_id", "")),
         )
@@ -458,7 +458,7 @@ async def _handle_shoot_comment_input(message, text, user_state, config, notion,
     except Exception as e:
         LOGGER.exception("SHOOT_COMMENT_INPUT FAIL user=%s shoot_id=%s: %s", user_id, shoot_id, e)
         memory_state.clear(chat_id, user_id)
-        await message.answer("❌ Ошибка при сохранении комментария.")
+        await message.answer("❌ Failed to save the comment.")
 
 
 async def _handle_custom_date_input(message, text, user_state, config, notion, memory_state):
@@ -474,7 +474,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
     # Parse DD.MM or DD/MM
     m = re.match(r'^(\d{1,2})[./](\d{1,2})$', text.strip())
     if not m:
-        await message.answer("❌ Формат: ДД.ММ (например 13.02)")
+        await message.answer("❌ Format: DD.MM (e.g. 13.02)")
         return
 
     day, month = int(m.group(1)), int(m.group(2))
@@ -487,7 +487,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
         if parsed_date < today - timedelta(days=90):
             parsed_date = date(year + 1, month, day)
     except ValueError:
-        await message.answer("❌ Неверная дата")
+        await message.answer("❌ Invalid date")
         return
 
     if current_flow == "nlp_shoot":
@@ -500,7 +500,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             shoot_id = user_state["shoot_id"]
             old_date = user_state.get("old_date", "?")
             if not is_editor(user_id, config):
-                await message.answer("❌ Нет прав.")
+                await message.answer("❌ No permission.")
                 memory_state.clear(chat_id, user_id)
                 return
             await notion.reschedule_shoot(shoot_id, parsed_date)
@@ -511,14 +511,14 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             memory_state.clear(chat_id, user_id)
             from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
             await message.answer(
-                f"✅ Съемка перенесена с {old_label} на {parsed_date.strftime('%d.%m')}",
+                f"✅ Shoot moved from {old_label} to {parsed_date.strftime('%d.%m')}",
                 reply_markup=_nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )
         else:
             # Proceed to location selection
             if not is_editor(user_id, config):
-                await message.answer("❌ Нет прав.")
+                await message.answer("❌ No permission.")
                 memory_state.clear(chat_id, user_id)
                 return
 
@@ -537,7 +537,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             await _clear_previous_screen_keyboard(message, memory_state)
             await _cleanup_prompt_message(message, memory_state)
             await message.answer(
-                f"📍 <b>{html.escape(model_name)}</b> · Локация:",
+                f"📍 <b>{html.escape(model_name)}</b> · Location:",
                 reply_markup=nlp_shoot_location_keyboard(model_id, k),
                 parse_mode="HTML",
             )
@@ -546,11 +546,11 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
         model_id_for_kb = user_state.get("model_id", "")
         order_id = user_state.get("order_id")
         if not order_id:
-            await message.answer("Сессия истекла. Повторите запрос.")
+            await message.answer("Session expired. Send the request again.")
             memory_state.clear(chat_id, user_id)
             return
         if not is_editor(user_id, config):
-            await message.answer("❌ Нет прав.")
+            await message.answer("❌ No permission.")
             memory_state.clear(chat_id, user_id)
             return
         try:
@@ -561,17 +561,17 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             memory_state.clear(chat_id, user_id)
             from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
             await message.answer(
-                f"✅ Заказ закрыт · {parsed_date.strftime('%d.%m')}",
+                f"✅ Order closed · {parsed_date.strftime('%d.%m')}",
                 reply_markup=_nlp_action_complete_keyboard(model_id_for_kb),
                 parse_mode="HTML",
             )
         except Exception as e:
             LOGGER.exception("Failed to close order: %s", e)
-            await message.answer("❌ Ошибка при закрытии заказа.")
+            await message.answer("❌ Failed to close the order.")
             memory_state.clear(chat_id, user_id)
     elif current_flow == "nlp_order":
         if not is_editor(user_id, config):
-            await message.answer("❌ Нет доступа.")
+            await message.answer("❌ No access.")
             memory_state.clear(chat_id, user_id)
             return
         from app.keyboards.inline import nlp_order_confirm_keyboard
@@ -594,7 +594,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
         await _cleanup_prompt_message(message, memory_state)
         sent = await message.answer(
             f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\n"
-            f"Дата заказа: <b>{parsed_date.strftime('%d.%m')}</b>\n\nСоздать заказ?",
+            f"Order date: <b>{parsed_date.strftime('%d.%m')}</b>\n\nCreate the order?",
             reply_markup=nlp_order_confirm_keyboard(user_state.get("model_id", ""), k),
             parse_mode="HTML",
         )
@@ -605,7 +605,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             sent.message_id if sent else None,
         )
     else:
-        await message.answer("❌ Неожиданное состояние. Попробуйте заново.")
+        await message.answer("❌ Unexpected state. Try again.")
         memory_state.clear(chat_id, user_id)
 
 
@@ -620,13 +620,13 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
     chat_id = message.chat.id
 
     if not is_editor(user_id, config):
-        await message.answer("❌ Нет прав.")
+        await message.answer("❌ No permission.")
         memory_state.clear(chat_id, user_id)
         return
 
     count = _parse_files_count(text.strip())
     if count is None:
-        await message.answer(f"❌ Введите число (1–{MAX_FILES_INPUT})")
+        await message.answer(f"❌ Enter a number (1–{MAX_FILES_INPUT})")
         return
 
     model_id = user_state.get("model_id", "")
@@ -643,7 +643,7 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
     await _cleanup_prompt_message(message, memory_state)
     from app.keyboards.inline import nlp_files_content_type_keyboard
     sent = await message.answer(
-        f"📁 <b>{html.escape(model_name)}</b> · {count} файлов\n\nВыберите тип контента:",
+        f"📁 <b>{html.escape(model_name)}</b> · {count} files\n\nChoose content type:",
         reply_markup=nlp_files_content_type_keyboard(model_id),
         parse_mode="HTML",
     )
@@ -662,7 +662,7 @@ async def _handle_note_input(message, text, user_state, config, notion, memory_s
 
     note_text = text.strip()
     if not note_text:
-        await message.answer("❌ Заметка не может быть пустой.")
+        await message.answer("❌ Note can't be empty.")
         return
 
     model_id = user_state.get("model_id")
@@ -670,7 +670,7 @@ async def _handle_note_input(message, text, user_state, config, notion, memory_s
     screen_message_id = user_state.get("screen_message_id")
 
     if not model_id or not config.db_notes:
-        await message.answer("❌ Сессия устарела, попробуйте заново.")
+        await message.answer("❌ Session expired, try again.")
         memory_state.clear(chat_id, user_id)
         return
 
@@ -681,7 +681,7 @@ async def _handle_note_input(message, text, user_state, config, notion, memory_s
         )
     except Exception:
         LOGGER.exception("Failed to create note model=%s", model_id)
-        await message.answer("❌ Ошибка при сохранении заметки.")
+        await message.answer("❌ Failed to save the note.")
         memory_state.clear(chat_id, user_id)
         return
 
@@ -711,7 +711,7 @@ async def _handle_note_input(message, text, user_state, config, notion, memory_s
         card_text, _ = await build_model_card(model_id, model_name, config, notion)
     except Exception:
         LOGGER.exception("Failed to rebuild model card after note")
-        card_text = f"📌 <b>{html.escape(model_name.upper())}</b>\n\n✅ Заметка сохранена"
+        card_text = f"📌 <b>{html.escape(model_name.upper())}</b>\n\n✅ Note saved"
 
     keyboard = model_card_keyboard(k)
 
@@ -740,19 +740,19 @@ async def _handle_accounting_comment_input(message, text, user_state, config, no
     user_id = message.from_user.id
     chat_id = message.chat.id
     if not is_editor(user_id, config):
-        await message.answer("❌ Нет доступа.")
+        await message.answer("❌ No access.")
         memory_state.clear(chat_id, user_id)
         return
 
     comment_text = text.strip()
     if not comment_text:
-        await message.answer("❌ Комментарий не может быть пустым.")
+        await message.answer("❌ Comment can't be empty.")
         return
 
     record_id = user_state.get("accounting_id")
     model_name = user_state.get("model_name", "")
     if not record_id:
-        await message.answer("❌ Сессия устарела, попробуйте заново.")
+        await message.answer("❌ Session expired, try again.")
         memory_state.clear(chat_id, user_id)
         return
 
@@ -765,7 +765,7 @@ async def _handle_accounting_comment_input(message, text, user_state, config, no
         memory_state.clear(chat_id, user_id)
         from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
         sent = await message.answer(
-            f"✅ Комментарий обновлён для <b>{html.escape(model_name)}</b>",
+            f"✅ Comment updated for <b>{html.escape(model_name)}</b>",
             parse_mode="HTML",
             reply_markup=_nlp_action_complete_keyboard(user_state.get("model_id", "")),
         )
@@ -777,7 +777,7 @@ async def _handle_accounting_comment_input(message, text, user_state, config, no
         )
     except Exception:
         LOGGER.exception("Failed to update accounting comment")
-        await message.answer("❌ Ошибка при сохранении комментария.")
+        await message.answer("❌ Failed to save the comment.")
         memory_state.clear(chat_id, user_id)
 
 
@@ -787,7 +787,7 @@ def _parse_files_count(text: str) -> int | None:
     t = text.strip().lower()
 
     # Pattern 1: optional '+', digits, optional suffix (ф/файл*)
-    m = re.match(r'^[+]?\s*(\d+)\s*(?:ф[а-я]*)?\s*$', t)
+    m = re.match(r'^[+]?\s*(\d+)\s*(?:ф[а-я]*|files?)?\s*$', t)
     if m:
         n = int(m.group(1))
         if 1 <= n <= MAX_FILES_INPUT:
@@ -795,7 +795,7 @@ def _parse_files_count(text: str) -> int | None:
         return None
 
     # Pattern 2: "файлы 30", "файлов 30"
-    m = re.match(r'^(?:файл[а-я]*)\s+[+]?\s*(\d+)\s*$', t)
+    m = re.match(r'^(?:файл[а-я]*|files?)\s+[+]?\s*(\d+)\s*$', t)
     if m:
         n = int(m.group(1))
         if 1 <= n <= MAX_FILES_INPUT:
@@ -808,9 +808,9 @@ def _parse_files_count(text: str) -> int | None:
 async def _show_help_message(message: Message) -> None:
     """Show help message when no model was recognized in the message."""
     await message.answer(
-        "🤔 Не нашёл модель в сообщении.\n\n"
-        "Просто напишите имя модели, например: <b>мелиса</b>\n\n"
-        "Или /start",
+        "🤔 No model found in the message.\n\n"
+        "Just type the model name.\n\n"
+        "Or /start",
         parse_mode="HTML",
     )
 
@@ -822,17 +822,17 @@ async def _handle_custom_order_count_input(message, text, user_state, config, no
     chat_id = message.chat.id
 
     if not is_editor(user_id, config):
-        await message.answer("❌ Нет прав.")
+        await message.answer("❌ No permission.")
         memory_state.clear(chat_id, user_id)
         return
 
     try:
         count = int(text.strip())
         if count < 1 or count > 99:
-            await message.answer("❌ Введите число от 1 до 99")
+            await message.answer("❌ Enter a number from 1 to 99")
             return
     except ValueError:
-        await message.answer("❌ Введите число от 1 до 99")
+        await message.answer("❌ Enter a number from 1 to 99")
         return
 
     from app.keyboards.inline import nlp_order_date_keyboard
@@ -849,7 +849,7 @@ async def _handle_custom_order_count_input(message, text, user_state, config, no
     await _clear_previous_screen_keyboard(message, memory_state)
     await _cleanup_prompt_message(message, memory_state)
     sent = await message.answer(
-        f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\nДата заказа:",
+        f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\nOrder date:",
         reply_markup=nlp_order_date_keyboard(model_id, k),
         parse_mode="HTML",
     )
@@ -873,7 +873,7 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
         if added <= 0:
             raise ValueError
     except ValueError:
-        await message.answer("❌ Введи целое число больше 0")
+        await message.answer("❌ Enter a whole number above 0")
         return
 
     order_id = user_state.get("order_id", "")
@@ -897,8 +897,8 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
             pass
         memory_state.clear(chat_id, user_id)
         success_text = (
-            f"✅ Заказ закрыт — <b>{html.escape(model_name)}</b>\n"
-            f"📥 {new_received}/{count} · все получено"
+            f"✅ Order closed — <b>{html.escape(model_name)}</b>\n"
+            f"📥 {new_received}/{count} · all received"
         )
         try:
             await message.bot.edit_message_text(
@@ -923,8 +923,8 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
             pass
         memory_state.clear(chat_id, user_id)
         partial_text = (
-            f"🔄 Обновлено — <b>{html.escape(model_name)}</b>\n"
-            f"Получено: <b>{new_received}/{count}</b>"
+            f"🔄 Updated — <b>{html.escape(model_name)}</b>\n"
+            f"Received: <b>{new_received}/{count}</b>"
         )
         try:
             await message.bot.edit_message_text(
