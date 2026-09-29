@@ -189,7 +189,7 @@ class TestModelCardDisplay:
         config = _make_config(fpm=200)
         text = await build_model_card_text("m1", "TestModel", config, mock_notion)
 
-        assert "OF: <b>150</b>" in text
+        assert "<b>150</b> files" in text and "OF 150" in text
 
     @pytest.mark.asyncio
     async def test_card_shows_over_limit(self):
@@ -205,7 +205,7 @@ class TestModelCardDisplay:
         config = _make_config(fpm=200)
         text = await build_model_card_text("m2", "OverModel", config, mock_notion)
 
-        assert "OF: <b>250</b>" in text
+        assert "<b>250</b> files" in text and "OF 250" in text
 
     @pytest.mark.asyncio
     async def test_card_zero_files(self):
@@ -219,8 +219,7 @@ class TestModelCardDisplay:
         config = _make_config(fpm=200)
         text = await build_model_card_text("m3", "EmptyModel", config, mock_notion)
 
-        assert "📁 Files (" in text
-        assert ": —" in text
+        assert "<b>0</b> files" in text
 
 
 # ===========================================================================

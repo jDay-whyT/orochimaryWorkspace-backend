@@ -201,9 +201,10 @@ class TestBuildModelCardText:
         mock_notion.query_upcoming_shoots.return_value = [
             NotionPlanner(page_id="s1", title="test shoot",
                          date="2099-04-25", status="planned", content=["reddit", "twitter"]),
-            NotionPlanner(page_id="s2", title="done shoot",
-                         date="2026-04-08", status="done", content=["main pack"]),
         ]
+        mock_notion.query_last_done_shoot.return_value = NotionPlanner(
+            page_id="s2", title="done shoot", date="2026-04-08", status="done", content=["main pack"])
+        mock_notion.get_model.return_value = MagicMock(status="work")
         mock_notion.get_monthly_record.return_value = NotionAccounting(
             page_id="a1", title="МЕЛИСА · accounting 2026-04", files=79, of_files=50, reddit_files=29,
         )
@@ -222,11 +223,11 @@ class TestBuildModelCardText:
 
         assert "📌" in text
         assert "МЕЛИСА" in text
-        assert "📦 Orders: 2 open · 2 overdue" in text
-        assert "25 Apr</b> · reddit, twitter · planned" in text
-        assert "8 Apr</b> · main pack · done" in text
-        assert "📁 Files (" in text
-        assert "OF: <b>50</b> | Reddit: <b>29</b>" in text
+        assert "📌 <b>МЕЛИСА</b> · work" in text
+        assert "📦 Orders: 2 open · ⚠️ 2 overdue" in text
+        assert "📅 Next: <b>25 Apr</b> · reddit, twitter · planned" in text
+        assert "    Last: 8 Apr · main pack" in text
+        assert "<b>79</b> files" in text and "    OF 50 · Reddit 29" in text
         assert "79/200 (40%)" not in text
 
     @pytest.mark.asyncio
@@ -258,7 +259,7 @@ class TestBuildModelCardText:
         assert not any("Съёмка" in l for l in lines)
         assert not any("Последняя" in l for l in lines)
         # Files line should be "—"
-        files_line = [l for l in lines if "Files" in l][0]
+        files_line = [l for l in lines if l.startswith("📁")][0]
         assert "—" in files_line
 
     @pytest.mark.asyncio
@@ -286,8 +287,8 @@ class TestBuildModelCardText:
         assert "📦 Orders: 0 open" in text
         assert "Съёмка" not in text
         assert "Последняя" not in text
-        assert "📁 Files (" in text
-        assert ": —" in text
+        assert "<b>0</b> files" in text
+        assert "📅 Next: —" in text
 
 
 # ============================================================================
@@ -494,3 +495,31 @@ class TestCardAfterWrite:
         notion._remember_write("POST", "https://api.notion.com/v1/pages", {"object": "page", "id": "p1",
                                "parent": {"database_id": "db-orders"}, "properties": {}})
         assert [p["id"] for p in notion.recent_pages_in("db-orders", created_only=True)] == ["p1"]
+
+
+@pytest.mark.asyncio
+async def test_card_next_shoot_without_date_and_overdue():
+    from zoneinfo import ZoneInfo
+    from app.services.model_card import build_model_card_text, clear_card_cache
+    from app.services.notion import NotionPlanner
+
+    clear_card_cache()
+    notion = AsyncMock()
+    notion.query_open_orders.return_value = []
+    notion.get_monthly_record.return_value = None
+    notion.query_last_done_shoot.return_value = None
+    notion.get_model.return_value = None
+    config = MagicMock()
+    config.timezone = ZoneInfo("Europe/Brussels")
+    config.db_orders, config.db_planner, config.db_accounting, config.db_notes = "o", "p", "a", ""
+
+    notion.query_upcoming_shoots.return_value = [
+        NotionPlanner(page_id="s1", title="s", date=None, status="planned", content=["reddit"])]
+    text = await build_model_card_text("m-a", "A", config, notion)
+    assert "📅 Next: no date yet · reddit · planned" in text and "Last:" not in text
+
+    notion.query_upcoming_shoots.return_value = [
+        NotionPlanner(page_id="s2", title="s", date="2020-01-02", status="scheduled", content=[])]
+    text = await build_model_card_text("m-b", "B", config, notion)
+    assert "📅 Next: ⚠️ <b>2 Jan</b> · — · scheduled" in text
+    clear_card_cache()

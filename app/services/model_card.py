@@ -7,7 +7,7 @@ import time
 from datetime import date, datetime
 
 from app.config import Config
-from app.services.notion import NotionClient, _parse_accounting, _parse_note, _parse_order, _parse_planner
+from app.services.notion import NotionClient, NotionPlanner, _parse_accounting, _parse_note, _parse_order, _parse_planner
 
 LOGGER = logging.getLogger(__name__)
 
@@ -114,8 +114,8 @@ async def _build_card_text_impl(
     today = now.date()
 
     orders_line = "—"
-    shoot_line: str | None = None
-    files_line = "—"
+    shoot_lines: list[str] = []
+    files_lines = ["—"]
     has_error = False
     open_orders_count = -1
 
@@ -124,19 +124,23 @@ async def _build_card_text_impl(
     async def _no_notes():
         return []
 
+    async def _none():
+        return None
+
+    last_done = getattr(notion, "query_last_done_shoot", None)
+    get_model = getattr(notion, "get_model", None)
     results = await asyncio.gather(
         notion.query_open_orders(config.db_orders, model_page_id=model_id),
-        notion.query_upcoming_shoots(
-            config.db_planner,
-            model_page_id=model_id,
-            statuses=["planned", "scheduled", "rescheduled", "done"],
-        ),
+        # open shoots and the last done one separately: done shoots pile up over time
+        notion.query_upcoming_shoots(config.db_planner, model_page_id=model_id),
+        last_done(config.db_planner, model_id) if callable(last_done) else _none(),
         notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm),
         notion.get_recent_notes(config.db_notes, model_id, limit=1) if config.db_notes else _no_notes(),
+        get_model(model_id) if callable(get_model) else _none(),
         return_exceptions=True,
     )
 
-    orders_result, shoots_result, accounting_result, notes_result = results
+    orders_result, shoots_result, last_result, accounting_result, notes_result, model_result = results
 
     # Database queries lag a few seconds behind writes: swap in what the bot just wrote
     if not isinstance(orders_result, Exception):
@@ -147,8 +151,15 @@ async def _build_card_text_impl(
     if not isinstance(shoots_result, Exception):
         shoots_result = _with_recent_writes(
             notion, config.db_planner, model_id, shoots_result, _parse_planner,
-            keep=lambda s: (s.status or "").lower() in {"planned", "scheduled", "rescheduled", "done"},
+            keep=lambda s: (s.status or "").lower() in _OPEN_SHOOTS,
         )
+    if not isinstance(last_result, NotionPlanner):
+        last_result = None
+    done = _with_recent_writes(
+        notion, config.db_planner, model_id, [last_result] if last_result else [], _parse_planner,
+        keep=lambda s: (s.status or "").lower() == "done",
+    )
+    last_result = max(done, key=lambda s: s.date or "", default=None)
     if not isinstance(accounting_result, Exception):
         records = _with_recent_writes(
             notion, config.db_accounting, model_id, [accounting_result] if accounting_result else [],
@@ -171,47 +182,26 @@ async def _build_card_text_impl(
         overdue = sum(1 for order in orders if _calc_days_open(order.in_date, today) > 3)
         orders_line = f"{open_orders_count} open"
         if overdue > 0:
-            orders_line += f" · {overdue} overdue"
+            orders_line += f" · ⚠️ {overdue} overdue"
 
-    # Next shoot
+    # Next shoot (earliest open, dated first) and the last done one
     if isinstance(shoots_result, Exception):
         LOGGER.warning("model_card: failed to fetch shoots for %s", model_id)
         has_error = True
     else:
-        shoots = shoots_result
-        upcoming = []
-        done = []
-        for shoot in shoots:
-            if not shoot.date:
-                continue
-            parsed = _parse_iso_date(shoot.date)
-            if parsed is None:
-                continue
-            status = (shoot.status or "").lower()
-            if status in {"scheduled", "planned"} and parsed >= today:
-                upcoming.append((parsed, shoot, status or "—"))
-            elif status == "done" and parsed <= today:
-                done.append((parsed, shoot, status or "—"))
-        upcoming_part: str | None = None
-        done_part: str | None = None
-        if upcoming:
-            upcoming.sort(key=lambda pair: pair[0])
-            _, nearest, upcoming_status = upcoming[0]
-            s_date = _format_date_card(nearest.date)
+        open_shoots = sorted(shoots_result, key=lambda sh: sh.date or "9999")
+        nearest = open_shoots[0] if open_shoots else None
+        if nearest is None:
+            shoot_lines.append("📅 Next: —")
+        else:
+            parsed = _parse_iso_date(nearest.date)
+            day = f"<b>{_format_date_card(nearest.date)}</b>" if parsed else "no date yet"
             content = ", ".join(nearest.content or []) or "—"
-            upcoming_part = f"<b>{s_date}</b> · {content} · {upcoming_status}"
-        if done:
-            done.sort(key=lambda pair: pair[0], reverse=True)
-            _, latest_done, done_status = done[0]
-            done_date = _format_date_card(latest_done.date)
-            content = ", ".join(latest_done.content or []) or "—"
-            done_part = f"<b>{done_date}</b> · {content} · {done_status}"
-        if upcoming_part and done_part:
-            shoot_line = f"{upcoming_part}  |  {done_part}"
-        elif upcoming_part:
-            shoot_line = upcoming_part
-        elif done_part:
-            shoot_line = done_part
+            mark = "⚠️ " if parsed and parsed < today else ""
+            shoot_lines.append(f"📅 Next: {mark}{day} · {html.escape(content)} · {nearest.status or 'planned'}")
+        if last_result is not None:
+            content = ", ".join(last_result.content or []) or "—"
+            shoot_lines.append(f"    Last: {_format_date_card(last_result.date)} · {html.escape(content)}")
 
     # Files current month
     if isinstance(accounting_result, Exception):
@@ -229,22 +219,23 @@ async def _build_card_text_impl(
                 ("Social", int(getattr(record, "social_files", 0) or 0)),
                 ("Request", int(getattr(record, "request_files", 0) or 0)),
             ]
-            non_zero_parts = [f"{label}: <b>{value}</b>" for label, value in typed_counts if value > 0]
-            if non_zero_parts:
-                files_line = " | ".join(non_zero_parts)
+            total = sum(value for _, value in typed_counts)
+            files_lines = [f"<b>{total}</b> files"]
+            parts = [f"{label} {value}" for label, value in typed_counts if value > 0]
+            if parts:
+                files_lines.append("    " + " · ".join(parts))
+        else:
+            files_lines = ["<b>0</b> files"]
 
     safe_name = html.escape(model_name.upper())
     month_label = _month_ru(now.month)
+    status = getattr(model_result, "status", None) if not isinstance(model_result, Exception) else None
+    header = f"📌 <b>{safe_name}</b>" + (f" · {html.escape(status)}" if isinstance(status, str) and status else "")
 
-    lines = [
-        f"📌 <b>{safe_name}</b>",
-        "",
-        f"📦 Orders: {orders_line}",
-        "",
-    ]
-    if shoot_line is not None:
-        lines.extend([f"📅 {shoot_line}", ""])
-    lines.append(f"📁 Files ({month_label}): {files_line}")
+    lines = [header, "", f"📦 Orders: {orders_line}"]
+    lines.extend(shoot_lines)
+    lines.append(f"📁 {month_label}: {files_lines[0]}")
+    lines.extend(files_lines[1:])
 
     # Only the latest note, first line, capped — full text lives in Notion.
     if not isinstance(notes_result, Exception) and notes_result:
@@ -263,6 +254,8 @@ async def _build_card_text_impl(
 
 
 # ===== Helpers =====
+
+_OPEN_SHOOTS = {"planned", "scheduled", "rescheduled"}
 
 def _with_recent_writes(notion, database_id, model_id, items, parse, keep, add_new=True, new_first=False):
     """Replace query results with the versions the bot just wrote, drop ones that no
