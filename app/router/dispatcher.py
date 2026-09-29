@@ -187,7 +187,7 @@ async def _route_message_impl(
                 # _find_nlp_text_handler is defined at the bottom of this module.
                 handler = _find_nlp_text_handler(current_flow, current_step)
                 if handler:
-                    await handler(message, text, user_state, config, notion, memory_state)
+                    await handler(message, text, user_state, config, notion, memory_state, recent_models)
                     return
 
                 # No text handler for this step.
@@ -397,7 +397,7 @@ async def _execute_handler(
 #                    SHOOT COMMENT INPUT (button-driven nlp_shoot flow)
 # ============================================================================
 
-async def _handle_shoot_comment_input(message, text, user_state, config, notion, memory_state):
+async def _handle_shoot_comment_input(message, text, user_state, config, notion, memory_state, recent_models=None):
     """Handle free-text comment input for a shoot (step: awaiting_shoot_comment)."""
     user_id = message.from_user.id
     chat_id = message.chat.id
@@ -471,7 +471,7 @@ def _day_label_long(d):
     return label(d)
 
 
-async def _handle_custom_date_input(message, text, user_state, config, notion, memory_state):
+async def _handle_custom_date_input(message, text, user_state, config, notion, memory_state, recent_models=None):
     """Handle free-text date input (DD.MM) in nlp_shoot / nlp_close flows."""
     import re
     from app.roles import is_editor
@@ -637,7 +637,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
 MAX_FILES_INPUT = 1500  # configurable upper limit for manual file count
 
 
-async def _handle_custom_files_input(message, text, user_state, config, notion, memory_state):
+async def _handle_custom_files_input(message, text, user_state, config, notion, memory_state, recent_models=None):
     """Typed amount in the nlp_files flow (the type was chosen before): save right away."""
     from app.roles import is_editor
 
@@ -666,7 +666,7 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
     from app.keyboards.inline import nlp_action_complete_keyboard
 
     try:
-        confirm = await save_files(config, notion, message.from_user, model_id, model_name, count, content_type)
+        confirm = await save_files(config, notion, message.from_user, model_id, model_name, count, content_type, recent_models)
     except Exception:
         LOGGER.exception("Failed to add files")
         await message.answer("❌ Notion error — try later")
@@ -679,7 +679,7 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
     memory_state.clear(chat_id, user_id)
 
 
-async def _handle_new_shoot_comment_input(message, text, user_state, config, notion, memory_state):
+async def _handle_new_shoot_comment_input(message, text, user_state, config, notion, memory_state, recent_models=None):
     """Comment typed for a new shoot: create it."""
     from app.roles import is_editor
 
@@ -698,7 +698,7 @@ async def _handle_new_shoot_comment_input(message, text, user_state, config, not
     from app.keyboards.inline import nlp_action_complete_keyboard
 
     try:
-        confirm = await create_new_shoot(config, notion, message.from_user, user_state, comment)
+        confirm = await create_new_shoot(config, notion, message.from_user, user_state, comment, recent_models)
     except Exception:
         LOGGER.exception("Failed to create shoot")
         await message.answer("❌ Notion error — try later")
@@ -711,7 +711,7 @@ async def _handle_new_shoot_comment_input(message, text, user_state, config, not
     memory_state.clear(chat_id, user_id)
 
 
-async def _handle_note_input(message, text, user_state, config, notion, memory_state):
+async def _handle_note_input(message, text, user_state, config, notion, memory_state, recent_models=None):
     """Handle note text input for nlp_note flow."""
     user_id = message.from_user.id
     chat_id = message.chat.id
@@ -789,7 +789,7 @@ async def _handle_note_input(message, text, user_state, config, notion, memory_s
     _remember_screen_message(memory_state, chat_id, user_id, sent.message_id if sent else None)
 
 
-async def _handle_accounting_comment_input(message, text, user_state, config, notion, memory_state):
+async def _handle_accounting_comment_input(message, text, user_state, config, notion, memory_state, recent_models=None):
     """Handle accounting comment input for nlp_accounting_comment flow."""
     from app.roles import is_editor
 
@@ -871,7 +871,7 @@ async def _show_help_message(message: Message) -> None:
     )
 
 
-async def _handle_custom_order_count_input(message, text, user_state, config, notion, memory_state):
+async def _handle_custom_order_count_input(message, text, user_state, config, notion, memory_state, recent_models=None):
     """Handle custom order count input."""
     from app.roles import is_editor
     user_id = message.from_user.id
@@ -912,7 +912,7 @@ async def _handle_custom_order_count_input(message, text, user_state, config, no
     _remember_screen_message(memory_state, chat_id, user_id, sent.message_id if sent else None)
 
 
-async def _handle_received_input(message, text, user_state, config, notion, memory_state):
+async def _handle_received_input(message, text, user_state, config, notion, memory_state, recent_models=None):
     """Handle free-text received count input for nlp_received flow.
 
     Adds the entered number to current_received.  Auto-closes when total >= count.
@@ -972,7 +972,7 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
 # Map (flow | None, step) → handler for free-text input in nlp_* flows.
 # None as flow means "match any nlp_* flow".
 # All handlers share the signature:
-#   (message, text, user_state, config, notion, memory_state) → None
+#   (message, text, user_state, config, notion, memory_state, recent_models=None) → None
 #
 # To add a new text-input step:
 #   1. Define the handler function above.

@@ -26,6 +26,7 @@ flow and step match what the action expects. On mismatch the user sees
 "Сессия устарела, откройте модель заново" and (if possible) a stateless Back.
 """
 
+import asyncio
 import html
 import logging
 import time
@@ -41,7 +42,7 @@ from app.filters.topic_access import TopicAccessCallbackFilter
 from app.roles import is_authorized, is_editor
 from app.services import NotionClient
 from app.services import activity_log
-from app.utils.formatting import today as today_in_tz
+from app.utils.formatting import today as today_in_tz, format_date_short
 from app.services import accounting as accounting_cache
 from app.services import orders as orders_cache
 from app.services import planner as planner_cache
@@ -281,6 +282,23 @@ def _validate_flow_step(state: dict | None, action: str) -> bool:
     return True
 
 
+def _is_duplicate_of_last_advance(query: CallbackQuery, chat_id: int, user_id: int) -> bool:
+    """True if this exact (message, dedup key) pair already advanced within the TTL.
+
+    Compares against whatever `_recently_advanced` held *before* this press —
+    callers must check this before recording their own advance.
+    """
+    if not query.message or isinstance(query.message, InaccessibleMessage):
+        return False
+    last = _recently_advanced.get((chat_id, user_id))
+    return bool(
+        last
+        and last[0] == query.message.message_id
+        and last[1] == _dedup_key(query)
+        and time.monotonic() - last[2] < _RECENT_ACTION_TTL
+    )
+
+
 async def _reject_stale(
     query: CallbackQuery,
     reason: str,
@@ -290,20 +308,13 @@ async def _reject_stale(
     """Reject a callback with a stale/invalid message."""
     chat_id, user_id = _state_ids_from_query(query)
 
-    if query.message and not isinstance(query.message, InaccessibleMessage):
-        last = _recently_advanced.get((chat_id, user_id))
-        if (
-            last
-            and last[0] == query.message.message_id
-            and last[1] == _dedup_key(query)
-            and time.monotonic() - last[2] < _RECENT_ACTION_TTL
-        ):
-            LOGGER.info(
-                "NLP callback DUPLICATE tap ignored (already advanced): user=%s reason=%s data=%s",
-                user_id, reason, query.data,
-            )
-            await safe_query_answer(query)
-            return
+    if _is_duplicate_of_last_advance(query, chat_id, user_id):
+        LOGGER.info(
+            "NLP callback DUPLICATE tap ignored (already advanced): user=%s reason=%s data=%s",
+            user_id, reason, query.data,
+        )
+        await safe_query_answer(query)
+        return
 
     LOGGER.info(
         "NLP callback REJECTED: user=%s reason=%s data=%s",
@@ -452,6 +463,19 @@ async def _handle_nlp_callback_impl(
         # ===== Flow/step validation =====
         if not _validate_flow_step(state, action):
             await _reject_stale(query, f"flow_step_mismatch(action={action})", memory_state)
+            return
+
+        # Token/flow-exempt actions skip both checks above, so they never reach
+        # _reject_stale's dedup on their own — check it here too. Harmless for
+        # the idempotent ones (same edit twice); the actions that send a NEW
+        # message instead of editing (e.g. "more_actions") are the ones this
+        # actually protects, without needing a second hand-maintained set.
+        if action in _NO_TOKEN_ACTIONS and _is_duplicate_of_last_advance(query, chat_id, user_id):
+            LOGGER.info(
+                "NLP callback DUPLICATE tap ignored (already advanced): user=%s action=%s data=%s",
+                user_id, action, query.data,
+            )
+            await safe_query_answer(query)
             return
 
         if query.message:
@@ -788,15 +812,22 @@ async def _show_orders_menu(query, config, notion, memory_state) -> None:
 
 
 async def _show_close_picker(query, model_id, model_name, config, notion, memory_state, page=None) -> None:
-    await _show_orders_screen(query, config, notion, memory_state, page=page or 1)
+    # page=None means a fresh open (from the model card) — refresh the list.
+    # An explicit page means the user is just paging a screen already rendered.
+    await _show_orders_screen(query, config, notion, memory_state, page=page or 1, refresh=page is None)
 
 
 async def _show_orders_view(query, config, notion, memory_state, page: int) -> None:
-    await _show_orders_screen(query, config, notion, memory_state, page=page)
+    await _show_orders_screen(query, config, notion, memory_state, page=page, refresh=False)
 
 
-async def _show_orders_screen(query, config, notion, memory_state, page: int = 1) -> None:
-    """Open orders as buttons (oldest first, paged); tapping one starts closing it."""
+async def _show_orders_screen(query, config, notion, memory_state, page: int = 1, refresh: bool = True) -> None:
+    """Open orders as buttons (oldest first, paged); tapping one starts closing it.
+
+    refresh=False reuses the order list already cached in state (set by the
+    last render of this same screen) instead of re-fetching/re-sorting it —
+    used for page turns, where the list hasn't changed.
+    """
     from types import SimpleNamespace
 
     from app.keyboards.inline import nlp_orders_screen_keyboard, order_line
@@ -810,8 +841,14 @@ async def _show_orders_screen(query, config, notion, memory_state, page: int = 1
     model_name = state.get("model_name", "")
     can_edit = is_editor(user_id, config)
 
-    orders = await orders_cache.get_cached_orders(notion, config, model_id)
-    orders.sort(key=lambda o: o.in_date or "9999-99-99")
+    cached = state.get("orders") if not refresh else None
+    if cached is not None:
+        orders = [SimpleNamespace(**o) for o in cached]
+        orders_as_dicts = cached
+    else:
+        orders = await orders_cache.get_cached_orders(notion, config, model_id)
+        orders.sort(key=lambda o: o.in_date or "9999-99-99")
+        orders_as_dicts = [dataclasses.asdict(o) for o in orders]
     total_pages = max(1, (len(orders) + PAGE_SIZE - 1) // PAGE_SIZE)
     page = max(1, min(page, total_pages))
     page_orders = orders[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]
@@ -822,7 +859,7 @@ async def _show_orders_screen(query, config, notion, memory_state, page: int = 1
         "step": "selecting",
         "model_id": model_id,
         "model_name": model_name,
-        "orders": [dataclasses.asdict(o) for o in orders],
+        "orders": orders_as_dicts,
         "page": page,
     })
 
@@ -1092,7 +1129,6 @@ async def _handle_files_menu_action(
 
 
 _WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 _OPEN_SHOOT_STATUSES = {"planned", "scheduled", "rescheduled"}
 _MAX_LISTED_SHOOTS = 6
 
@@ -1106,7 +1142,7 @@ def _shoot_date(shoot) -> date | None:
 
 def _shoot_label(shoot) -> str:
     d = _shoot_date(shoot)
-    return f"{d.day} {_MONTHS[d.month - 1]}" if d else "no date"
+    return format_date_short(d) if d else "no date"
 
 
 def _shoot_line(shoot, today: date, comment: bool = True) -> str:
@@ -1131,20 +1167,21 @@ async def _load_shoots(config, notion, model_id):
     from app.services.model_card import _with_recent_writes
     from app.services.notion import _parse_planner
 
-    try:
-        open_shoots = await notion.query_upcoming_shoots(config.db_planner, model_page_id=model_id)
-    except Exception:
-        LOGGER.warning("shoot menu: failed to load shoots for %s", model_id, exc_info=True)
+    open_shoots, last = await asyncio.gather(
+        notion.query_upcoming_shoots(config.db_planner, model_page_id=model_id),
+        notion.query_last_done_shoot(config.db_planner, model_id),
+        return_exceptions=True,
+    )
+    if isinstance(open_shoots, Exception):
+        LOGGER.warning("shoot menu: failed to load shoots for %s", model_id, exc_info=open_shoots)
         open_shoots = []
     open_shoots = _with_recent_writes(
         notion, config.db_planner, model_id, open_shoots, _parse_planner,
         keep=lambda s: (s.status or "") in _OPEN_SHOOT_STATUSES,
     )
     open_shoots.sort(key=lambda s: s.date or "9999")
-    try:
-        last = await notion.query_last_done_shoot(config.db_planner, model_id)
-    except Exception:
-        LOGGER.warning("shoot menu: failed to load the last shoot for %s", model_id, exc_info=True)
+    if isinstance(last, Exception):
+        LOGGER.warning("shoot menu: failed to load the last shoot for %s", model_id, exc_info=last)
         last = None
     done = _with_recent_writes(
         notion, config.db_planner, model_id, [last] if last else [], _parse_planner,
@@ -1195,6 +1232,7 @@ async def _show_shoot_menu(
         "model_id": model_id,
         "model_name": model_name,
         "shoot_ids": [s.page_id for s in listed],
+        "shoots": [dataclasses.asdict(s) for s in listed],
         "shoot_id": listed[0].page_id if single else None,
         "shoot_label": _shoot_label(listed[0]) if single else None,
     })
@@ -1233,12 +1271,17 @@ async def _show_picked_shoot(query, config, notion, memory_state, index: int) ->
 
 async def _show_shoot_view(query, config, notion, memory_state, shoot_id: str, edit: bool = False) -> None:
     """One shoot with its actions (Shot done / Edit), or its edit options (Date / Content / Comment)."""
+    from types import SimpleNamespace
+
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id) or {}
     if len(state.get("shoot_ids") or []) <= 1 and not edit:
         await _show_shoot_menu(query, config, notion, memory_state)  # one shoot: the menu already shows it
         return
-    shoot = await notion.get_shoot(shoot_id)
+    # The menu just fetched this exact record — reuse it instead of a fresh
+    # get_shoot() round trip (which also does its own get_model() call).
+    cached = next((s for s in state.get("shoots") or [] if s.get("page_id") == shoot_id), None)
+    shoot = SimpleNamespace(**cached) if cached else await notion.get_shoot(shoot_id)
     if not shoot:
         await _show_shoot_menu(query, config, notion, memory_state)
         return
@@ -1537,7 +1580,7 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
 
 
 def _day_label(d: date) -> str:
-    return f"{d.day} {_MONTHS[d.month - 1]}"
+    return format_date_short(d)
 
 
 async def move_shoot(notion, shoot_id: str, old_date: str | None, new_date: date) -> str:
@@ -1563,14 +1606,14 @@ def _iso_date(value: str) -> date | None:
 async def create_new_shoot(config, notion, user, state: dict, comment: str | None, recent_models=None) -> str:
     """Create the shoot collected in `state`; returns the confirmation text.
 
-    With a day the status is scheduled, without one it is planned (no date).
+    Scheduled needs both a date and at least one content type; otherwise planned.
     """
     model_id = state.get("model_id", "")
     model_name = state.get("model_name", "")
     shoot_date = _iso_date(state.get("shoot_date") or "")
     content_types = state.get("content_types", [])
     location = state.get("location") or "home"
-    status = "scheduled" if shoot_date else "planned"
+    status = _compute_shoot_status(shoot_date, content_types)
     day = _day_label(shoot_date) if shoot_date else "no date"
 
     await notion.create_shoot(
@@ -1690,8 +1733,12 @@ async def _finish_new_shoot(query, config, notion, memory_state, recent_models, 
                             parse_mode="HTML")
     except Exception as e:
         LOGGER.exception("Failed to create shoot: %s", e)
-        await safe_edit_message(query, "❌ Notion error — try later")
-    memory_state.clear(chat_id, user_id)
+        try:
+            await safe_edit_message(query, "❌ Notion error — try later")
+        except Exception:
+            pass
+    finally:
+        memory_state.clear(chat_id, user_id)
 
 
 # ============================================================================
@@ -1980,6 +2027,15 @@ async def _handle_close_order_select(query, parts, config, memory_state):
     order_id = parts[2]
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id) or {}
+    model_id = state.get("model_id", "")
+    model_name = state.get("model_name", "")
+
+    if not is_editor(user_id, config):
+        from app.keyboards.inline import nlp_back_keyboard
+        await _clear_previous_screen_keyboard(query, memory_state)
+        msg = await safe_edit_message(query, "❌ No access", reply_markup=nlp_back_keyboard(model_id))
+        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+        return
 
     # Look up order data from cached orders list in state
     orders = state.get("orders", [])
@@ -1987,8 +2043,6 @@ async def _handle_close_order_select(query, parts, config, memory_state):
     order_type = order.get("order_type", "") if order else ""
     count = int(order.get("count") or 0) if order else 0
     received = int(order.get("received") or 0) if order else 0
-    model_id = state.get("model_id", "")
-    model_name = state.get("model_name", "")
 
     # For short/verif reddit orders — show the partial-or-full options screen
     if order_type in ("short", "verif reddit"):
@@ -2426,7 +2480,7 @@ async def _handle_files_content_type(query, parts, config, notion, memory_state,
 #                    SHOOT CONTENT TYPES + MANAGE
 # ============================================================================
 
-def _compute_shoot_status(shoot_date: str | None, content_types: list[str]) -> str:
+def _compute_shoot_status(shoot_date: "date | str | None", content_types: list[str]) -> str:
     """Auto-compute planner status: scheduled if date+types, else planned."""
     if shoot_date and content_types:
         return "scheduled"

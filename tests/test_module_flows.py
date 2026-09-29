@@ -1,3 +1,4 @@
+import dataclasses
 import pytest
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock
@@ -371,6 +372,36 @@ class TestNewShootFlow:
         assert kwargs["comments"] == "bring the red set" and "no date" in text
 
     @pytest.mark.asyncio
+    async def test_dated_shoot_with_no_content_is_planned_not_scheduled(self, monkeypatch):
+        """A date alone isn't enough for 'scheduled' — it also needs a content type."""
+        screens, memory, query, notion, config = self._setup(monkeypatch)
+        state = {
+            "flow": "nlp_shoot", "step": "awaiting_comment", "model_id": "m1", "model_name": "M",
+            "shoot_date": "2099-10-03", "content_types": [], "location": "home",
+        }
+        text = await nlp_callbacks.create_new_shoot(config, notion, query.from_user, state, None)
+        kwargs = notion.create_shoot.await_args.kwargs
+        assert kwargs["status"] == "planned"
+        assert "planned" in text
+
+    @pytest.mark.asyncio
+    async def test_reentry_guard_clears_even_if_the_error_message_also_fails(self, monkeypatch):
+        """If create_new_shoot AND the fallback error edit both raise, the
+        shoot_location_processing guard must still be released — otherwise
+        every retry gets stuck on 'Please wait...' forever."""
+        screens, memory, query, notion, config = self._setup(monkeypatch)
+        memory.set(100, 1, {
+            "flow": "nlp_shoot", "step": "awaiting_new_shoot_comment", "model_id": "m1", "model_name": "M",
+        })
+        monkeypatch.setattr(nlp_callbacks, "create_new_shoot", AsyncMock(side_effect=RuntimeError("notion down")))
+        monkeypatch.setattr(nlp_callbacks, "safe_edit_message", AsyncMock(side_effect=RuntimeError("edit failed too")))
+
+        await nlp_callbacks._finish_new_shoot(query, config, notion, memory, MagicMock(), comment="hi")
+
+        assert memory.get(100, 1) is None, \
+            "state (and the re-entry guard inside it) must be cleared even when both calls raise"
+
+    @pytest.mark.asyncio
     async def test_other_date_is_typed_then_content(self, monkeypatch):
         from app.router import dispatcher
         screens, memory, query, notion, config = self._setup(monkeypatch)
@@ -450,6 +481,31 @@ async def test_edit_opens_date_content_comment_and_back_returns(monkeypatch):
     assert "nlp:smn:edit" in shown[-1][1] and "nlp:smn:close" in shown[-1][1]
 
 
+@pytest.mark.asyncio
+async def test_shoot_view_reuses_cached_record_instead_of_refetching(monkeypatch):
+    """_show_shoot_menu already fetched this shoot; opening it must reuse that
+    record instead of paying a fresh get_shoot() round trip (which also
+    issues its own extra get_model() call)."""
+    monkeypatch.setattr(nlp_callbacks, "safe_edit_message", AsyncMock())
+    monkeypatch.setattr(nlp_callbacks, "_clear_previous_screen_keyboard", AsyncMock())
+    shoot = NotionPlanner(page_id="s1", title="s", model_id="m1", date="2099-09-29", status="scheduled",
+                          content=["main pack"], location="home")
+    notion = MagicMock(spec=["get_shoot"])
+    notion.get_shoot = AsyncMock(return_value=shoot)
+    memory = MemoryState()
+    memory.set(100, 1, {
+        "flow": "nlp_shoot_menu", "model_id": "m1", "model_name": "M",
+        "shoot_ids": ["s1", "s2"], "shoots": [dataclasses.asdict(shoot)],
+    })
+    query = MagicMock()
+    query.from_user.id = 1
+    query.message.chat.id = 100
+
+    await nlp_callbacks._show_shoot_view(query, _make_config({1}), notion, memory, "s1")
+
+    notion.get_shoot.assert_not_called()
+
+
 # ---------- orders screen ----------
 
 def test_order_line_shows_count_received_and_overdue():
@@ -487,6 +543,58 @@ async def test_orders_screen_has_orders_as_buttons_that_start_closing(monkeypatc
     assert shown["buttons"][1][1] == "nlp:co:o1" and shown["buttons"][1][0].startswith("⚠️ short ×8 (5/8) · 22 Sep")
     assert all(t not in ("✓ Close", "📄 View all") for t, _ in shown["buttons"])
     assert memory.get(100, 1)["flow"] == "nlp_close_picker"   # the co:/cp: buttons work from here
+
+
+@pytest.mark.asyncio
+async def test_close_order_select_rejects_non_editor(monkeypatch):
+    """A non-editor (or a stale nlp:co:{id} button from before being demoted)
+    must not be able to open the order-close flow at all."""
+    shown = {}
+
+    async def fake_edit(query, text, reply_markup=None, parse_mode=None):
+        shown["text"] = text
+
+    monkeypatch.setattr(nlp_callbacks, "safe_edit_message", fake_edit)
+    monkeypatch.setattr(nlp_callbacks, "_clear_previous_screen_keyboard", AsyncMock())
+    memory = MemoryState()
+    memory.set(100, 1, {
+        "flow": "nlp_close_picker", "model_id": "m1", "model_name": "M",
+        "orders": [{"page_id": "o1", "order_type": "custom", "count": 1, "received": 0, "in_date": "2026-09-20"}],
+    })
+    query = MagicMock()
+    query.from_user.id = 1
+    query.message.chat.id = 100
+
+    await nlp_callbacks._handle_close_order_select(query, ["nlp", "co", "o1"], _make_config(set()), memory)
+
+    assert shown["text"] == "❌ No access"
+    assert memory.get(100, 1).get("flow") != "nlp_close", \
+        "a non-editor must not reach the close-date picker"
+
+
+@pytest.mark.asyncio
+async def test_orders_screen_page_turn_reuses_cached_list(monkeypatch):
+    """Paging the orders screen must not re-fetch/re-sort the full order list
+    — it should reuse what the previous render already put in state."""
+    monkeypatch.setattr(nlp_callbacks, "safe_edit_message", AsyncMock())
+    monkeypatch.setattr(nlp_callbacks, "_clear_previous_screen_keyboard", AsyncMock())
+    orders = [
+        NotionOrder(page_id=f"o{i}", title="t", order_type="custom", in_date="2026-09-01", status="Open")
+        for i in range(1, 10)
+    ]
+    get_cached = AsyncMock(return_value=orders)
+    monkeypatch.setattr(nlp_callbacks.orders_cache, "get_cached_orders", get_cached)
+    memory = MemoryState()
+    memory.set(100, 1, {"flow": "nlp_actions", "model_id": "m1", "model_name": "M"})
+    query = MagicMock()
+    query.from_user.id = 1
+    query.message.chat.id = 100
+
+    await nlp_callbacks._show_orders_menu(query, _make_config({1}), MagicMock(), memory)
+    assert get_cached.await_count == 1
+
+    await nlp_callbacks._handle_close_picker_page(query, ["nlp", "cp", "2"], _make_config({1}), MagicMock(), memory)
+    assert get_cached.await_count == 1, "a page turn must reuse the cached order list, not re-fetch it"
 
 
 # ---------- Add part: quick amounts ----------

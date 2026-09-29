@@ -1,6 +1,8 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from app.utils.formatting import format_date_short
+
 
 def nlp_accounting_content_keyboard(
     selected: list[str],
@@ -146,7 +148,6 @@ def model_card_keyboard(k: str = "") -> InlineKeyboardMarkup:
     ])
 
 
-_ORDER_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 OVERDUE_ORDER_DAYS = 3
 
 
@@ -164,7 +165,7 @@ def order_line(order, today) -> str:
     days = None
     try:
         d = _date.fromisoformat((order.in_date or "")[:10])
-        parts.append(f"{d.day} {_ORDER_MONTHS[d.month - 1]}")
+        parts.append(format_date_short(d))
         days = ((today or _date.today()) - d).days
         parts.append(f"{days}d")
     except ValueError:

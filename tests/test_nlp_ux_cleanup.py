@@ -87,6 +87,67 @@ async def test_remove_keyboard_on_success():
 
 
 @pytest.mark.asyncio
+async def test_custom_files_input_updates_recent_models():
+    """Typing the file count (instead of tapping a quick-count button) must
+    still update the recent-models shortcut, same as the button path."""
+    memory_state = MemoryState()
+    message = _make_message(text="5")
+    user_state = {
+        "flow": "nlp_files",
+        "step": "awaiting_count",
+        "model_id": "model-1",
+        "model_name": "Model",
+        "content_type": "reddit",
+    }
+    memory_state.set(message.chat.id, message.from_user.id, dict(user_state))
+
+    from zoneinfo import ZoneInfo
+    config = MagicMock()
+    config.files_per_month = 200
+    config.timezone = ZoneInfo("UTC")
+    config.allowed_editors = {1}
+    notion = AsyncMock()
+    notion.get_monthly_record.return_value = MagicMock(files=0, page_id="acc-1", status=None)
+    recent_models = MagicMock()
+
+    await _handle_custom_files_input(message, "5", user_state, config, notion, memory_state, recent_models)
+
+    recent_models.add.assert_called_once_with(1, "model-1", "Model")
+
+
+@pytest.mark.asyncio
+async def test_new_shoot_comment_input_updates_recent_models():
+    """Typing a comment (instead of tapping Skip) must still update the
+    recent-models shortcut, same as the Skip path."""
+    from app.router import dispatcher
+    from zoneinfo import ZoneInfo
+
+    memory_state = MemoryState()
+    message = _make_message(text="bring lights")
+    user_state = {
+        "flow": "nlp_shoot",
+        "step": "awaiting_new_shoot_comment",
+        "model_id": "model-1",
+        "model_name": "Model",
+        "shoot_date": None,
+        "content_types": [],
+        "location": "home",
+    }
+    memory_state.set(message.chat.id, message.from_user.id, dict(user_state))
+    config = MagicMock()
+    config.allowed_editors = {1}
+    config.timezone = ZoneInfo("UTC")
+    notion = AsyncMock()
+    recent_models = MagicMock()
+
+    await dispatcher._handle_new_shoot_comment_input(
+        message, "bring lights", user_state, config, notion, memory_state, recent_models,
+    )
+
+    recent_models.add.assert_called_once_with(1, "model-1", "Model")
+
+
+@pytest.mark.asyncio
 async def test_date_prompt_cleanup():
     memory_state = MemoryState()
     message = _make_message(text="05.02")
@@ -140,6 +201,54 @@ async def test_reset_from_model_card():
         message_id=query.message.message_id,
         reply_markup=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_more_actions_double_tap_sends_only_one_card():
+    """"Ещё действие" sends a NEW message instead of editing the current
+    screen, so it isn't naturally idempotent like other buttons — a double
+    tap (two distinct callback queries on the same rendered message, as
+    Telegram delivers a real double tap) must still produce only one model
+    card, not two.
+    """
+    from app.handlers import nlp_callbacks
+    nlp_callbacks._recently_advanced.clear()
+    nlp_callbacks._callback_dedup.clear()
+
+    # The one real Telegram message both taps land on.
+    message = MagicMock()
+    message.chat.id = 100
+    message.message_id = 200
+    message.edit_reply_markup = AsyncMock()
+    message.answer = AsyncMock(return_value=MagicMock(message_id=999))
+
+    def _tap(cb_id):
+        query = MagicMock()
+        query.id = cb_id
+        query.from_user.id = 1
+        query.data = "nlp:more_actions:model-1"
+        query.answer = AsyncMock()
+        query.message = message
+        query.bot = AsyncMock()
+        return query
+
+    memory_state = MemoryState()
+    memory_state.set(100, 1, {
+        "flow": "nlp_actions",
+        "model_id": "model-1",
+        "model_name": "Model",
+    })
+    config = MagicMock()
+    notion = AsyncMock()
+    notion.get_model.return_value = MagicMock(title="Model")
+    recent_models = MagicMock()
+
+    with patch("app.services.model_card.build_model_card", new=AsyncMock(return_value=("CARD", 0))):
+        await handle_nlp_callback(_tap("cbq-1"), config, notion, memory_state, recent_models)
+        await handle_nlp_callback(_tap("cbq-2"), config, notion, memory_state, recent_models)
+
+    assert message.answer.call_count == 1, \
+        "a double tap on 'more_actions' must not send a second model card"
 
 
 # ---------- add files: type first, then amount ----------
