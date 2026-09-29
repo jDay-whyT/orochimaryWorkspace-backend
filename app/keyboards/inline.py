@@ -200,6 +200,7 @@ def nlp_shoot_menu_keyboard(
     actions: bool = False,
     from_list: bool = False,
     new_button: bool = True,
+    has_date: bool = True,
 ) -> InlineKeyboardMarkup:
     """Shoots of a model.
 
@@ -214,7 +215,8 @@ def nlp_shoot_menu_keyboard(
         if actions:
             rows.append([
                 InlineKeyboardButton(text="✅ Shot done", callback_data="nlp:smn:close"),
-                InlineKeyboardButton(text="↩️ Reschedule", callback_data="nlp:smn:reschedule"),
+                InlineKeyboardButton(text="↩️ Reschedule" if has_date else "📅 Set date",
+                                     callback_data="nlp:smn:reschedule"),
             ])
             rows.append([
                 InlineKeyboardButton(text="🗂 Content", callback_data="nlp:smn:content"),
@@ -312,12 +314,13 @@ def nlp_report_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
 # ==================== NLP Shoot Keyboards ====================
 
 def nlp_shoot_date_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
-    """New date when rescheduling a shoot. model_id in memory."""
+    """New date when rescheduling a shoot (or the first date of one without it). model_id in memory."""
     s = f":{k}" if k else ""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
+            InlineKeyboardButton(text="Today", callback_data=f"nlp:sd:today{s}"),
             InlineKeyboardButton(text="Tomorrow", callback_data=f"nlp:sd:tomorrow{s}"),
-            InlineKeyboardButton(text="Day after tomorrow", callback_data=f"nlp:sd:day_after{s}"),
+            InlineKeyboardButton(text="Day after", callback_data=f"nlp:sd:day_after{s}"),
         ],
         [InlineKeyboardButton(text="📅 Other date", callback_data=f"nlp:sd:custom{s}")],
         [nlp_back_button(model_id)],

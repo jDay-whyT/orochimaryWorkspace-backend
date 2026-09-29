@@ -704,12 +704,12 @@ class NotionClient:
         url = f"https://api.notion.com/v1/pages/{page_id}"
         await self._request("PATCH", url, json=payload)
 
-    async def reschedule_shoot(self, page_id: str, new_date: date) -> None:
-        """Reschedule a shoot."""
+    async def reschedule_shoot(self, page_id: str, new_date: date, status: str = "rescheduled") -> None:
+        """Set a shoot's date (rescheduled; scheduled when it had no date yet)."""
         payload = {
             "properties": {
                 "date": {"date": {"start": new_date.isoformat()}},
-                "status": {"select": {"name": "rescheduled"}},
+                "status": {"select": {"name": status}},
             }
         }
         url = f"https://api.notion.com/v1/pages/{page_id}"

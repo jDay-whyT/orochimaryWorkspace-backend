@@ -514,20 +514,19 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
         elif step == "awaiting_custom_date" and user_state.get("shoot_id"):
             # Reschedule
             shoot_id = user_state["shoot_id"]
-            old_date = user_state.get("old_date", "?")
             if not is_editor(user_id, config):
                 await message.answer("❌ No permission.")
                 memory_state.clear(chat_id, user_id)
                 return
-            await notion.reschedule_shoot(shoot_id, parsed_date)
+            from app.handlers.nlp_callbacks import move_shoot
+            moved_text = await move_shoot(notion, shoot_id, user_state.get("old_date"), parsed_date)
             planner_cache.clear_cache(model_id)
-            old_label = old_date[:10] if old_date else "?"
             await _clear_previous_screen_keyboard(message, memory_state)
             await _cleanup_prompt_message(message, memory_state)
             memory_state.clear(chat_id, user_id)
             from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
             await message.answer(
-                f"✅ Shoot moved from {old_label} to {parsed_date.strftime('%d.%m')}",
+                moved_text,
                 reply_markup=_nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )

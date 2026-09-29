@@ -389,3 +389,30 @@ class TestNewShootFlow:
         state = memory.get(100, 1)
         assert state["step"] == "awaiting_content" and state["shoot_date"].endswith("-10-15")
         assert "Choose content" in message.answer.await_args.args[0]
+
+
+# ---------- reschedule / set date ----------
+
+@pytest.mark.asyncio
+async def test_moving_a_dated_shoot_is_rescheduled():
+    notion = AsyncMock()
+    text = await nlp_callbacks.move_shoot(notion, "s1", "2026-09-29", date(2026, 10, 1))
+    notion.reschedule_shoot.assert_awaited_with("s1", date(2026, 10, 1), status="rescheduled")
+    assert text == "✅ Shoot moved: 29 Sep → 1 Oct"
+
+
+@pytest.mark.asyncio
+async def test_first_date_of_an_undated_shoot_is_scheduled():
+    notion = AsyncMock()
+    text = await nlp_callbacks.move_shoot(notion, "s1", None, date(2026, 10, 1))
+    notion.reschedule_shoot.assert_awaited_with("s1", date(2026, 10, 1), status="scheduled")
+    assert text == "✅ Date set: 1 Oct · scheduled"
+
+
+def test_undated_shoot_offers_set_date_and_reschedule_has_today():
+    from app.keyboards.inline import nlp_shoot_date_keyboard
+    texts = [b.text for row in nlp_shoot_menu_keyboard(can_edit=True, model_id="m1", actions=True,
+                                                       has_date=False).inline_keyboard for b in row]
+    assert "📅 Set date" in texts and "↩️ Reschedule" not in texts
+    calls = [b.callback_data for row in nlp_shoot_date_keyboard("m1", "k").inline_keyboard for b in row]
+    assert calls[:3] == ["nlp:sd:today:k", "nlp:sd:tomorrow:k", "nlp:sd:day_after:k"]

@@ -1353,6 +1353,7 @@ async def _show_shoot_menu(
                 model_id=model_id,
                 picks=None if single else [_shoot_label(s) for s in listed],
                 actions=single,
+                has_date=bool(single and listed[0].date),
             ),
             parse_mode="HTML",
         )
@@ -1386,7 +1387,7 @@ async def _show_picked_shoot(query, config, notion, memory_state, index: int) ->
         f"📅 <b>{html.escape(model_name)}</b>\n\n{_shoot_line(shoot, today)}",
         reply_markup=nlp_shoot_menu_keyboard(
             can_edit=is_editor(user_id, config), model_id=state.get("model_id", ""),
-            actions=True, from_list=True, new_button=False,
+            actions=True, from_list=True, new_button=False, has_date=bool(shoot.date),
         ),
         parse_mode="HTML",
     )
@@ -1475,8 +1476,8 @@ async def _handle_shoot_menu_action(
             "k": k,
         })
         await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await safe_edit_message(query, 
-            f"📅 <b>{html.escape(model_name)}</b> · New date:",
+        msg = await safe_edit_message(query,
+            f"📅 <b>{html.escape(model_name)}</b> · {'New date' if old_date else 'Set the date'}:",
             reply_markup=nlp_shoot_date_keyboard(model_id, k),
             parse_mode="HTML",
         )
@@ -1550,7 +1551,9 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
     step = state.get("step", "")
 
     today = today_in_tz(config.timezone)
-    if date_choice == "tomorrow":
+    if date_choice == "today":
+        shoot_date = today
+    elif date_choice == "tomorrow":
         shoot_date = today + timedelta(days=1)
     elif date_choice == "day_after":
         shoot_date = today + timedelta(days=2)
@@ -1577,16 +1580,14 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
         # Reschedule
         shoot_id = state.get("shoot_id")
         if shoot_id:
-            old_date = state.get("old_date", "?")
-            await notion.reschedule_shoot(shoot_id, shoot_date)
+            text = await move_shoot(notion, shoot_id, state.get("old_date"), shoot_date)
             planner_cache.clear_cache(model_id)
-            old_label = old_date[:10] if old_date else "?"
             from app.keyboards.inline import nlp_action_complete_keyboard
             await _clear_previous_screen_keyboard(query, memory_state)
             await _cleanup_prompt_message(query, memory_state)
             try:
                 msg = await safe_edit_message(query, 
-                    f"✅ Shoot moved from {old_label} to {shoot_date.strftime('%d.%m')}",
+                    text,
                     reply_markup=nlp_action_complete_keyboard(model_id),
                     parse_mode="HTML",
                 )
@@ -1662,6 +1663,23 @@ async def _handle_shoot_location(query, parts, config, notion, memory_state, rec
     message_id = msg.message_id if msg else query.message.message_id
     memory_state.update(chat_id, user_id, prompt_message_id=message_id)
     _remember_screen_message(memory_state, chat_id, user_id, message_id)
+
+
+def _day_label(d: date) -> str:
+    return f"{d.day} {_MONTHS[d.month - 1]}"
+
+
+async def move_shoot(notion, shoot_id: str, old_date: str | None, new_date: date) -> str:
+    """Give a shoot a new date; returns the confirmation text.
+
+    A shoot that had no date yet becomes 'scheduled', a moved one 'rescheduled'.
+    """
+    old = _iso_date((old_date or "")[:10])
+    status = "rescheduled" if old else "scheduled"
+    await notion.reschedule_shoot(shoot_id, new_date, status=status)
+    if old:
+        return f"✅ Shoot moved: {_day_label(old)} → {_day_label(new_date)}"
+    return f"✅ Date set: {_day_label(new_date)} · scheduled"
 
 
 def _iso_date(value: str) -> date | None:
