@@ -446,3 +446,38 @@ async def test_edit_opens_date_content_comment_and_back_returns(monkeypatch):
         "nlp:smn:reschedule", "nlp:smn:content", "nlp:smn:comment", "nlp:smn:view"]
     await nlp_callbacks._handle_shoot_menu_action(query, ["nlp", "smn", "view"], config, notion, memory, MagicMock())
     assert "nlp:smn:edit" in shown[-1][1] and "nlp:smn:close" in shown[-1][1]
+
+
+# ---------- orders screen ----------
+
+def test_order_line_shows_count_received_and_overdue():
+    from app.keyboards.inline import order_line
+    today = date(2026, 9, 28)
+    short = NotionOrder(page_id="o1", title="t", order_type="short", in_date="2026-09-22", count=8, received=5, status="Open")
+    custom = NotionOrder(page_id="o2", title="t", order_type="custom", in_date="2026-09-27", count=1, status="Open")
+    assert order_line(short, today) == "⚠️ short ×8 (5/8) · 22 Sep · 6d"
+    assert order_line(custom, today) == "custom · 27 Sep · 1d"
+
+
+@pytest.mark.asyncio
+async def test_orders_screen_lists_five_oldest_and_offers_view_all(monkeypatch):
+    shown = {}
+
+    async def fake_edit(query, text, reply_markup=None, parse_mode=None):
+        shown["text"] = text
+        shown["buttons"] = [b.text for row in reply_markup.inline_keyboard for b in row]
+
+    monkeypatch.setattr(nlp_callbacks, "safe_edit_message", fake_edit)
+    monkeypatch.setattr(nlp_callbacks, "_clear_previous_screen_keyboard", AsyncMock())
+    orders = [NotionOrder(page_id=f"o{i}", title="t", order_type="custom", in_date=f"2026-09-{10 + i:02d}",
+                          count=1, status="Open") for i in range(7)]
+    monkeypatch.setattr(nlp_callbacks.orders_cache, "get_cached_orders", AsyncMock(return_value=list(reversed(orders))))
+    memory = MemoryState()
+    memory.set(100, 1, {"flow": "nlp_actions", "model_id": "m1", "model_name": "M"})
+    query = MagicMock()
+    query.from_user.id = 1
+    query.message.chat.id = 100
+    await nlp_callbacks._show_orders_menu(query, _make_config({1}), MagicMock(), memory)
+    assert "Open orders (7):" in shown["text"] and "10 Sep" in shown["text"] and "…and 2 more" in shown["text"]
+    assert "16 Sep" not in shown["text"]                    # only the 5 oldest are listed
+    assert "📄 View all" in shown["buttons"] and "✓ Close" in shown["buttons"]

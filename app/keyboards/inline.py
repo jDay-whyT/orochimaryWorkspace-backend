@@ -146,23 +146,49 @@ def model_card_keyboard(k: str = "") -> InlineKeyboardMarkup:
     ])
 
 
+_ORDER_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+OVERDUE_ORDER_DAYS = 3
+
+
+def order_line(order, today) -> str:
+    """'⚠️ short ×8 (5/8) · 22 Sep · 6d' — ⚠️ when open longer than OVERDUE_ORDER_DAYS."""
+    from datetime import date as _date
+
+    kind = order.order_type or "?"
+    count = order.count or 0
+    if kind in ("short", "verif reddit") and count:
+        kind += f" ×{count} ({order.received or 0}/{count})"
+    elif count > 1:
+        kind += f" ×{count}"
+    parts = [kind]
+    days = None
+    try:
+        d = _date.fromisoformat((order.in_date or "")[:10])
+        parts.append(f"{d.day} {_ORDER_MONTHS[d.month - 1]}")
+        days = ((today or _date.today()) - d).days
+        parts.append(f"{days}d")
+    except ValueError:
+        parts.append("no date")
+    line = " · ".join(parts)
+    return f"⚠️ {line}" if days is not None and days > OVERDUE_ORDER_DAYS else line
+
+
 def nlp_orders_menu_keyboard(
     can_edit: bool,
     has_orders: bool,
     model_id: str,
     k: str = "",
+    has_more: bool = False,
 ) -> InlineKeyboardMarkup:
-    """Orders module menu for a model."""
+    """Orders module menu for a model (open orders are listed in the text above)."""
     s = f":{k}" if k else ""
     rows: list[list[InlineKeyboardButton]] = []
     if can_edit:
         rows.append([InlineKeyboardButton(text="➕ Order", callback_data=f"nlp:om:new{s}")])
-    if has_orders:
-        if can_edit:
-            rows.append([InlineKeyboardButton(text="✓ Close", callback_data=f"nlp:om:close{s}")])
-        rows.append([InlineKeyboardButton(text="📄 View orders", callback_data=f"nlp:om:view{s}")])
-    else:
-        rows.append([InlineKeyboardButton(text="📄 No orders", callback_data="nlp:noop")])
+    if has_orders and can_edit:
+        rows.append([InlineKeyboardButton(text="✓ Close", callback_data=f"nlp:om:close{s}")])
+    if has_more:
+        rows.append([InlineKeyboardButton(text="📄 View all", callback_data=f"nlp:om:view{s}")])
     rows.append([nlp_back_button(model_id)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -419,17 +445,7 @@ def nlp_close_order_select_keyboard(
     """Select an order to close (paginated). `today` should be in the configured timezone."""
     builder = InlineKeyboardBuilder()
     for order in orders:
-        from datetime import date as _date
-        days = 0
-        date_label = "?"
-        if order.in_date:
-            try:
-                d = _date.fromisoformat(order.in_date[:10])
-                date_label = d.strftime("%d.%m")
-                days = ((today or _date.today()) - d).days
-            except (ValueError, TypeError):
-                pass
-        label = f"{order.order_type or '?'} · {date_label} ({days}d)"
+        label = order_line(order, today)
         cb = f"nlp:co:{order.page_id}"
         if k:
             cb += f":{k}"

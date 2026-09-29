@@ -781,6 +781,9 @@ async def _handle_back_to_card(
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
+_MENU_ORDERS = 5  # open orders listed on the orders screen; the rest behind "View all"
+
+
 async def _show_orders_menu(
     query: CallbackQuery,
     config: Config,
@@ -810,22 +813,28 @@ async def _show_orders_menu(
         "page": 1,
     })
 
-    from app.keyboards.inline import nlp_orders_menu_keyboard
-    text = (
-        f"📦 <b>{html.escape(model_name)}</b>\n\n"
-        f"Open orders: {len(orders)}"
-        if has_orders
-        else f"📦 <b>{html.escape(model_name)}</b>\n\nNo open orders."
-    )
+    from app.keyboards.inline import nlp_orders_menu_keyboard, order_line
+    shown = orders[:_MENU_ORDERS]  # oldest first
+    lines = [f"📦 <b>{html.escape(model_name)}</b>", ""]
+    if has_orders:
+        lines.append(f"Open orders ({len(orders)}):")
+        today = datetime.now(tz=config.timezone).date()
+        lines.extend(html.escape(order_line(o, today)) for o in shown)
+        if len(orders) > len(shown):
+            lines.append(f"…and {len(orders) - len(shown)} more")
+    else:
+        lines.append("No open orders.")
     await _clear_previous_screen_keyboard(query, memory_state)
     msg = await safe_edit_message(
         query,
-        text,
+        "\n".join(lines),
         reply_markup=nlp_orders_menu_keyboard(
             can_edit=can_edit,
             has_orders=has_orders,
             model_id=model_id,
+            has_more=len(orders) > len(shown),
         ),
+        parse_mode="HTML",
     )
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
