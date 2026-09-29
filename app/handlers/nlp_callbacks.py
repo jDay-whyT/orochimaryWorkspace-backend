@@ -152,7 +152,7 @@ STALE_MSG = "Session expired, open the model again"
 # if state was lost (bot restart, 30-min TTL expiry) clicking a stale
 # disambiguation button should still open the model card, not error out.
 _NO_TOKEN_ACTIONS = {"x", "bk", "noop", "om", "op", "cp", "fm", "smn", "sctm",
-                     "more_actions", "done", "sm", "fct", "sn", "cal"}
+                     "more_actions", "done", "sm", "fct", "sn"}
 
 
 async def _safe_edit_reply_markup(bot, chat_id: int, message_id: int) -> None:
@@ -487,8 +487,6 @@ async def _handle_nlp_callback_impl(
             await _handle_shoot_date(query, parts, config, notion, memory_state, recent_models)
         elif action == "sn":
             await _handle_new_shoot(query, parts, config, notion, memory_state, recent_models)
-        elif action == "cal":
-            await _handle_calendar(query, parts, config, notion, memory_state, recent_models)
         elif action == "sl":
             await _handle_shoot_location(query, parts, config, notion, memory_state, recent_models)
         # ===== Order Callbacks =====
@@ -1556,12 +1554,6 @@ async def _handle_shoot_date(query, parts, config, notion, memory_state, recent_
         shoot_date = today + timedelta(days=1)
     elif date_choice == "day_after":
         shoot_date = today + timedelta(days=2)
-    elif date_choice == "cal":
-        memory_state.update(chat_id, user_id, cal_for="shoot_move")
-        await _show_calendar(query, config, memory_state, back_callback="nlp:smn:reschedule")
-        return
-    elif _iso_date(date_choice):
-        shoot_date = _iso_date(date_choice)
     elif date_choice == "custom":
         memory_state.update(chat_id, user_id, step="awaiting_custom_date")
         from app.keyboards.inline import nlp_back_keyboard
@@ -1722,30 +1714,12 @@ async def _show_new_shoot_date(query, config, memory_state) -> None:
 
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id) or {}
-    memory_state.update(chat_id, user_id, step="awaiting_date", cal_for=None)
+    memory_state.update(chat_id, user_id, step="awaiting_date", new_shoot=True)
     await _clear_previous_screen_keyboard(query, memory_state)
     msg = await safe_edit_message(
         query,
         f"📅 <b>{html.escape(state.get('model_name', ''))}</b> · When is the shoot?",
         reply_markup=nlp_shoot_new_date_keyboard(state.get("model_id", ""), today_in_tz(config.timezone)),
-        parse_mode="HTML",
-    )
-    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-
-
-async def _show_calendar(query, config, memory_state, back_callback: str, month: str | None = None) -> None:
-    from app.keyboards.inline import nlp_calendar_keyboard
-
-    chat_id, user_id = _state_ids_from_query(query)
-    state = memory_state.get(chat_id, user_id) or {}
-    today = today_in_tz(config.timezone)
-    year, mon = (int(month[:4]), int(month[5:7])) if month else (today.year, today.month)
-    memory_state.update(chat_id, user_id, cal_back=back_callback)
-    await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await safe_edit_message(
-        query,
-        f"📅 <b>{html.escape(state.get('model_name', ''))}</b> · Pick a date:",
-        reply_markup=nlp_calendar_keyboard(year, mon, min_date=today, back_callback=back_callback, today=today),
         parse_mode="HTML",
     )
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
@@ -1760,7 +1734,7 @@ async def _new_shoot_day_chosen(query, memory_state, shoot_date: date | None) ->
     k = generate_token()
     memory_state.update(
         chat_id, user_id, flow="nlp_shoot", step="awaiting_content", date_chosen=True,
-        shoot_date=shoot_date.isoformat() if shoot_date else None, cal_for=None, k=k,
+        shoot_date=shoot_date.isoformat() if shoot_date else None, k=k,
     )
     day = shoot_date.strftime("%d.%m") if shoot_date else "no date yet"
     await _clear_previous_screen_keyboard(query, memory_state)
@@ -1774,7 +1748,7 @@ async def _new_shoot_day_chosen(query, memory_state, shoot_date: date | None) ->
 
 
 async def _handle_new_shoot(query, parts, config, notion, memory_state, recent_models):
-    """New shoot steps. Callbacks: nlp:sn:d:<date> | sn:cal | sn:nodate | sn:back | sn:skip"""
+    """New shoot steps. Callbacks: nlp:sn:d:<date> | sn:custom | sn:nodate | sn:back | sn:skip"""
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
     if not state or state.get("flow") != "nlp_shoot" or not state.get("model_id"):
@@ -1786,9 +1760,20 @@ async def _handle_new_shoot(query, parts, config, notion, memory_state, recent_m
         await _new_shoot_day_chosen(query, memory_state, _iso_date(parts[3]))
     elif action == "nodate":
         await _new_shoot_day_chosen(query, memory_state, None)
-    elif action == "cal":
-        memory_state.update(chat_id, user_id, cal_for="shoot_new")
-        await _show_calendar(query, config, memory_state, back_callback="nlp:sn:back")
+    elif action == "custom":
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+        memory_state.update(chat_id, user_id, step="awaiting_custom_date", new_shoot=True)
+        await _clear_previous_screen_keyboard(query, memory_state)
+        msg = await safe_edit_message(
+            query,
+            "Enter date (DD.MM):",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="← Back", callback_data="nlp:sn:back")],
+            ]),
+        )
+        message_id = msg.message_id if msg else query.message.message_id
+        memory_state.update(chat_id, user_id, prompt_message_id=message_id)
+        _remember_screen_message(memory_state, chat_id, user_id, message_id)
     elif action == "back":
         await _show_new_shoot_date(query, config, memory_state)
     elif action == "skip":
@@ -1818,33 +1803,6 @@ async def _finish_new_shoot(query, config, notion, memory_state, recent_models, 
         LOGGER.exception("Failed to create shoot: %s", e)
         await safe_edit_message(query, "❌ Notion error — try later")
     memory_state.clear(chat_id, user_id)
-
-
-async def _handle_calendar(query, parts, config, notion, memory_state, recent_models):
-    """Calendar buttons. Callbacks: nlp:cal:d:<YYYY-MM-DD> | cal:m:<YYYY-MM> | cal:x"""
-    action = parts[2] if len(parts) > 2 else "x"
-    value = parts[3] if len(parts) > 3 else ""
-    chat_id, user_id = _state_ids_from_query(query)
-    state = memory_state.get(chat_id, user_id)
-    if action == "x":
-        await safe_query_answer(query)
-        return
-    if not state or not state.get("cal_for"):
-        await _session_expired(query, memory_state)
-        return
-
-    if action == "m" and len(value) == 7:
-        await _show_calendar(query, config, memory_state, back_callback=state.get("cal_back") or "nlp:x:c", month=value)
-        return
-
-    picked = _iso_date(value) if action == "d" else None
-    if not picked:
-        await safe_query_answer(query)
-        return
-    if state["cal_for"] == "shoot_new":
-        await _new_shoot_day_chosen(query, memory_state, picked)
-    elif state["cal_for"] == "shoot_move":
-        await _handle_shoot_date(query, ["nlp", "sd", picked.isoformat()], config, notion, memory_state, recent_models)
 
 
 # ============================================================================

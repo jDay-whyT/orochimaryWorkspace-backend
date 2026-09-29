@@ -495,7 +495,23 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
         model_id = user_state.get("model_id", "")
         model_name = user_state.get("model_name", "")
 
-        if step == "awaiting_custom_date" and user_state.get("shoot_id"):
+        if step == "awaiting_custom_date" and user_state.get("new_shoot"):
+            # New shoot: the day is the first step, content comes next
+            from app.keyboards.inline import nlp_shoot_content_keyboard
+            k = generate_token()
+            memory_state.update(
+                chat_id, user_id, step="awaiting_content", date_chosen=True,
+                shoot_date=parsed_date.isoformat(), k=k,
+            )
+            await _clear_previous_screen_keyboard(message, memory_state)
+            await _cleanup_prompt_message(message, memory_state)
+            sent = await message.answer(
+                f"📅 <b>{html.escape(model_name)}</b> · {parsed_date.strftime('%d.%m')}\n\nChoose content:",
+                reply_markup=nlp_shoot_content_keyboard(user_state.get("content_types", []), model_id, k),
+                parse_mode="HTML",
+            )
+            _remember_screen_message(memory_state, chat_id, user_id, sent.message_id if sent else None)
+        elif step == "awaiting_custom_date" and user_state.get("shoot_id"):
             # Reschedule
             shoot_id = user_state["shoot_id"]
             old_date = user_state.get("old_date", "?")

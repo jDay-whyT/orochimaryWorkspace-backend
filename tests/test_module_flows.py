@@ -370,25 +370,22 @@ class TestNewShootFlow:
         assert kwargs["comments"] == "bring the red set" and "no date" in text
 
     @pytest.mark.asyncio
-    async def test_calendar_pick_and_month_navigation(self, monkeypatch):
+    async def test_other_date_is_typed_then_content(self, monkeypatch):
+        from app.router import dispatcher
         screens, memory, query, notion, config = self._setup(monkeypatch)
         memory.set(100, 1, {"flow": "nlp_shoot", "step": "awaiting_date", "model_id": "m1", "model_name": "M",
                             "content_types": []})
-        await nlp_callbacks._handle_new_shoot(query, ["nlp", "sn", "cal"], config, notion, memory, MagicMock())
-        assert "nlp:sn:back" in self._callbacks(screens[-1][1])
-        await nlp_callbacks._handle_calendar(query, ["nlp", "cal", "m", "2099-02"], config, notion, memory, MagicMock())
-        days = [c for c in self._callbacks(screens[-1][1]) if c.startswith("nlp:cal:d:")]
-        assert days[0] == "nlp:cal:d:2099-02-01" and days[-1] == "nlp:cal:d:2099-02-28"
-        await nlp_callbacks._handle_calendar(query, ["nlp", "cal", "d", "2099-02-14"], config, notion, memory, MagicMock())
-        assert memory.get(100, 1)["shoot_date"] == "2099-02-14" and "Choose content" in screens[-1][0]
+        await nlp_callbacks._handle_new_shoot(query, ["nlp", "sn", "custom"], config, notion, memory, MagicMock())
+        assert "Enter date (DD.MM)" in screens[-1][0]
+        assert memory.get(100, 1)["step"] == "awaiting_custom_date"
 
-
-def test_calendar_blocks_past_days():
-    from app.keyboards.inline import nlp_calendar_keyboard
-    kb = nlp_calendar_keyboard(2026, 9, min_date=date(2026, 9, 15), back_callback="nlp:sn:back", today=date(2026, 9, 15))
-    calls = [b.callback_data for row in kb.inline_keyboard for b in row]
-    texts = [b.text for row in kb.inline_keyboard for b in row]
-    assert "nlp:cal:d:2026-09-14" not in calls and "nlp:cal:d:2026-09-15" in calls
-    assert "•15" in texts                                  # today marked
-    assert calls[0] == "nlp:cal:x"                          # no way back before the min month
-    assert all(len(c.encode()) < 64 for c in calls)
+        message = MagicMock()
+        message.from_user.id = 1
+        message.chat.id = 100
+        message.answer = AsyncMock(return_value=MagicMock(message_id=9))
+        monkeypatch.setattr(dispatcher, "_clear_previous_screen_keyboard", AsyncMock())
+        monkeypatch.setattr(dispatcher, "_cleanup_prompt_message", AsyncMock())
+        await dispatcher._handle_custom_date_input(message, "15.10", memory.get(100, 1), config, notion, memory)
+        state = memory.get(100, 1)
+        assert state["step"] == "awaiting_content" and state["shoot_date"].endswith("-10-15")
+        assert "Choose content" in message.answer.await_args.args[0]
