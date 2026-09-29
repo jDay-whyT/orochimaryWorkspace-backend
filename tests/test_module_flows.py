@@ -487,3 +487,37 @@ async def test_orders_screen_has_orders_as_buttons_that_start_closing(monkeypatc
     assert shown["buttons"][1][1] == "nlp:co:o1" and shown["buttons"][1][0].startswith("⚠️ short ×8 (5/8) · 22 Sep")
     assert all(t not in ("✓ Close", "📄 View all") for t, _ in shown["buttons"])
     assert memory.get(100, 1)["flow"] == "nlp_close_picker"   # the co:/cp: buttons work from here
+
+
+# ---------- Add part: quick amounts ----------
+
+def test_add_part_quick_buttons():
+    from app.keyboards.inline import nlp_received_keyboard
+    calls = lambda r: [b.callback_data for row in nlp_received_keyboard(r, "m1").inline_keyboard for b in row][:-1]
+    assert calls(3) == ["nlp:prq:1", "nlp:prq:2", "nlp:prq:3"]
+    assert calls(2) == ["nlp:prq:1", "nlp:prq:2"]       # "+2" is the same as "all remaining"
+    assert calls(1) == ["nlp:prq:1"]
+
+
+@pytest.mark.asyncio
+async def test_add_part_updates_and_closes_when_everything_came_in(monkeypatch):
+    monkeypatch.setattr(nlp_callbacks, "_safe_confirm", AsyncMock())
+    config = _make_config({1})
+    notion = AsyncMock()
+    memory = MemoryState()
+    query = MagicMock()
+    query.from_user.id = 1
+    query.message.chat.id = 100
+    base = {"flow": "nlp_received", "order_id": "o1", "count": 8, "current_received": 5,
+            "model_id": "m1", "model_name": "M"}
+
+    memory.set(100, 1, dict(base))
+    await nlp_callbacks._handle_received_quick(query, ["nlp", "prq", "2"], config, notion, memory)
+    notion.update_order_received.assert_awaited_with("o1", 7)
+    notion.close_order_with_received.assert_not_awaited()
+
+    memory.set(100, 1, dict(base))
+    await nlp_callbacks._handle_received_quick(query, ["nlp", "prq", "3"], config, notion, memory)
+    assert notion.close_order_with_received.await_args.args[0] == "o1"
+    assert notion.close_order_with_received.await_args.args[2] == 8
+    assert "all received" in nlp_callbacks._safe_confirm.await_args.args[1]

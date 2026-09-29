@@ -932,70 +932,38 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
         await message.answer("❌ Enter a whole number above 0")
         return
 
-    order_id = user_state.get("order_id", "")
-    count = int(user_state.get("count") or 0)
-    current_received = int(user_state.get("current_received") or 0)
-    model_name = user_state.get("model_name", "")
     model_id = user_state.get("model_id", "")
     screen_message_id = user_state.get("screen_message_id")
 
-    new_received = current_received + added
-
+    from app.handlers.nlp_callbacks import apply_received
     from app.keyboards.inline import nlp_action_complete_keyboard
 
-    if new_received >= count:
-        today_date = datetime.now(tz=config.timezone).date()
-        await notion.close_order_with_received(order_id, today_date, new_received)
-        orders_cache.clear_cache(model_id)
-        try:
-            await message.delete()
-        except Exception:
-            pass
+    try:
+        result_text = await apply_received(config, notion, user_state, added)
+    except Exception:
+        LOGGER.exception("Failed to update received")
+        await message.answer("❌ Notion error — try later")
         memory_state.clear(chat_id, user_id)
-        success_text = (
-            f"✅ Order closed — <b>{html.escape(model_name)}</b>\n"
-            f"📥 {new_received}/{count} · all received"
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    memory_state.clear(chat_id, user_id)
+    try:
+        await message.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=screen_message_id,
+            text=result_text,
+            reply_markup=nlp_action_complete_keyboard(model_id),
+            parse_mode="HTML",
         )
-        try:
-            await message.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=screen_message_id,
-                text=success_text,
-                reply_markup=nlp_action_complete_keyboard(model_id),
-                parse_mode="HTML",
-            )
-        except TelegramBadRequest:
-            await message.answer(
-                success_text,
-                reply_markup=nlp_action_complete_keyboard(model_id),
-                parse_mode="HTML",
-            )
-    else:
-        await notion.update_order_received(order_id, new_received)
-        orders_cache.clear_cache(model_id)
-        try:
-            await message.delete()
-        except Exception:
-            pass
-        memory_state.clear(chat_id, user_id)
-        partial_text = (
-            f"🔄 Updated — <b>{html.escape(model_name)}</b>\n"
-            f"Received: <b>{new_received}/{count}</b>"
+    except TelegramBadRequest:
+        await message.answer(
+            result_text,
+            reply_markup=nlp_action_complete_keyboard(model_id),
+            parse_mode="HTML",
         )
-        try:
-            await message.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=screen_message_id,
-                text=partial_text,
-                reply_markup=nlp_action_complete_keyboard(model_id),
-                parse_mode="HTML",
-            )
-        except TelegramBadRequest:
-            await message.answer(
-                partial_text,
-                reply_markup=nlp_action_complete_keyboard(model_id),
-                parse_mode="HTML",
-            )
 
 
 # ============================================================================

@@ -538,6 +538,8 @@ async def _handle_nlp_callback_impl(
             await _handle_shoot_comment_cb(query, parts, config, notion, memory_state)
 
         # ===== Received Tracking =====
+        elif action == "prq":
+            await _handle_received_quick(query, parts, config, notion, memory_state)
         elif action == "pra":
             await _handle_partial_received(query, parts, config, memory_state)
 
@@ -2775,6 +2777,54 @@ async def _show_report(query, model_id, model_name, config, notion, memory_state
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
+async def apply_received(config, notion, state: dict, added: int) -> str:
+    """Add `added` to the order's received count; closes it (today) once everything came in.
+
+    Returns the confirmation text.
+    """
+    order_id = state.get("order_id", "")
+    count = int(state.get("count") or 0)
+    new_received = int(state.get("current_received") or 0) + added
+    model_name = html.escape(state.get("model_name", ""))
+    if new_received >= count:
+        await notion.close_order_with_received(order_id, today_in_tz(config.timezone), new_received)
+        text = f"✅ Order closed — <b>{model_name}</b>\n📥 {new_received}/{count} · all received"
+    else:
+        await notion.update_order_received(order_id, new_received)
+        text = f"🔄 Updated — <b>{model_name}</b>\nReceived: <b>{new_received}/{count}</b>"
+    orders_cache.clear_cache(state.get("model_id", ""))
+    return text
+
+
+async def _handle_received_quick(query, parts, config, notion, memory_state):
+    """Quick 'Add part' amount. Callback: nlp:prq:{n}"""
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
+    if not state or state.get("flow") != "nlp_received" or len(parts) < 3 or not parts[2].isdigit():
+        await _session_expired(query, memory_state)
+        return
+    if not is_editor(user_id, config):
+        await safe_query_answer(query, "❌ No access", show_alert=True)
+        return
+    key = (user_id, "prq")
+    if key in _oc_in_progress:  # double tap
+        await safe_query_answer(query)
+        return
+    _oc_in_progress.add(key)
+    try:
+        text = await apply_received(config, notion, state, int(parts[2]))
+        memory_state.clear(chat_id, user_id)
+        from app.keyboards.inline import nlp_action_complete_keyboard
+        await _safe_confirm(query, text, reply_markup=nlp_action_complete_keyboard(state.get("model_id", "")),
+                            parse_mode="HTML")
+    except Exception as e:
+        LOGGER.exception("Failed to update received: %s", e)
+        await safe_edit_message(query, "❌ Notion error — try later")
+        memory_state.clear(chat_id, user_id)
+    finally:
+        _oc_in_progress.discard(key)
+
+
 async def _handle_partial_received(query, parts, config, memory_state):
     """Enter partial-received mode from short_options screen. Callback: nlp:pra:{order_id}"""
     if len(parts) < 3:
@@ -2804,13 +2854,13 @@ async def _handle_partial_received(query, parts, config, memory_state):
         "model_name": model_name,
     })
 
-    from app.keyboards.inline import nlp_back_keyboard
+    from app.keyboards.inline import nlp_received_keyboard
     try:
-        msg = await safe_edit_message(query, 
+        msg = await safe_edit_message(query,
             f"📥 <b>{html.escape(model_name)}</b> · {order_type} × {count}\n"
             f"Received so far: {current_received}/{count}\n\n"
-            f"Enter how many were received (added to the current count):",
-            reply_markup=nlp_back_keyboard(model_id),
+            f"How many more came in? Tap or type a number:",
+            reply_markup=nlp_received_keyboard(max(count - current_received, 0), model_id),
             parse_mode="HTML",
         )
     except TelegramBadRequest:

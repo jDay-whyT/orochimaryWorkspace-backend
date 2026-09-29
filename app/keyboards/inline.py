@@ -255,6 +255,16 @@ def nlp_shoot_edit_keyboard(has_date: bool) -> InlineKeyboardMarkup:
     ])
 
 
+def nlp_received_keyboard(remaining: int, model_id: str) -> InlineKeyboardMarkup:
+    """Quick amounts for 'Add part' (typing a number still works)."""
+    quick = [InlineKeyboardButton(text=f"+{n}", callback_data=f"nlp:prq:{n}") for n in (1, 2) if n < remaining]
+    if remaining > 0:
+        quick.append(InlineKeyboardButton(text=f"All remaining ({remaining})", callback_data=f"nlp:prq:{remaining}"))
+    rows = [quick] if quick else []
+    rows.append([nlp_back_button(model_id)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def nlp_shoot_done_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅ Yes, done", callback_data="nlp:smn:closeok"),
