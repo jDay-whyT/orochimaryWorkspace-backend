@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
 from app.keyboards.inline import (
-    nlp_orders_menu_keyboard,
+    nlp_orders_screen_keyboard,
     nlp_files_menu_keyboard,
     nlp_shoot_menu_keyboard,
     nlp_order_date_keyboard,
@@ -30,11 +30,10 @@ def _make_config(allowed_editors=None):
 
 class TestAccessAndBackButtons:
     def test_orders_menu_hides_write_buttons_for_viewer(self):
-        kb = nlp_orders_menu_keyboard(can_edit=False, has_orders=True, model_id="m1")
+        order = NotionOrder(page_id="o1", title="t", order_type="custom", in_date="2026-02-01")
+        kb = nlp_orders_screen_keyboard([order], 1, 1, "m1", can_edit=False, today=date(2026, 2, 2))
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "➕ Order" not in texts
-        assert "✓ Close" not in texts
-        assert any("Back" in t for t in texts)
+        assert texts == ["⬅ Back"]   # viewers get the list as text, no write buttons
 
     def test_files_menu_only_actions_and_back(self):
         kb = nlp_files_menu_keyboard(can_edit=True, model_id="m1")
@@ -142,9 +141,10 @@ class TestOrdersAggregationAndPagination:
             "step": "menu",
             "model_id": "m1",
             "model_name": "Модель",
-            "orders": orders,
         })
         notion = AsyncMock()
+        notion.query_open_orders.return_value = orders
+        nlp_callbacks.orders_cache.clear_cache("m1")
 
         query = MagicMock()
         query.from_user.id = 1
@@ -169,6 +169,8 @@ class TestOrdersAggregationAndPagination:
         ]
         notion = AsyncMock()
         notion.query_open_orders.return_value = orders
+        nlp_callbacks.orders_cache.clear_cache("m1")
+        memory.set(1, 1, {"flow": "nlp_orders_menu", "model_id": "m1", "model_name": "Модель"})
 
         query = MagicMock()
         query.from_user.id = 1
@@ -342,7 +344,7 @@ class TestNewShootFlow:
         assert "nlp:sn:nodate" in self._callbacks(screens[-1][1])
 
         await nlp_callbacks._handle_new_shoot(query, ["nlp", "sn", "d", "2099-10-03"], config, notion, memory, MagicMock())
-        assert "03.10" in screens[-1][0] and "Choose content" in screens[-1][0]
+        assert "3 Oct, Sat" in screens[-1][0] and "Choose content" in screens[-1][0]
         memory.update(100, 1, content_types=["main pack"])
         await nlp_callbacks._handle_shoot_content_done(query, ["nlp", "scd", "done"], config, notion, memory, MagicMock())
         assert "Location" in screens[-1][0]
@@ -460,24 +462,28 @@ def test_order_line_shows_count_received_and_overdue():
 
 
 @pytest.mark.asyncio
-async def test_orders_screen_lists_five_oldest_and_offers_view_all(monkeypatch):
+async def test_orders_screen_has_orders_as_buttons_that_start_closing(monkeypatch):
     shown = {}
 
     async def fake_edit(query, text, reply_markup=None, parse_mode=None):
         shown["text"] = text
-        shown["buttons"] = [b.text for row in reply_markup.inline_keyboard for b in row]
+        shown["buttons"] = [(b.text, b.callback_data) for row in reply_markup.inline_keyboard for b in row]
 
     monkeypatch.setattr(nlp_callbacks, "safe_edit_message", fake_edit)
     monkeypatch.setattr(nlp_callbacks, "_clear_previous_screen_keyboard", AsyncMock())
-    orders = [NotionOrder(page_id=f"o{i}", title="t", order_type="custom", in_date=f"2026-09-{10 + i:02d}",
-                          count=1, status="Open") for i in range(7)]
-    monkeypatch.setattr(nlp_callbacks.orders_cache, "get_cached_orders", AsyncMock(return_value=list(reversed(orders))))
+    orders = [
+        NotionOrder(page_id="o2", title="t", order_type="custom", in_date="2026-09-26", count=1, status="Open"),
+        NotionOrder(page_id="o1", title="t", order_type="short", in_date="2026-09-22", count=8, received=5, status="Open"),
+    ]
+    monkeypatch.setattr(nlp_callbacks.orders_cache, "get_cached_orders", AsyncMock(return_value=orders))
     memory = MemoryState()
     memory.set(100, 1, {"flow": "nlp_actions", "model_id": "m1", "model_name": "M"})
     query = MagicMock()
     query.from_user.id = 1
     query.message.chat.id = 100
     await nlp_callbacks._show_orders_menu(query, _make_config({1}), MagicMock(), memory)
-    assert "Open orders (7):" in shown["text"] and "10 Sep" in shown["text"] and "…and 2 more" in shown["text"]
-    assert "16 Sep" not in shown["text"]                    # only the 5 oldest are listed
-    assert "📄 View all" in shown["buttons"] and "✓ Close" in shown["buttons"]
+    assert "Open orders (2) · tap one to close it" in shown["text"]
+    assert shown["buttons"][0] == ("➕ Order", "nlp:om:new")
+    assert shown["buttons"][1][1] == "nlp:co:o1" and shown["buttons"][1][0].startswith("⚠️ short ×8 (5/8) · 22 Sep")
+    assert all(t not in ("✓ Close", "📄 View all") for t, _ in shown["buttons"])
+    assert memory.get(100, 1)["flow"] == "nlp_close_picker"   # the co:/cp: buttons work from here

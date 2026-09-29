@@ -173,37 +173,27 @@ def order_line(order, today) -> str:
     return f"⚠️ {line}" if days is not None and days > OVERDUE_ORDER_DAYS else line
 
 
-def nlp_orders_menu_keyboard(
-    can_edit: bool,
-    has_orders: bool,
+def nlp_orders_screen_keyboard(
+    orders: list,
+    page: int,
+    total_pages: int,
     model_id: str,
-    k: str = "",
-    has_more: bool = False,
+    can_edit: bool,
+    today=None,
 ) -> InlineKeyboardMarkup:
-    """Orders module menu for a model (open orders are listed in the text above)."""
-    s = f":{k}" if k else ""
+    """Orders screen: ➕ Order, then one button per open order (tap = close it), paging."""
     rows: list[list[InlineKeyboardButton]] = []
     if can_edit:
-        rows.append([InlineKeyboardButton(text="➕ Order", callback_data=f"nlp:om:new{s}")])
-    if has_orders and can_edit:
-        rows.append([InlineKeyboardButton(text="✓ Close", callback_data=f"nlp:om:close{s}")])
-    if has_more:
-        rows.append([InlineKeyboardButton(text="📄 View all", callback_data=f"nlp:om:view{s}")])
-    rows.append([nlp_back_button(model_id)])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def nlp_orders_view_keyboard(page: int, total_pages: int, model_id: str) -> InlineKeyboardMarkup:
-    """Orders view pagination + back."""
-    rows: list[list[InlineKeyboardButton]] = []
+        rows.append([InlineKeyboardButton(text="➕ Order", callback_data="nlp:om:new")])
+        for order in orders:
+            rows.append([InlineKeyboardButton(text=order_line(order, today), callback_data=f"nlp:co:{order.page_id}")])
     if total_pages > 1:
-        pagination: list[InlineKeyboardButton] = []
+        nav = []
         if page > 1:
-            pagination.append(InlineKeyboardButton(text="⬅️", callback_data=f"nlp:op:{page - 1}"))
+            nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"nlp:cp:{page - 1}"))
         if page < total_pages:
-            pagination.append(InlineKeyboardButton(text="➡️", callback_data=f"nlp:op:{page + 1}"))
-        if pagination:
-            rows.append(pagination)
+            nav.append(InlineKeyboardButton(text="➡️", callback_data=f"nlp:cp:{page + 1}"))
+        rows.append(nav)
     rows.append([nlp_back_button(model_id)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -433,36 +423,6 @@ def nlp_close_order_date_keyboard(model_id: str, k: str = "") -> InlineKeyboardM
         [nlp_back_button(model_id)],
     ])
 
-
-def nlp_close_order_select_keyboard(
-    orders: list,
-    page: int,
-    total_pages: int,
-    model_id: str,
-    k: str = "",
-    today=None,
-) -> InlineKeyboardMarkup:
-    """Select an order to close (paginated). `today` should be in the configured timezone."""
-    builder = InlineKeyboardBuilder()
-    for order in orders:
-        label = order_line(order, today)
-        cb = f"nlp:co:{order.page_id}"
-        if k:
-            cb += f":{k}"
-        builder.row(InlineKeyboardButton(text=label, callback_data=cb))
-    if total_pages > 1:
-        pagination: list[InlineKeyboardButton] = []
-        if page > 1:
-            pagination.append(InlineKeyboardButton(text="⬅️", callback_data=f"nlp:cp:{page - 1}"))
-        if page < total_pages:
-            pagination.append(InlineKeyboardButton(text="➡️", callback_data=f"nlp:cp:{page + 1}"))
-        if pagination:
-            builder.row(*pagination)
-    builder.row(nlp_back_button(model_id))
-    return builder.as_markup()
-
-
-# ==================== NLP Files Keyboard ====================
 
 def nlp_files_qty_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
     """Quick file-count selection (second step, after the type). model_id in memory."""

@@ -461,6 +461,16 @@ async def _handle_shoot_comment_input(message, text, user_state, config, notion,
         await message.answer("❌ Failed to save the comment.")
 
 
+def _day_label(d):
+    from app.handlers.nlp_callbacks import _day_label as label
+    return label(d)
+
+
+def _day_label_long(d):
+    from app.handlers.nlp_callbacks import _day_label_long as label
+    return label(d)
+
+
 async def _handle_custom_date_input(message, text, user_state, config, notion, memory_state):
     """Handle free-text date input (DD.MM) in nlp_shoot / nlp_close flows."""
     import re
@@ -506,7 +516,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             await _clear_previous_screen_keyboard(message, memory_state)
             await _cleanup_prompt_message(message, memory_state)
             sent = await message.answer(
-                f"📅 <b>{html.escape(model_name)}</b> · {parsed_date.strftime('%d.%m')}\n\nChoose content:",
+                f"📅 <b>{html.escape(model_name)}</b> · {_day_label_long(parsed_date)}\n\nChoose content:",
                 reply_markup=nlp_shoot_content_keyboard(user_state.get("content_types", []), model_id, k),
                 parse_mode="HTML",
             )
@@ -576,7 +586,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
             memory_state.clear(chat_id, user_id)
             from app.keyboards.inline import nlp_action_complete_keyboard as _nlp_action_complete_keyboard
             await message.answer(
-                f"✅ Order closed · {parsed_date.strftime('%d.%m')}",
+                f"✅ Order closed · {_day_label(parsed_date)}",
                 reply_markup=_nlp_action_complete_keyboard(model_id_for_kb),
                 parse_mode="HTML",
             )
@@ -609,7 +619,7 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
         await _cleanup_prompt_message(message, memory_state)
         sent = await message.answer(
             f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\n"
-            f"Order date: <b>{parsed_date.strftime('%d.%m')}</b>\n\nCreate the order?",
+            f"Order date: <b>{_day_label_long(parsed_date)}</b>\n\nCreate the order?",
             reply_markup=nlp_order_confirm_keyboard(user_state.get("model_id", ""), k),
             parse_mode="HTML",
         )

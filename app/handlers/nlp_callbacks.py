@@ -781,209 +781,66 @@ async def _handle_back_to_card(
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
-_MENU_ORDERS = 5  # open orders listed on the orders screen; the rest behind "View all"
+async def _show_orders_menu(query, config, notion, memory_state) -> None:
+    await _show_orders_screen(query, config, notion, memory_state, page=1)
 
 
-async def _show_orders_menu(
-    query: CallbackQuery,
-    config: Config,
-    notion: NotionClient,
-    memory_state: MemoryState,
-) -> None:
+async def _show_close_picker(query, model_id, model_name, config, notion, memory_state, page=None) -> None:
+    await _show_orders_screen(query, config, notion, memory_state, page=page or 1)
+
+
+async def _show_orders_view(query, config, notion, memory_state, page: int) -> None:
+    await _show_orders_screen(query, config, notion, memory_state, page=page)
+
+
+async def _show_orders_screen(query, config, notion, memory_state, page: int = 1) -> None:
+    """Open orders as buttons (oldest first, paged); tapping one starts closing it."""
+    from types import SimpleNamespace
+
+    from app.keyboards.inline import nlp_orders_screen_keyboard, order_line
+
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
     if not state or not state.get("model_id"):
         await _session_expired(query, memory_state)
         return
-
     model_id = state.get("model_id")
     model_name = state.get("model_name", "")
-    orders = await orders_cache.get_cached_orders(notion, config, model_id)
-    orders.sort(key=lambda o: o.in_date or "9999-99-99")
-    orders_data = [dataclasses.asdict(o) for o in orders]
-    has_orders = bool(orders)
     can_edit = is_editor(user_id, config)
 
-    memory_state.set(chat_id, user_id, {
-        "flow": "nlp_orders_menu",
-        "step": "menu",
-        "model_id": model_id,
-        "model_name": model_name,
-        "orders": orders_data,
-        "page": 1,
-    })
-
-    from app.keyboards.inline import nlp_orders_menu_keyboard, order_line
-    shown = orders[:_MENU_ORDERS]  # oldest first
-    lines = [f"📦 <b>{html.escape(model_name)}</b>", ""]
-    if has_orders:
-        lines.append(f"Open orders ({len(orders)}):")
-        today = datetime.now(tz=config.timezone).date()
-        lines.extend(html.escape(order_line(o, today)) for o in shown)
-        if len(orders) > len(shown):
-            lines.append(f"…and {len(orders) - len(shown)} more")
-    else:
-        lines.append("No open orders.")
-    await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await safe_edit_message(
-        query,
-        "\n".join(lines),
-        reply_markup=nlp_orders_menu_keyboard(
-            can_edit=can_edit,
-            has_orders=has_orders,
-            model_id=model_id,
-            has_more=len(orders) > len(shown),
-        ),
-        parse_mode="HTML",
-    )
-    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-
-
-async def _show_orders_view(
-    query: CallbackQuery,
-    config: Config,
-    notion: NotionClient,
-    memory_state: MemoryState,
-    page: int,
-) -> None:
-    chat_id, user_id = _state_ids_from_query(query)
-    state = memory_state.get(chat_id, user_id)
-    if not state or not state.get("model_id"):
-        await _session_expired(query, memory_state)
-        return
-
-    model_id = state.get("model_id")
-    model_name = state.get("model_name", "")
-    orders = state.get("orders")
-    if orders is None:
-        orders_raw = await orders_cache.get_cached_orders(notion, config, model_id)
-        orders = [dataclasses.asdict(o) for o in orders_raw]
-        orders.sort(key=lambda o: o.get("in_date") or "9999-99-99")
-    elif orders and dataclasses.is_dataclass(orders[0]):
-        orders = [dataclasses.asdict(o) for o in orders]
-
-    if not orders:
-        await _show_orders_menu(query, config, notion, memory_state)
-        return
-
-    total_pages = max(1, (len(orders) + PAGE_SIZE - 1) // PAGE_SIZE)
-    page = max(1, min(page, total_pages))
-    start = (page - 1) * PAGE_SIZE
-    page_orders = orders[start:start + PAGE_SIZE]
-
-    lines = []
-    for order in page_orders:
-        order_type = order.get("order_type") or "?"
-        in_date = order.get("in_date")
-        days = _calc_days_open(in_date, today_in_tz(config.timezone))
-        count = order.get("count")
-
-        lines.append(
-            f"• {order_type} × {int(count) if count else '?'}"
-            f" · {_format_date_short(in_date) if in_date else '—'} · {days}d"
-        )
-
-    text = (
-        f"📄 <b>{html.escape(model_name)}</b> · Orders\n\n"
-        + "\n".join(lines)
-        + f"\n\nPage {page}/{total_pages}"
-    )
-
-    from app.keyboards.inline import nlp_orders_view_keyboard
-    keyboard = nlp_orders_view_keyboard(page, total_pages, model_id)
-
-    memory_state.set(chat_id, user_id, {
-        "flow": "nlp_orders_view",
-        "step": "viewing",
-        "model_id": model_id,
-        "model_name": model_name,
-        "orders": orders,
-        "page": page,
-    })
-    await _clear_previous_screen_keyboard(query, memory_state)
-    try:
-        msg = await safe_edit_message(query, 
-            text,
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
-    except TelegramBadRequest as e:
-        if "message is not modified" not in str(e):
-            raise
-        msg = None
-    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-
-
-async def _show_close_picker(
-    query: CallbackQuery,
-    model_id: str,
-    model_name: str,
-    config: Config,
-    notion: NotionClient,
-    memory_state: MemoryState,
-    page: int | None = None,
-) -> None:
-    chat_id, user_id = _state_ids_from_query(query)
-    if not is_editor(user_id, config):
-        from app.keyboards.inline import nlp_back_keyboard
-        await _clear_previous_screen_keyboard(query, memory_state)
-        try:
-            msg = await safe_edit_message(query, 
-                "❌ No access",
-                reply_markup=nlp_back_keyboard(model_id),
-            )
-        except TelegramBadRequest as e:
-            if "message is not modified" not in str(e):
-                raise
-            msg = None
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-        return
-
     orders = await orders_cache.get_cached_orders(notion, config, model_id)
     orders.sort(key=lambda o: o.in_date or "9999-99-99")
-    orders_data = [dataclasses.asdict(o) for o in orders]
-    if not orders:
-        from app.keyboards.inline import nlp_back_keyboard
-        await _clear_previous_screen_keyboard(query, memory_state)
-        try:
-            msg = await safe_edit_message(query, 
-                f"❌ No open orders — {html.escape(model_name)}",
-                reply_markup=nlp_back_keyboard(model_id),
-                parse_mode="HTML",
-            )
-        except TelegramBadRequest as e:
-            if "message is not modified" not in str(e):
-                raise
-            msg = None
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-        return
-
     total_pages = max(1, (len(orders) + PAGE_SIZE - 1) // PAGE_SIZE)
-    current_page = page or 1
-    current_page = max(1, min(current_page, total_pages))
-    start = (current_page - 1) * PAGE_SIZE
-    page_orders = orders[start:start + PAGE_SIZE]
+    page = max(1, min(page, total_pages))
+    page_orders = orders[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]
+    today = today_in_tz(config.timezone)
 
-    from app.keyboards.inline import nlp_close_order_select_keyboard
     memory_state.set(chat_id, user_id, {
         "flow": "nlp_close_picker",
         "step": "selecting",
         "model_id": model_id,
         "model_name": model_name,
-        "orders": orders_data,
-        "page": current_page,
+        "orders": [dataclasses.asdict(o) for o in orders],
+        "page": page,
     })
+
+    lines = [f"📦 <b>{html.escape(model_name)}</b>", ""]
+    if not orders:
+        lines.append("No open orders.")
+    elif can_edit:
+        lines.append(f"Open orders ({len(orders)}) · tap one to close it")
+    else:
+        lines.append(f"Open orders ({len(orders)}):")
+        lines.extend(html.escape(order_line(SimpleNamespace(**dataclasses.asdict(o)), today)) for o in page_orders)
+    if total_pages > 1:
+        lines.append(f"Page {page}/{total_pages}")
+
     await _clear_previous_screen_keyboard(query, memory_state)
     try:
-        msg = await safe_edit_message(query, 
-            f"📦 {html.escape(model_name).upper()} · Close date:",
-            reply_markup=nlp_close_order_select_keyboard(
-                page_orders,
-                current_page,
-                total_pages,
-                model_id,
-                today=today_in_tz(config.timezone),
-            ),
+        msg = await safe_edit_message(
+            query,
+            "\n".join(lines),
+            reply_markup=nlp_orders_screen_keyboard(page_orders, page, total_pages, model_id, can_edit, today),
             parse_mode="HTML",
         )
     except TelegramBadRequest as e:
@@ -1040,19 +897,8 @@ async def _handle_orders_menu_action(
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
         return
 
-    if action == "view":
-        await _show_orders_view(query, config, notion, memory_state, page=1)
-        return
-
-    if action == "close":
-        await _show_close_picker(
-            query=query,
-            model_id=model_id,
-            model_name=model_name,
-            config=config,
-            notion=notion,
-            memory_state=memory_state,
-        )
+    if action in ("view", "close"):
+        await _show_orders_screen(query, config, notion, memory_state, page=1)
         return
 
 
@@ -1723,7 +1569,7 @@ async def create_new_shoot(config, notion, user, state: dict, comment: str | Non
     content_types = state.get("content_types", [])
     location = state.get("location") or "home"
     status = "scheduled" if shoot_date else "planned"
-    day = shoot_date.strftime("%d.%m") if shoot_date else "no date"
+    day = _day_label(shoot_date) if shoot_date else "no date"
 
     await notion.create_shoot(
         database_id=config.db_planner,
@@ -1731,7 +1577,7 @@ async def create_new_shoot(config, notion, user, state: dict, comment: str | Non
         shoot_date=shoot_date,
         content=content_types,
         location=location,
-        title=f"{model_name} · {day}",
+        title=f"{model_name} · {shoot_date.strftime('%d.%m') if shoot_date else 'no date'}",
         comments=comment or None,
         status=status,
         author=activity_log.author_label(user),
@@ -1777,7 +1623,7 @@ async def _new_shoot_day_chosen(query, memory_state, shoot_date: date | None) ->
         chat_id, user_id, flow="nlp_shoot", step="awaiting_content", date_chosen=True,
         shoot_date=shoot_date.isoformat() if shoot_date else None, k=k,
     )
-    day = shoot_date.strftime("%d.%m") if shoot_date else "no date yet"
+    day = _day_label_long(shoot_date) if shoot_date else "no date yet"
     await _clear_previous_screen_keyboard(query, memory_state)
     msg = await safe_edit_message(
         query,
@@ -2024,7 +1870,7 @@ async def _handle_order_date(query, parts, config, notion, memory_state):
     try:
         msg = await safe_edit_message(query, 
             f"📦 <b>{html.escape(model_name)}</b> · {count}x {type_label}\n\n"
-            f"Order date: <b>{in_date.strftime('%d.%m')}</b>\n\nCreate the order?",
+            f"Order date: <b>{_day_label_long(in_date)}</b>\n\nCreate the order?",
             reply_markup=nlp_order_confirm_keyboard(model_id, k),
             parse_mode="HTML",
         )
@@ -2105,7 +1951,7 @@ async def _handle_order_confirm(query, parts, config, notion, memory_state, rece
             await _cleanup_prompt_message(query, memory_state)
             await _safe_confirm(
                 query,
-                f"✅ Order created — <b>{html.escape(model_name)}</b>\n{type_label} × <b>{count}</b> · {in_date.strftime('%d.%m')}",
+                f"✅ Order created — <b>{html.escape(model_name)}</b>\n{type_label} × <b>{count}</b> · {_day_label(in_date)}",
                 reply_markup=nlp_action_complete_keyboard(model_id),
                 parse_mode="HTML",
             )
@@ -2171,9 +2017,12 @@ async def _handle_close_order_select(query, parts, config, memory_state):
         "model_name": model_name,
         "k": k,
     })
+    from types import SimpleNamespace
+    from app.keyboards.inline import order_line
+    what = html.escape(order_line(SimpleNamespace(**order), today_in_tz(config.timezone))) if order else ""
     await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await safe_edit_message(query, 
-        f"📦 {html.escape(model_name).upper()} · Close date:",
+    msg = await safe_edit_message(query,
+        f"📦 <b>{html.escape(model_name)}</b> · {what}\n\nClose date:",
         reply_markup=nlp_close_order_date_keyboard(model_id, k),
         parse_mode="HTML",
     )
@@ -2313,7 +2162,7 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         await _safe_confirm(
             query,
             f"✅ Order closed — <b>{html.escape(state.get('model_name', ''))}</b>\n"
-            f"{state.get('order_type', '—')}{days_text}",
+            f"{state.get('order_type', '—')} · {_day_label(out_date)}{days_text}",
             reply_markup=nlp_action_complete_keyboard(model_id_for_kb),
             parse_mode="HTML",
         )
@@ -2983,13 +2832,18 @@ def _calc_days_open(in_date_str: str | None, today: date) -> int:
 
 
 def _format_date_short(date_str: str | None) -> str:
+    """'22 Sep'."""
     if not date_str:
         return "?"
     try:
-        d = date.fromisoformat(date_str[:10])
-        return d.strftime("%d.%m")
+        return _day_label(date.fromisoformat(date_str[:10]))
     except (ValueError, TypeError):
         return "?"
+
+
+def _day_label_long(d: date) -> str:
+    """'29 Sep, Mon'."""
+    return f"{_day_label(d)}, {_WEEKDAYS[d.weekday()]}"
 
 
 # ============================================================================
