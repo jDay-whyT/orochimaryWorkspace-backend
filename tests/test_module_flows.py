@@ -51,8 +51,7 @@ class TestAccessAndBackButtons:
     def test_shoot_menu_has_content_comment_back(self):
         kb = nlp_shoot_menu_keyboard(can_edit=True, model_id="m1", actions=True)
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "🗂 Content" in texts
-        assert "💬 Comment" in texts
+        assert "✅ Shot done" in texts and "✏️ Edit" in texts   # date / content / comment are under Edit
         assert any("Back" in t for t in texts)
 
 
@@ -410,9 +409,40 @@ async def test_first_date_of_an_undated_shoot_is_scheduled():
 
 
 def test_undated_shoot_offers_set_date_and_reschedule_has_today():
-    from app.keyboards.inline import nlp_shoot_date_keyboard
-    texts = [b.text for row in nlp_shoot_menu_keyboard(can_edit=True, model_id="m1", actions=True,
-                                                       has_date=False).inline_keyboard for b in row]
-    assert "📅 Set date" in texts and "↩️ Reschedule" not in texts
+    from app.keyboards.inline import nlp_shoot_date_keyboard, nlp_shoot_edit_keyboard
+    texts = [b.text for row in nlp_shoot_edit_keyboard(has_date=False).inline_keyboard for b in row]
+    assert "📅 Set date" in texts
+    texts = [b.text for row in nlp_shoot_edit_keyboard(has_date=True).inline_keyboard for b in row]
+    assert texts == ["📅 Date", "🗂 Content", "💬 Comment", "← Back"]
     calls = [b.callback_data for row in nlp_shoot_date_keyboard("m1", "k").inline_keyboard for b in row]
     assert calls[:3] == ["nlp:sd:today:k", "nlp:sd:tomorrow:k", "nlp:sd:day_after:k"]
+
+
+@pytest.mark.asyncio
+async def test_edit_opens_date_content_comment_and_back_returns(monkeypatch):
+    shown = []
+
+    async def fake_edit(query, text, reply_markup=None, parse_mode=None):
+        shown.append((text, [b.callback_data for row in reply_markup.inline_keyboard for b in row]))
+
+    monkeypatch.setattr(nlp_callbacks, "safe_edit_message", fake_edit)
+    monkeypatch.setattr(nlp_callbacks, "_clear_previous_screen_keyboard", AsyncMock())
+    shoot = NotionPlanner(page_id="s1", title="s", model_id="m1", date="2099-09-29", status="scheduled",
+                          content=["main pack"], location="home")
+    notion = MagicMock(spec=["get_shoot", "query_upcoming_shoots", "query_last_done_shoot"])
+    notion.get_shoot = AsyncMock(return_value=shoot)
+    notion.query_upcoming_shoots = AsyncMock(return_value=[shoot])
+    notion.query_last_done_shoot = AsyncMock(return_value=None)
+    memory = MemoryState()
+    memory.set(100, 1, {"flow": "nlp_shoot_menu", "model_id": "m1", "model_name": "M",
+                        "shoot_ids": ["s1"], "shoot_id": "s1"})
+    query = MagicMock()
+    query.from_user.id = 1
+    query.message.chat.id = 100
+    config = _make_config({1})
+
+    await nlp_callbacks._handle_shoot_menu_action(query, ["nlp", "smn", "edit"], config, notion, memory, MagicMock())
+    assert shown[-1][0].startswith("✏️") and shown[-1][1] == [
+        "nlp:smn:reschedule", "nlp:smn:content", "nlp:smn:comment", "nlp:smn:view"]
+    await nlp_callbacks._handle_shoot_menu_action(query, ["nlp", "smn", "view"], config, notion, memory, MagicMock())
+    assert "nlp:smn:edit" in shown[-1][1] and "nlp:smn:close" in shown[-1][1]

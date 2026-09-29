@@ -1353,7 +1353,6 @@ async def _show_shoot_menu(
                 model_id=model_id,
                 picks=None if single else [_shoot_label(s) for s in listed],
                 actions=single,
-                has_date=bool(single and listed[0].date),
             ),
             parse_mode="HTML",
         )
@@ -1372,25 +1371,36 @@ async def _show_picked_shoot(query, config, notion, memory_state, index: int) ->
     if index >= len(shoot_ids):
         await _show_shoot_menu(query, config, notion, memory_state)
         return
-    shoot = await notion.get_shoot(shoot_ids[index])
+    await _show_shoot_view(query, config, notion, memory_state, shoot_ids[index])
+
+
+async def _show_shoot_view(query, config, notion, memory_state, shoot_id: str, edit: bool = False) -> None:
+    """One shoot with its actions (Shot done / Edit), or its edit options (Date / Content / Comment)."""
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id) or {}
+    if len(state.get("shoot_ids") or []) <= 1 and not edit:
+        await _show_shoot_menu(query, config, notion, memory_state)  # one shoot: the menu already shows it
+        return
+    shoot = await notion.get_shoot(shoot_id)
     if not shoot:
         await _show_shoot_menu(query, config, notion, memory_state)
         return
     today = datetime.now(tz=config.timezone).date()
     memory_state.update(chat_id, user_id, shoot_id=shoot.page_id, shoot_label=_shoot_label(shoot))
 
-    from app.keyboards.inline import nlp_shoot_menu_keyboard
+    from app.keyboards.inline import nlp_shoot_edit_keyboard, nlp_shoot_menu_keyboard
     model_name = state.get("model_name", "")
-    await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await safe_edit_message(
-        query,
-        f"📅 <b>{html.escape(model_name)}</b>\n\n{_shoot_line(shoot, today)}",
-        reply_markup=nlp_shoot_menu_keyboard(
+    if edit:
+        text = f"✏️ <b>{html.escape(model_name)}</b>\n\n{_shoot_line(shoot, today)}"
+        markup = nlp_shoot_edit_keyboard(has_date=bool(shoot.date))
+    else:
+        text = f"📅 <b>{html.escape(model_name)}</b>\n\n{_shoot_line(shoot, today)}"
+        markup = nlp_shoot_menu_keyboard(
             can_edit=is_editor(user_id, config), model_id=state.get("model_id", ""),
-            actions=True, from_list=True, new_button=False, has_date=bool(shoot.date),
-        ),
-        parse_mode="HTML",
-    )
+            actions=True, from_list=True, new_button=False,
+        )
+    await _clear_previous_screen_keyboard(query, memory_state)
+    msg = await safe_edit_message(query, text, reply_markup=markup, parse_mode="HTML")
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
@@ -1446,6 +1456,10 @@ async def _handle_shoot_menu_action(
 
     if not shoot_id:
         await _show_shoot_menu(query, config, notion, memory_state)
+        return
+
+    if action in ("edit", "view"):
+        await _show_shoot_view(query, config, notion, memory_state, shoot_id, edit=action == "edit")
         return
 
     if action == "close":  # ask first: a stray tap must not mark a shoot done

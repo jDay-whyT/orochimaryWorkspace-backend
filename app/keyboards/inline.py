@@ -200,7 +200,6 @@ def nlp_shoot_menu_keyboard(
     actions: bool = False,
     from_list: bool = False,
     new_button: bool = True,
-    has_date: bool = True,
 ) -> InlineKeyboardMarkup:
     """Shoots of a model.
 
@@ -215,12 +214,7 @@ def nlp_shoot_menu_keyboard(
         if actions:
             rows.append([
                 InlineKeyboardButton(text="✅ Shot done", callback_data="nlp:smn:close"),
-                InlineKeyboardButton(text="↩️ Reschedule" if has_date else "📅 Set date",
-                                     callback_data="nlp:smn:reschedule"),
-            ])
-            rows.append([
-                InlineKeyboardButton(text="🗂 Content", callback_data="nlp:smn:content"),
-                InlineKeyboardButton(text="💬 Comment", callback_data="nlp:smn:comment"),
+                InlineKeyboardButton(text="✏️ Edit", callback_data="nlp:smn:edit"),
             ])
         elif picks:
             buttons = [InlineKeyboardButton(text=f"{label} ▸", callback_data=f"nlp:smn:pick{i}")
@@ -231,6 +225,18 @@ def nlp_shoot_menu_keyboard(
         rows.append([InlineKeyboardButton(text="← Shoots", callback_data="nlp:smn:list")])
     rows.append([nlp_back_button(model_id)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def nlp_shoot_edit_keyboard(has_date: bool) -> InlineKeyboardMarkup:
+    """Edit a shoot: date, content, comment."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📅 Date" if has_date else "📅 Set date", callback_data="nlp:smn:reschedule"),
+            InlineKeyboardButton(text="🗂 Content", callback_data="nlp:smn:content"),
+            InlineKeyboardButton(text="💬 Comment", callback_data="nlp:smn:comment"),
+        ],
+        [InlineKeyboardButton(text="← Back", callback_data="nlp:smn:view")],
+    ])
 
 
 def nlp_shoot_done_confirm_keyboard() -> InlineKeyboardMarkup:
