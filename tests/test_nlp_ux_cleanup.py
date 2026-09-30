@@ -87,9 +87,8 @@ async def test_remove_keyboard_on_success():
 
 
 @pytest.mark.asyncio
-async def test_custom_files_input_updates_recent_models():
-    """Typing the file count (instead of tapping a quick-count button) must
-    still update the recent-models shortcut, same as the button path."""
+async def test_custom_files_input_asks_confirmation_without_saving():
+    """Typing the file count must only show the confirmation screen."""
     memory_state = MemoryState()
     message = _make_message(text="5")
     user_state = {
@@ -98,21 +97,87 @@ async def test_custom_files_input_updates_recent_models():
         "model_id": "model-1",
         "model_name": "Model",
         "content_type": "reddit",
+        "k": "abc123",
     }
     memory_state.set(message.chat.id, message.from_user.id, dict(user_state))
 
-    from zoneinfo import ZoneInfo
     config = MagicMock()
     config.files_per_month = 200
     config.timezone = ZoneInfo("UTC")
     config.allowed_editors = {1}
     notion = AsyncMock()
-    notion.get_monthly_record.return_value = MagicMock(files=0, page_id="acc-1", status=None)
+    notion.get_monthly_record.return_value = MagicMock(reddit_files=10, page_id="acc-1", status=None)
     recent_models = MagicMock()
 
     await _handle_custom_files_input(message, "5", user_state, config, notion, memory_state, recent_models)
 
+    notion.update_accounting_files_by_type.assert_not_called()
+    notion.create_accounting_record.assert_not_called()
+    recent_models.add.assert_not_called()
+    state = memory_state.get(message.chat.id, message.from_user.id)
+    assert state["step"] == "awaiting_confirm"
+    assert state["pending_count"] == 5
+    kb = message.answer.call_args.kwargs["reply_markup"]
+    assert [b.callback_data for b in kb.inline_keyboard[0]] == ["nlp:afc:yes:abc123", "nlp:afc:no:abc123"]
+
+
+@pytest.mark.asyncio
+async def test_files_confirm_yes_saves_and_updates_recent_models():
+    """«Yes, add» writes the pending amount and updates the recent-models shortcut."""
+    from app.handlers.nlp_callbacks import _handle_files_confirm
+
+    memory_state = MemoryState()
+    query = _make_query(data="nlp:afc:yes:abc123")
+    memory_state.set(query.message.chat.id, query.from_user.id, {
+        "flow": "nlp_files",
+        "step": "awaiting_confirm",
+        "model_id": "model-1",
+        "model_name": "Model",
+        "content_type": "reddit",
+        "pending_count": 5,
+        "k": "abc123",
+    })
+    config = MagicMock()
+    config.timezone = ZoneInfo("UTC")
+    config.allowed_editors = {1}
+    notion = AsyncMock()
+    notion.get_monthly_record.return_value = MagicMock(page_id="acc-1", status=None)
+    recent_models = MagicMock()
+
+    await _handle_files_confirm(query, ["nlp", "afc", "yes", "abc123"], config, notion, memory_state, recent_models)
+
+    notion.update_accounting_files_by_type.assert_called_once()
+    assert notion.update_accounting_files_by_type.call_args.args[2] >= 5
     recent_models.add.assert_called_once_with(1, "model-1", "Model")
+    assert memory_state.get(query.message.chat.id, query.from_user.id) in (None, {})
+
+
+@pytest.mark.asyncio
+async def test_files_confirm_no_does_not_save():
+    """«Cancel» returns to the amount screen and writes nothing."""
+    from app.handlers.nlp_callbacks import _handle_files_confirm
+
+    memory_state = MemoryState()
+    query = _make_query(data="nlp:afc:no:abc123")
+    memory_state.set(query.message.chat.id, query.from_user.id, {
+        "flow": "nlp_files",
+        "step": "awaiting_confirm",
+        "model_id": "model-1",
+        "model_name": "Model",
+        "content_type": "reddit",
+        "pending_count": 5,
+        "k": "abc123",
+    })
+    config = MagicMock()
+    config.allowed_editors = {1}
+    notion = AsyncMock()
+
+    await _handle_files_confirm(query, ["nlp", "afc", "no", "abc123"], config, notion, memory_state, MagicMock())
+
+    notion.update_accounting_files_by_type.assert_not_called()
+    notion.create_accounting_record.assert_not_called()
+    state = memory_state.get(query.message.chat.id, query.from_user.id)
+    assert state["step"] == "awaiting_amount"
 
 
 @pytest.mark.asyncio

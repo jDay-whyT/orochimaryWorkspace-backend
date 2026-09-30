@@ -638,7 +638,7 @@ MAX_FILES_INPUT = 1500  # configurable upper limit for manual file count
 
 
 async def _handle_custom_files_input(message, text, user_state, config, notion, memory_state, recent_models=None):
-    """Typed amount in the nlp_files flow (the type was chosen before): save right away."""
+    """Typed amount in the nlp_files flow (the type was chosen before): ask to confirm, saved on «Yes»."""
     from app.roles import is_editor
 
     user_id = message.from_user.id
@@ -662,21 +662,20 @@ async def _handle_custom_files_input(message, text, user_state, config, notion, 
         memory_state.clear(chat_id, user_id)
         return
 
-    from app.handlers.nlp_callbacks import save_files
-    from app.keyboards.inline import nlp_action_complete_keyboard
+    from app.handlers.nlp_callbacks import files_confirm_text
+    from app.keyboards.inline import nlp_files_confirm_keyboard
 
-    try:
-        confirm = await save_files(config, notion, message.from_user, model_id, model_name, count, content_type, recent_models)
-    except Exception:
-        LOGGER.exception("Failed to add files")
-        await message.answer("❌ Notion error — try later")
-        memory_state.clear(chat_id, user_id)
-        return
-
+    # Nothing is written yet: the amount is saved only after «Yes, add».
+    text = await files_confirm_text(config, notion, model_id, model_name, count, content_type)
     await _clear_previous_screen_keyboard(message, memory_state)
     await _cleanup_prompt_message(message, memory_state)
-    await message.answer(confirm, reply_markup=nlp_action_complete_keyboard(model_id), parse_mode="HTML")
-    memory_state.clear(chat_id, user_id)
+    memory_state.update(chat_id, user_id, flow="nlp_files", step="awaiting_confirm", pending_count=count)
+    msg = await message.answer(
+        text,
+        reply_markup=nlp_files_confirm_keyboard(user_state.get("k", "")),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, getattr(msg, "message_id", None))
 
 
 async def _handle_new_shoot_comment_input(message, text, user_state, config, notion, memory_state, recent_models=None):

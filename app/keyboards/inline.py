@@ -449,6 +449,15 @@ def nlp_files_qty_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
     ])
 
 
+def nlp_files_confirm_keyboard(k: str = "") -> InlineKeyboardMarkup:
+    """Last step of adding files: confirm the amount before it is written."""
+    s = f":{k}" if k else ""
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Yes, add", callback_data=f"nlp:afc:yes{s}"),
+        InlineKeyboardButton(text="✖ Cancel", callback_data=f"nlp:afc:no{s}"),
+    ]])
+
+
 def nlp_files_content_type_keyboard(model_id: str) -> InlineKeyboardMarkup:
     """First step of adding files: the Accounting column (Request opens its kinds)."""
     return InlineKeyboardMarkup(inline_keyboard=[

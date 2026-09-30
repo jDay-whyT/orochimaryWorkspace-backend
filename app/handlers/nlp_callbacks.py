@@ -12,7 +12,7 @@ Callback prefix mapping:
   ss  = shoot_select    co  = close_order      cd  = close_date
   ct  = comment_target  cmo = comment_order    df  = disambig_files
   do  = disambig_orders ro  = report_orders    ra  = report_accounting
-  af  = add_files       acct = acc_content_toggle  accs = acc_content_save
+  af  = add_files       afc = add_files_confirm    acct = acc_content_toggle  accs = acc_content_save
   fct = files_content_type
   om  = orders_menu     op   = orders_page         cp   = close_page
   fm  = files_menu      smn  = shoot_menu          bk   = back
@@ -256,6 +256,7 @@ _FLOW_STEP_RULES: dict[str, tuple[str, set[str] | None]] = {
     "op": ("nlp_orders_view", {"viewing"}),
     "act": ("nlp_actions", None),
     "fct": ("nlp_files", {"awaiting_content_type"}),
+    "afc": ("nlp_files", {"awaiting_confirm"}),
 }
 
 from app.utils.content_mapping import get_field_for_content_type as _get_field_for_content_type
@@ -538,6 +539,8 @@ async def _handle_nlp_callback_impl(
         # ===== Add Files Callback =====
         elif action == "af":
             await _handle_add_files(query, parts, config, notion, memory_state, recent_models)
+        elif action == "afc":
+            await _handle_files_confirm(query, parts, config, notion, memory_state, recent_models)
         elif action == "fct":
             await _handle_files_content_type(query, parts, config, notion, memory_state, recent_models)
 
@@ -2310,6 +2313,25 @@ async def _handle_report_accounting(query, config, notion, memory_state):
 #                          ADD FILES CALLBACK
 # ============================================================================
 
+async def files_confirm_text(config, notion, model_id, model_name, count, content_type) -> str:
+    """Confirmation prompt shown before files are written: 'current → new' total."""
+    from app.utils.content_mapping import label
+
+    field_name = _get_field_for_content_type(content_type)
+    yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
+    try:
+        record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+    except Exception:
+        LOGGER.exception("files confirm: could not read current total")
+        record = None
+    current = int(getattr(record, field_name, 0) or 0) if record else 0
+    return (
+        f"📁 <b>{html.escape(model_name)}</b> · {html.escape(label(content_type))}\n\n"
+        f"Add <b>{count}</b> files?\n"
+        f"Now {current} → will be <b>{current + count}</b>"
+    )
+
+
 async def save_files(config, notion, user, model_id, model_name, count, content_type, recent_models=None) -> str:
     """Add `count` files of `content_type` to the model's monthly record; returns the confirmation text."""
     from app.utils.content_mapping import content_tag, label
@@ -2404,16 +2426,71 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
         await safe_edit_message(query, "❌ No access")
         return
 
+    # Nothing is written yet: ask for confirmation first.
+    from app.keyboards.inline import nlp_files_confirm_keyboard
+
+    count = int(value)
+    text = await files_confirm_text(config, notion, model_id, model_name, count, content_type)
+    memory_state.update(chat_id, user_id, flow="nlp_files", step="awaiting_confirm", pending_count=count)
+    await _clear_previous_screen_keyboard(query, memory_state)
+    msg = await safe_edit_message(
+        query,
+        text,
+        reply_markup=nlp_files_confirm_keyboard((state or {}).get("k", "")),
+        parse_mode="HTML",
+    )
+    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+
+
+async def _handle_files_confirm(query, parts, config, notion, memory_state, recent_models):
+    """Last step of adding files: write (yes) or go back to the amount (no). Callback: nlp:afc:{yes|no}[:{k}]"""
+    from app.keyboards.inline import nlp_action_complete_keyboard, nlp_files_qty_keyboard
+    from app.utils.content_mapping import label
+
+    if len(parts) < 3:
+        return
+
+    answer = parts[2]
+    chat_id, user_id = _state_ids_from_query(query)
+    state = memory_state.get(chat_id, user_id)
+    model_id = state.get("model_id") if state else None
+    model_name = state.get("model_name", "") if state else ""
+    content_type = state.get("content_type") if state else None
+    count = state.get("pending_count") if state else None
+    if not model_id or not content_type or not count:
+        await _session_expired(query, memory_state)
+        return
+
+    if answer == "no":
+        k = generate_token()
+        memory_state.update(chat_id, user_id, flow="nlp_files", step="awaiting_amount", k=k, pending_count=None)
+        await _clear_previous_screen_keyboard(query, memory_state)
+        msg = await safe_edit_message(
+            query,
+            f"📁 <b>{html.escape(model_name)}</b> · {html.escape(label(content_type))}\n\nHow many files?",
+            reply_markup=nlp_files_qty_keyboard(model_id, k),
+            parse_mode="HTML",
+        )
+        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
+        return
+
+    if answer != "yes":
+        await safe_query_answer(query, "Unknown value", show_alert=True)
+        return
+
+    if not is_editor(user_id, config):
+        await safe_edit_message(query, "❌ No access")
+        return
+
     _fct_key = (user_id, "fct")
     if _fct_key in _oc_in_progress:
         await safe_query_answer(query)
         return
     _oc_in_progress.add(_fct_key)
     try:
-        text = await save_files(config, notion, query.from_user, model_id, model_name, int(value), content_type, recent_models)
+        text = await save_files(config, notion, query.from_user, model_id, model_name, int(count), content_type, recent_models)
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
-        from app.keyboards.inline import nlp_action_complete_keyboard
         await _safe_confirm(query, text, reply_markup=nlp_action_complete_keyboard(model_id), parse_mode="HTML")
         memory_state.clear(chat_id, user_id)
     except Exception as e:
