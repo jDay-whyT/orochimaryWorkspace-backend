@@ -284,7 +284,7 @@ async def test_request_kind_counts_in_request_files_and_tags_the_kind(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_plain_of_adds_no_content_tag():
+async def test_plain_of_adds_new_main_content_tag():
     from zoneinfo import ZoneInfo
     from app.handlers import nlp_callbacks as nc
 
@@ -294,7 +294,7 @@ async def test_plain_of_adds_no_content_tag():
     notion.get_monthly_record.return_value = MagicMock(page_id="acc-1", of_files=40)
     await nc.save_files(config, notion, _files_query("x").from_user, "m-1", "Model", 20, "of")
     notion.update_accounting_files_by_type.assert_awaited_with("acc-1", "of_files", 60)
-    notion.add_to_accounting_content.assert_not_awaited()
+    notion.add_to_accounting_content.assert_awaited_with("acc-1", "new_main")
 
 
 def test_files_type_menu_matches_notion_columns():

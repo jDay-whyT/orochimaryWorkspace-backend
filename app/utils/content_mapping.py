@@ -24,8 +24,8 @@ CONTENT_TYPE_TO_FIELD = {
     "no content": None,
 }
 
-# Content tag written for a type (None = no tag). Plain OF has no tag of its own.
-CONTENT_TAG = {"of": None}
+# Content tag written for a type when it differs from the type name. Plain OF files are tagged new_main.
+CONTENT_TAG = {"of": "new_main"}
 
 LABELS = {
     "of": "OF",
