@@ -12,7 +12,6 @@ from app.api.scout import api_scout_model_card, api_scout_models
 from app.bot import create_dispatcher
 from app.config import load_config
 from app.handlers.notifications import update_board
-from app.handlers.reddit import update_reddit_board
 from app.handlers import models as models_list
 from app.services import access, activity_log
 from app.services.forms_watch import run_forms_watch
@@ -96,15 +95,6 @@ async def create_app() -> web.Application:
             return web.json_response({"ok": False}, status=403)
         await update_board(request.app["bot"], request.app["config"], request.app["notion"])
         return web.json_response({"ok": True})
-
-    async def internal_update_reddit_board(request: web.Request) -> web.Response:
-        secret = config.internal_secret
-        if not secret or not hmac.compare_digest(request.headers.get("X-Internal-Secret", ""), secret):
-            return web.Response(status=403, text="forbidden")
-        bot = request.app["bot"]
-        notion = request.app["notion"]
-        await update_reddit_board(bot, config, notion)
-        return web.Response(status=200, text="ok")
 
     async def internal_scrape_wml(request: web.Request) -> web.Response:
         secret = config.internal_secret
@@ -192,7 +182,6 @@ async def create_app() -> web.Application:
     app.router.add_get("/healthz", healthcheck)
     app.router.add_post("/tg/webhook", telegram_webhook)
     app.router.add_post("/internal/update-board", internal_update_board)
-    app.router.add_post("/internal/update-reddit-board", internal_update_reddit_board)
     app.router.add_post("/internal/scrape-wml", internal_scrape_wml)
     app.router.add_post("/internal/activity-digest", internal_activity_digest)
     app.router.add_post("/internal/daily-reminders", internal_daily_reminders)
@@ -228,7 +217,7 @@ async def create_app() -> web.Application:
 
     LOGGER.info(
         "HTTP endpoints registered: GET /, GET /healthz, "
-        "POST /tg/webhook, POST /internal/update-board, POST /internal/update-reddit-board, "
+        "POST /tg/webhook, POST /internal/update-board, "
         "POST /internal/scrape-wml, "
         "POST /api/scout/models, GET /api/scout/model/{name}"
     )

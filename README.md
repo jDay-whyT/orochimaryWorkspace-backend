@@ -17,7 +17,7 @@ Telegram-бот (aiogram v3) и Telegram Mini App для работы с мод�
 - уведомления о новых профилях WML, датах Fansly, новых анкетах, дублях в Accounting;
 - выгрузка в WML CRM дважды в день со сводкой.
 
-**Доскам в группе:** `/shoots` — съёмки на 7 дней, `/reddit` — Reddit-модели. Обновляются по расписанию.
+**Доскам в группе:** `/shoots` — съёмки на 7 дней (rich-сообщение с таблицами по дням). Обновляется по расписанию.
 
 ## Выгрузка в WML CRM
 
@@ -64,7 +64,6 @@ tests/                   # pytest
 | Задача | Когда | Endpoint |
 |---|---|---|
 | `update-shoots-board` | каждые 3 ч | `/internal/update-board` |
-| `update-reddit-board` (us-central1) | каждые 3 ч | `/internal/update-reddit-board` |
 | `wml-scraper` | каждый час | `/internal/scrape-wml` — новые профили WML, даты Fansly, анкеты, статусы Accounting |
 | `daily-reminders` | 12:00 | `/internal/daily-reminders` |
 | `activity-digest` | 23:55 | `/internal/activity-digest` |
