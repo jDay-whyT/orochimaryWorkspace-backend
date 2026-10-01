@@ -26,6 +26,19 @@ logging.basicConfig(
 )
 LOGGER = logging.getLogger(__name__)
 
+# How long the webhook request stays open while the update is processed. Cloud Run only gives the
+# container CPU while a request is in flight (cpu-throttling), so an update handled after an instant
+# 200 can stall for tens of seconds. Held open it runs at full speed; past this limit we answer 200
+# anyway (Telegram would retry on its own timeout) and the update keeps going in the background.
+WEBHOOK_HOLD_SECONDS = 25.0
+_UPDATE_TASKS: set[asyncio.Task] = set()
+
+
+def _update_task_done(task: asyncio.Task) -> None:
+    _UPDATE_TASKS.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        LOGGER.error("Update processing failed", exc_info=task.exception())
+
 GIT_SHA = os.environ.get("GIT_SHA", "unknown")
 
 
@@ -171,11 +184,15 @@ async def create_app() -> web.Application:
             seen_deque.append(update_id)
             seen_set.add(update_id)
 
-        # Fire-and-forget: return 200 immediately so Telegram never retries,
-        # then process the update in a background task.
+        # Process the update while the request is open (CPU is allocated only then), but never
+        # keep Telegram waiting longer than WEBHOOK_HOLD_SECONDS: after that answer 200 and let
+        # the task finish in the background. A failing update never turns into a non-200.
         bot = request.app["bot"]
         dp = request.app["dp"]
-        asyncio.create_task(dp.feed_raw_update(bot=bot, update=body))
+        task = asyncio.create_task(dp.feed_raw_update(bot=bot, update=body))
+        _UPDATE_TASKS.add(task)
+        task.add_done_callback(_update_task_done)
+        await asyncio.wait({task}, timeout=WEBHOOK_HOLD_SECONDS)
 
         return web.Response(status=200, text="ok")
 
