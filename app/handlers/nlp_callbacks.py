@@ -2324,7 +2324,7 @@ async def files_confirm_text(config, notion, model_id, model_name, count, conten
     except Exception:
         LOGGER.exception("files confirm: could not read current total")
         record = None
-    current = int(getattr(record, field_name, 0) or 0) if record else 0
+    current = int(getattr(record, field_name, 0) or 0) if record and field_name else 0
     return (
         f"📁 <b>{html.escape(model_name)}</b> · {html.escape(label(content_type))}\n\n"
         f"Add <b>{count}</b> files?\n"

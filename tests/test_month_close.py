@@ -119,44 +119,48 @@ def _notify_query(user_id=OWNER, data="notify_month:2026-10"):
     return query
 
 
-def _notify_config(chat_id=-100, thread=0):
-    return SimpleNamespace(owner_telegram_id=OWNER, managers_chat_id=chat_id, managers_topic_thread_id=thread)
+def _notify_config(targets=None, topic=7):
+    return SimpleNamespace(owner_telegram_id=OWNER, managers_chat_id=-100, crm_topic_thread_id=topic,
+                           manager_targets={"di": (456, None)} if targets is None else targets)
 
 
 @pytest.mark.asyncio
-async def test_notify_sends_to_managers_topic_and_removes_button():
+async def test_notify_goes_to_robins_topic_and_other_managers_dm_then_removes_button():
     query = _notify_query()
-    await accounting_rename.cb_notify_month(query, _notify_config(thread=7))
+    await accounting_rename.cb_notify_month(query, _notify_config())
 
-    kwargs = query.bot.send_message.call_args.kwargs
-    assert kwargs["chat_id"] == -100 and kwargs["message_thread_id"] == 7
-    assert "октябр" in kwargs["text"].lower()
+    sent = [c.kwargs for c in query.bot.send_message.call_args_list]
+    assert {(k["chat_id"], k["message_thread_id"]) for k in sent} == {(-100, 7), (456, None)}
+    assert all("September report has been sent" in k["text"] and "start tracking October" in k["text"] for k in sent)
     query.message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
 
 
 @pytest.mark.asyncio
-async def test_notify_without_topic_posts_to_chat_root():
+async def test_notify_robin_only_via_topic_and_one_message_per_destination():
     query = _notify_query()
-    await accounting_rename.cb_notify_month(query, _notify_config(thread=0))
-    assert query.bot.send_message.call_args.kwargs["message_thread_id"] is None
+    targets = {"robin": (999, None), "a": (456, None), "b": (456, None)}  # Robin's DM is ignored; a/b share a chat
+    await accounting_rename.cb_notify_month(query, _notify_config(targets))
+    sent = {(c.kwargs["chat_id"], c.kwargs["message_thread_id"]) for c in query.bot.send_message.call_args_list}
+    assert sent == {(-100, 7), (456, None)} and query.bot.send_message.call_count == 2
 
 
 @pytest.mark.asyncio
-async def test_notify_ignores_non_owner_and_bad_month():
-    query = _notify_query(user_id=999)
-    await accounting_rename.cb_notify_month(query, _notify_config())
-    query.bot.send_message.assert_not_called()
-
-    query = _notify_query(data="notify_month:oops")
-    await accounting_rename.cb_notify_month(query, _notify_config())
-    query.bot.send_message.assert_not_called()
+async def test_notify_ignores_non_owner_bad_month_and_no_targets():
+    for query, config in (
+        (_notify_query(user_id=999), _notify_config()),
+        (_notify_query(data="notify_month:oops"), _notify_config()),
+        (_notify_query(), _notify_config({}, topic=0)),
+    ):
+        await accounting_rename.cb_notify_month(query, config)
+        query.bot.send_message.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_notify_failure_keeps_button_for_retry():
+async def test_notify_partial_failure_keeps_button_for_retry():
     query = _notify_query()
-    query.bot.send_message.side_effect = RuntimeError("chat not found")
+    query.bot.send_message.side_effect = [None, RuntimeError("chat not found")]
     await accounting_rename.cb_notify_month(query, _notify_config())
+    assert query.bot.send_message.call_count == 2
     query.message.edit_reply_markup.assert_not_called()
 
 
@@ -225,7 +229,52 @@ async def test_preview_is_clean_when_report_written_or_redis_missing(monkeypatch
     from app.services.salary_report import salary_reported_redis_key
 
     text, button = await _preview(monkeypatch, _FlagRedis({salary_reported_redis_key("2026-09")}))
-    assert "/reports" not in text and button.text.startswith("✅ Закрыть месяц")
+    assert "⚠️" not in text and button.text.startswith("✅ Закрыть месяц")
 
     text, button = await _preview(monkeypatch, None)
-    assert "/reports" not in text and button.text.startswith("✅ Закрыть месяц")
+    assert "⚠️" not in text and "/reports" not in text and button.text.startswith("✅ Закрыть месяц")
+
+
+@pytest.mark.asyncio
+async def test_close_button_notifies_managers_and_reaches_the_summary_message(monkeypatch):
+    """The 'notify' button must actually be attached to the final close message."""
+    plan = month_close.ClosePlan(new_month="2026-10")
+    monkeypatch.setattr(accounting_rename, "plan_close", AsyncMock(return_value=plan))
+    monkeypatch.setattr(accounting_rename, "apply_close", AsyncMock(return_value=(0, [])))
+    sent = AsyncMock()
+    monkeypatch.setattr(accounting_rename, "safe_edit_message", sent)
+    monkeypatch.setattr(accounting_rename, "safe_query_answer", AsyncMock())
+    monkeypatch.setattr(accounting_rename, "try_acquire_write_lock", AsyncMock(return_value=True))
+    monkeypatch.setattr(accounting_rename, "release_write_lock", AsyncMock())
+    query = _notify_query(data="close_month:2026-10")
+    config = SimpleNamespace(owner_telegram_id=OWNER, managers_chat_id=-100, crm_topic_thread_id=7,
+                             manager_targets={}, wml_username="", wml_password="", wml_export_apply=False)
+
+    await accounting_rename.cb_close_month(query, config, MagicMock(), None)
+
+    final = sent.call_args_list[-1]
+    assert "Месяц закрыт" in final.args[1]
+    assert final.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "notify_month:2026-10"
+
+    config.managers_chat_id = 0  # nobody to notify -> no button
+    sent.reset_mock()
+    await accounting_rename.cb_close_month(query, config, MagicMock(), None)
+    assert sent.call_args_list[-1].kwargs["reply_markup"] is None
+
+
+@pytest.mark.asyncio
+async def test_preview_shows_when_report_was_written(monkeypatch):
+    from app.services.salary_report import salary_reported_redis_key
+
+    class _Stamped(_FlagRedis):
+        async def get(self, key):
+            return "2026-10-01T09:30:12" if key in self.flags else None
+
+    text, _ = await _preview(monkeypatch, _Stamped({salary_reported_redis_key("2026-09")}))
+    assert "2026-10-01 09:30" in text
+
+
+def test_month_closed_text_is_plain_english_and_wraps_the_year():
+    text = accounting_rename.month_closed_text("2026-10")
+    assert "The September report has been sent." in text and "start tracking October now." in text
+    assert "December report" in accounting_rename.month_closed_text("2027-01")

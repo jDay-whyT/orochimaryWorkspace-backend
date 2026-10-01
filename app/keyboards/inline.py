@@ -454,7 +454,7 @@ def nlp_files_confirm_keyboard(k: str = "") -> InlineKeyboardMarkup:
     s = f":{k}" if k else ""
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅ Yes, add", callback_data=f"nlp:afc:yes{s}"),
-        InlineKeyboardButton(text="✖ Cancel", callback_data=f"nlp:afc:no{s}"),
+        InlineKeyboardButton(text="◀ Back", callback_data=f"nlp:afc:no{s}"),
     ]])
 
 

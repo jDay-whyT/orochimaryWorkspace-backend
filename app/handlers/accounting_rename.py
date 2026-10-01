@@ -85,13 +85,18 @@ async def cmd_rename_month(
         lines.append(f"⚠️ Название не распознано, оставлю как есть ({len(plan.titles_to_fix)}):")
         lines.extend(f"• {html.escape(t)}" for t in plan.titles_to_fix[:15])
     closing = previous_month(yyyy_mm)
-    reported = True
+    reported, reported_at = True, None
     if redis is not None:
         try:
-            reported = bool(await redis.get(salary_reported_redis_key(closing)))
+            reported_at = await redis.get(salary_reported_redis_key(closing))
+            reported = bool(reported_at)
         except Exception:
             LOGGER.warning("Could not read the salary-reported flag", exc_info=True)
     button = f"✅ Закрыть месяц → {month_label(yyyy_mm)}"
+    if reported and reported_at:
+        stamp = reported_at.decode() if isinstance(reported_at, bytes) else str(reported_at)
+        lines.insert(1, f"📊 Отчёт за {html.escape(month_label(closing))} записан {html.escape(stamp[:16].replace('T', ' '))} UTC. "
+                        f"Если цифры менялись позже, перезапусти <code>/reports {closing}</code>.\n")
     if not reported:
         lines.insert(1, f"⚠️ Отчёт за {html.escape(month_label(closing))} ещё не записан в Google-таблицу. "
                         f"Сначала <code>/reports {closing}</code> — после закрытия цифры обнулятся.\n")
@@ -145,7 +150,10 @@ async def cb_close_month(query: CallbackQuery, config: Config, notion: NotionCli
 
             # Orders too: a completed order deleted from Notion before its `out` reached the CRM
             # would otherwise be read as a deletion of an open order and cancelled there.
-            if config.wml_export_apply:
+            if config.wml_export_apply and redis is None:
+                lines.append("⚠️ Заказы в CRM не отправлены: Redis недоступен. Выполненные заказы удаляй "
+                             "только после следующей выгрузки без ошибок.")
+            elif config.wml_export_apply:
                 await safe_edit_message(query, "⏳ Досылаю заказы в CRM…")
                 try:
                     orders = await push_orders_now(
@@ -164,7 +172,13 @@ async def cb_close_month(query: CallbackQuery, config: Config, notion: NotionCli
         if errors:
             lines.append(f"⚠️ Ошибки ({len(errors)}):")
             lines.extend(f"• {html.escape(e[:150])}" for e in errors[:15])
-        await safe_edit_message(query, "✅ Месяц закрыт.\n\n" + "\n".join(lines), parse_mode="HTML")
+        notify_kb = None
+        if notify_targets(config):
+            notify_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="📣 Уведомить менеджеров", callback_data=f"notify_month:{yyyy_mm}"),
+            ]])
+        await safe_edit_message(query, "✅ Месяц закрыт.\n\n" + "\n".join(lines), parse_mode="HTML",
+                                reply_markup=notify_kb)
     except Exception as e:
         LOGGER.exception("Month close failed")
         await safe_edit_message(query, f"⚠️ Не получилось: {html.escape(str(e))}", parse_mode="HTML")
@@ -172,37 +186,69 @@ async def cb_close_month(query: CallbackQuery, config: Config, notion: NotionCli
         await release_write_lock(redis, lock_key)
 
 
+TOPIC_MANAGERS = {"robin"}  # served by the CRM topic of the managers group, not by a DM
+
+
+def notify_targets(config: Config) -> dict[tuple[int, int | None], str]:
+    """destination -> label: the CRM topic (Robin's) plus every other manager's DM, one per destination."""
+    targets: dict[tuple[int, int | None], str] = {}
+    if config.managers_chat_id and config.crm_topic_thread_id:
+        targets[(config.managers_chat_id, config.crm_topic_thread_id)] = "CRM-топик"
+    for name, target in config.manager_targets.items():
+        if name.lower() not in TOPIC_MANAGERS:
+            targets.setdefault(target, name)
+    return targets
+
+
+_MONTHS_EN = ("January", "February", "March", "April", "May", "June", "July",
+              "August", "September", "October", "November", "December")
+
+
 def month_closed_text(yyyy_mm: str) -> str:
+    """Plain English for the managers. `yyyy_mm` is the NEW month."""
+    new_month = _MONTHS_EN[int(yyyy_mm[5:7]) - 1]
+    old_month = _MONTHS_EN[int(previous_month(yyyy_mm)[5:7]) - 1]
     return (
-        f"🗓 <b>Месяц закрыт — теперь {html.escape(month_label(yyyy_mm))}</b>\n\n"
-        "Цифры по файлам обнулены, заказы прошлого месяца закрыты. Считаем с нуля."
+        f"📊 The {old_month} report has been sent.\n\n"
+        f"You can start tracking {new_month} now."
     )
+
 
 @router.callback_query(F.data.startswith("notify_month:"))
 async def cb_notify_month(query: CallbackQuery, config: Config) -> None:
-    """Owner presses it after finishing the manual Orders cleanup — the bot can't know when that is."""
+    """Owner presses it after finishing the manual Orders cleanup — the bot can't know when that is.
+
+    Robin gets it in the CRM topic, the other managers in their DM (see `notify_targets`).
+    """
     if not is_owner_callback(query, config):
         await safe_query_answer(query, "⛔ Нет доступа", show_alert=True)
         return
-    if not config.managers_chat_id:
-        await safe_query_answer(query, "MANAGERS_CHAT_ID не задан", show_alert=True)
+    targets = notify_targets(config)
+    if not targets:
+        await safe_query_answer(query, "Некому слать: нет CRM-топика и менеджеров в личке", show_alert=True)
         return
     yyyy_mm = query.data.split(":", 1)[1]
     if not _YYYY_MM_RE.match(yyyy_mm):
         await safe_query_answer(query, "Неверный месяц", show_alert=True)
         return
-    try:
-        await query.bot.send_message(
-            chat_id=config.managers_chat_id,
-            message_thread_id=config.managers_topic_thread_id or None,
-            text=month_closed_text(yyyy_mm),
-            parse_mode="HTML",
-        )
-    except Exception as e:
-        LOGGER.exception("Month-closed notification failed")
-        await safe_query_answer(query, f"Не отправилось: {str(e)[:150]}", show_alert=True)
-        return
-    await safe_query_answer(query, "Менеджерам отправлено")
+
+    failed: list[str] = []
+    for (chat_id, thread_id), name in targets.items():
+        try:
+            await query.bot.send_message(
+                chat_id=chat_id,
+                message_thread_id=thread_id,
+                text=month_closed_text(yyyy_mm),
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            LOGGER.exception("Month-closed notification failed for %s", name)
+            failed.append(f"{name}: {str(e)[:60]}")
+    if failed:
+        await safe_query_answer(query, f"Не дошло ({len(failed)} из {len(targets)}): " + "; ".join(failed)[:160],
+                                show_alert=True)
+        return  # keep the button; a retry would repeat the ones that went through
+    await safe_query_answer(query, f"Отправлено: {len(targets)}")
     if query.message:  # drop the button so a second press can't post it twice
         try:
             await query.message.edit_reply_markup(reply_markup=None)
