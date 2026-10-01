@@ -263,6 +263,24 @@ def format_report(report: ExportReport, apply: bool) -> str:
     return text if len(text) <= 4000 else text[: text.rfind("\n", 0, 4000)] + "\n…"
 
 
+async def push_orders_now(config: Config, notion: NotionClient, redis, api: WmlApi) -> ExportReport | None:
+    """Send the current orders to the CRM right now (month close: before completed orders are deleted).
+
+    Shares the scheduled export's lock so the two never run at once and create an order twice.
+    None = nothing was sent (no Redis, or another export holds the lock).
+    """
+    if redis is None:
+        return None
+    if not await redis.set(EXPORT_LOCK_KEY, "1", nx=True, ex=EXPORT_LOCK_SECONDS):
+        return None
+    report = ExportReport()
+    try:
+        await export_orders(config, notion, redis, api, True, report)
+    finally:
+        await redis.delete(EXPORT_LOCK_KEY)
+    return report
+
+
 async def run_wml_export(bot: Bot, config: Config, notion: NotionClient, redis) -> None:
     """Scheduled entry point. Never raises; the owner gets one summary when anything happened."""
     if redis is None or not config.wml_username or not config.wml_password:

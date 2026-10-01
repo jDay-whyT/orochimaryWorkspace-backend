@@ -49,6 +49,11 @@ def salary_pending_redis_key(yyyy_mm: str, model_id: str) -> str:
     return f"salary:pending:{yyyy_mm}:{model_id}"
 
 
+def salary_reported_redis_key(yyyy_mm: str) -> str:
+    """Set once /reports has written the month's tab; /rename_month checks it before cleanup."""
+    return f"salary:reported:{yyyy_mm}"
+
+
 def build_salary_report(
     accounting_records: list[NotionAccounting],
     orders: list[NotionOrder],

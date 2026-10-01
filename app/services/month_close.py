@@ -5,8 +5,8 @@ is still made by hand beforehand — the API cannot duplicate a database).
 Only `work` records are touched; Tango records are left alone (their Content
 "Tango" tag marks them, and they are not part of the CRM export).
 
-Each record is updated with ONE request (new title + zeroed counts + empty
-Content), so no record is ever zeroed while still carrying the old month's name.
+Each record is updated with ONE request (new title + zeroed counts + Content cleared
+except the Reddit/Tango tags), so no record is ever zeroed while still carrying the old month's name.
 """
 
 import asyncio
@@ -27,6 +27,7 @@ LOGGER = logging.getLogger(__name__)
 FILE_COUNT_FIELDS = ("of_files", "reddit_files", "twitter_files", "fansly_files", "request_files", "tango_files")
 
 CLOSE_IN_PROGRESS_KEY = "month_close:in_progress"  # exporters must skip while set
+KEEP_CONTENT = {"reddit", "tango"}  # Content tags that survive the close (compared lowercase)
 _NOTION_INTERVAL_SECONDS = 0.35  # Notion allows ~3 requests/s
 
 
@@ -82,7 +83,7 @@ async def plan_close(config: Config, notion: NotionClient, new_month: str) -> Cl
 
 def close_payload(item: CloseItem) -> dict[str, Any]:
     props: dict[str, Any] = {name: {"number": 0} for name in FILE_COUNT_FIELDS}
-    props["Content"] = {"multi_select": []}
+    props["Content"] = {"multi_select": [{"name": c} for c in item.record.content or [] if c.lower() in KEEP_CONTENT]}
     if item.new_title:
         props["Title"] = {"title": [{"text": {"content": item.new_title}}]}
     return {"properties": props}

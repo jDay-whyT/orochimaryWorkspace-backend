@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import requests
 
 from app.services import wml_export
 from app.services.notion import NotionModel, NotionOrder
@@ -117,6 +118,51 @@ def test_api_raises_on_business_error():
     session.request.return_value = _resp(422, {"success": False, "error": "bad type"})
     with pytest.raises(WmlApiError, match="bad type"):
         WmlApi("u", "p", session=session).upsert_files({"profile": "X"})
+
+
+def _timeouting_session(*results):
+    session = MagicMock()
+    session.post.return_value = _resp(200, {"success": True, "token": "t"})
+    session.request.side_effect = list(results)
+    return session
+
+
+def test_idempotent_calls_retry_once_on_timeout():
+    session = _timeouting_session(requests.ReadTimeout(), _resp(200, {"success": True}))
+    assert WmlApi("u", "p", session=session).upsert_files({"profile": "X"})["success"]
+    assert session.request.call_count == 2
+
+    session = _timeouting_session(requests.ConnectionError(), _resp(200, {"success": True}))
+    assert WmlApi("u", "p", session=session).update_order(5, {"status": "active"})["success"]
+    assert session.request.call_count == 2
+
+
+def test_timeout_raised_after_second_attempt():
+    session = _timeouting_session(requests.ReadTimeout(), requests.ReadTimeout())
+    with pytest.raises(requests.ReadTimeout):
+        WmlApi("u", "p", session=session).upsert_files({"profile": "X"})
+    assert session.request.call_count == 2
+
+
+def test_create_order_never_retried_on_timeout():
+    """A timed-out create may already have been applied — a retry would duplicate the order."""
+    session = _timeouting_session(requests.ReadTimeout(), _resp(200, {"success": True, "id": 1}))
+    with pytest.raises(requests.ReadTimeout):
+        WmlApi("u", "p", session=session).create_order({"title": "x"})
+    assert session.request.call_count == 1
+
+
+def test_second_401_is_an_error():
+    session = _timeouting_session(_resp(401, {}), _resp(401, {}))
+    with pytest.raises(WmlApiError, match="unauthorized"):
+        WmlApi("u", "p", session=session).update_order(5, {})
+    assert session.request.call_count == 2
+
+
+def test_call_uses_long_timeout():
+    session = _timeouting_session(_resp(200, {"success": True}))
+    WmlApi("u", "p", session=session).upsert_files({"profile": "X"})
+    assert session.request.call_args.kwargs["timeout"] == 60
 
 
 # ---------- monthly file counts ----------

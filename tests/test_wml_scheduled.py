@@ -293,3 +293,37 @@ async def test_second_export_is_skipped_while_one_is_running(monkeypatch):
     await ws.run_wml_export(SimpleNamespace(send_message=AsyncMock()), _config(), notion, redis)
     notion.query_all_orders.assert_awaited()
     assert ws.EXPORT_LOCK_KEY not in redis.kv        # released afterwards
+
+
+# ---------- month close: orders pushed before completed ones are deleted ----------
+
+
+@pytest.mark.asyncio
+async def test_push_orders_now_sends_out_date_so_later_deletion_is_not_a_cancel():
+    redis, api = FakeRedis(), _api()
+    # pushed open at the last scheduled run; the manager closed it in Notion since
+    redis.h[ws.ORDER_STATE_KEY] = {"o1": ws._state(21, {"count": 1}, "active", False)}
+    closed = _order("o1", wml_id=21, out_date="2026-09-30", status="Done")
+
+    report = await ws.push_orders_now(_config(apply=False), _notion([closed]), redis, api)
+    assert report is not None and report.updated == [closed.title]
+    assert api.update_order.call_args.args[0] == 21
+    assert api.update_order.call_args.args[1]["out"] == "2026-09-30"
+
+    api.update_order.reset_mock()
+    await ws.export_orders(_config(), _notion([]), redis, api, True, ws.ExportReport())  # deleted after the push
+    api.update_order.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_push_orders_now_releases_lock_and_skips_when_busy_or_no_redis():
+    redis, api = FakeRedis(), _api()
+    assert await ws.push_orders_now(_config(), _notion([_order("a")]), redis, api) is not None
+    assert ws.EXPORT_LOCK_KEY not in redis.kv
+
+    redis.kv[ws.EXPORT_LOCK_KEY] = "1"  # the scheduled export is running
+    api.create_order.reset_mock()
+    assert await ws.push_orders_now(_config(), _notion([_order("b")]), redis, api) is None
+    api.create_order.assert_not_called()
+
+    assert await ws.push_orders_now(_config(), _notion([_order("c")]), None, api) is None

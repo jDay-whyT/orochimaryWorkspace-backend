@@ -1,7 +1,7 @@
 """/rename_month — close the month (owner only).
 
 Shows the plan first; on the button: (1) push the closing month's final file
-counts to the WML CRM, (2) rename every `work` Accounting record to the new
+counts and the current orders to the WML CRM, (2) rename every `work` Accounting record to the new
 month and zero its counts + Content in one request each. Tango records are
 not touched. The Notion archive copy is still made by hand BEFORE this.
 """
@@ -17,8 +17,10 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from app.config import Config
 from app.services import NotionClient
 from app.services.month_close import apply_close, month_label, plan_close
+from app.services.salary_report import salary_reported_redis_key
 from app.services.wml_api import WmlApi
 from app.services.wml_export import pick_files, send_files
+from app.services.wml_scheduled import push_orders_now
 from app.utils.formatting import today
 from app.utils.locks import release_write_lock, try_acquire_write_lock
 from app.utils.telegram import is_owner_callback, safe_edit_message, safe_query_answer
@@ -27,6 +29,11 @@ LOGGER = logging.getLogger(__name__)
 router = Router()
 
 _YYYY_MM_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
+def previous_month(yyyy_mm: str) -> str:
+    year, month = int(yyyy_mm[:4]), int(yyyy_mm[5:7])
+    return f"{year - 1}-12" if month == 1 else f"{year}-{month - 1:02d}"
 
 
 def _resolve_month(arg: str | None, config: Config) -> str | None:
@@ -42,6 +49,7 @@ async def cmd_rename_month(
     command: CommandObject,
     config: Config,
     notion: NotionClient,
+    redis=None,
 ) -> None:
     if message.chat.type != "private":
         return
@@ -67,8 +75,8 @@ async def cmd_rename_month(
         "Сначала сделай копию баз в архив, если ещё не сделал.",
         "",
         "По кнопке бот:",
-        "1. дошлёт в CRM последние цифры файлов за закрываемый месяц;",
-        f"2. у <b>{len(plan.items)}</b> записей <code>work</code>: обнулит цифры и Content, "
+        "1. дошлёт в CRM последние цифры файлов и текущие заказы (чтобы дата выхода дошла до удаления выполненных);",
+        f"2. у <b>{len(plan.items)}</b> записей <code>work</code>: обнулит цифры и очистит Content (теги Reddit и Tango останутся), "
         f"новое название получат {renamed};",
         f"Танго не трогаю: {plan.tango_skipped}.",
     ]
@@ -76,10 +84,36 @@ async def cmd_rename_month(
         lines.append("")
         lines.append(f"⚠️ Название не распознано, оставлю как есть ({len(plan.titles_to_fix)}):")
         lines.extend(f"• {html.escape(t)}" for t in plan.titles_to_fix[:15])
+    closing = previous_month(yyyy_mm)
+    reported = True
+    if redis is not None:
+        try:
+            reported = bool(await redis.get(salary_reported_redis_key(closing)))
+        except Exception:
+            LOGGER.warning("Could not read the salary-reported flag", exc_info=True)
+    button = f"✅ Закрыть месяц → {month_label(yyyy_mm)}"
+    if not reported:
+        lines.insert(1, f"⚠️ Отчёт за {html.escape(month_label(closing))} ещё не записан в Google-таблицу. "
+                        f"Сначала <code>/reports {closing}</code> — после закрытия цифры обнулятся.\n")
+        button = f"⚠️ Всё равно закрыть → {month_label(yyyy_mm)}"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=f"✅ Закрыть месяц → {month_label(yyyy_mm)}", callback_data=f"close_month:{yyyy_mm}"),
+        InlineKeyboardButton(text=button, callback_data=f"close_month:{yyyy_mm}"),
     ]])
     await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=keyboard)
+
+
+def _orders_push_lines(report) -> list[str]:
+    if report is None:
+        return ["⚠️ Заказы в CRM не отправлены: идёт другая выгрузка. Выполненные заказы удаляй "
+                "только после следующей выгрузки без ошибок."]
+    line = (f"📦 Заказы в CRM: создано {len(report.created)}, обновлено {len(report.updated)}, "
+            f"отменено {len(report.cancelled)}.")
+    out = [line]
+    out.extend(f"  ⚠️ {html.escape(w[:150])}" for w in report.warnings[:10])
+    if report.errors:
+        out.append(f"  ❌ Ошибки ({len(report.errors)}), выполненные заказы удаляй после повторной выгрузки:")
+        out.extend(f"  • {html.escape(e[:150])}" for e in report.errors[:10])
+    return out
 
 
 @router.callback_query(F.data.startswith("close_month:"))
@@ -109,6 +143,19 @@ async def cb_close_month(query: CallbackQuery, config: Config, notion: NotionCli
                 LOGGER.exception("Final CRM files push failed before month close")
                 lines.append(f"⚠️ В CRM дослать не получилось: {html.escape(str(e))}. Месяц всё равно закрываю.")
 
+            # Orders too: a completed order deleted from Notion before its `out` reached the CRM
+            # would otherwise be read as a deletion of an open order and cancelled there.
+            if config.wml_export_apply:
+                await safe_edit_message(query, "⏳ Досылаю заказы в CRM…")
+                try:
+                    orders = await push_orders_now(
+                        config, notion, redis, WmlApi(config.wml_username, config.wml_password))
+                    lines.extend(_orders_push_lines(orders))
+                except Exception as e:
+                    LOGGER.exception("Final CRM orders push failed before month close")
+                    lines.append(f"⚠️ Заказы в CRM дослать не получилось: {html.escape(str(e))}. "
+                                 "Выполненные заказы удаляй только после следующей выгрузки.")
+
         # 2. Rename + zero, one request per record.
         await safe_edit_message(query, "⏳ Переименовываю и обнуляю записи…")
         plan = await plan_close(config, notion, yyyy_mm)
@@ -123,3 +170,41 @@ async def cb_close_month(query: CallbackQuery, config: Config, notion: NotionCli
         await safe_edit_message(query, f"⚠️ Не получилось: {html.escape(str(e))}", parse_mode="HTML")
     finally:
         await release_write_lock(redis, lock_key)
+
+
+def month_closed_text(yyyy_mm: str) -> str:
+    return (
+        f"🗓 <b>Месяц закрыт — теперь {html.escape(month_label(yyyy_mm))}</b>\n\n"
+        "Цифры по файлам обнулены, заказы прошлого месяца закрыты. Считаем с нуля."
+    )
+
+@router.callback_query(F.data.startswith("notify_month:"))
+async def cb_notify_month(query: CallbackQuery, config: Config) -> None:
+    """Owner presses it after finishing the manual Orders cleanup — the bot can't know when that is."""
+    if not is_owner_callback(query, config):
+        await safe_query_answer(query, "⛔ Нет доступа", show_alert=True)
+        return
+    if not config.managers_chat_id:
+        await safe_query_answer(query, "MANAGERS_CHAT_ID не задан", show_alert=True)
+        return
+    yyyy_mm = query.data.split(":", 1)[1]
+    if not _YYYY_MM_RE.match(yyyy_mm):
+        await safe_query_answer(query, "Неверный месяц", show_alert=True)
+        return
+    try:
+        await query.bot.send_message(
+            chat_id=config.managers_chat_id,
+            message_thread_id=config.managers_topic_thread_id or None,
+            text=month_closed_text(yyyy_mm),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        LOGGER.exception("Month-closed notification failed")
+        await safe_query_answer(query, f"Не отправилось: {str(e)[:150]}", show_alert=True)
+        return
+    await safe_query_answer(query, "Менеджерам отправлено")
+    if query.message:  # drop the button so a second press can't post it twice
+        try:
+            await query.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            LOGGER.debug("Could not remove the notify button", exc_info=True)

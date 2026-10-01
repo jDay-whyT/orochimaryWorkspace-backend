@@ -3,6 +3,7 @@ import html
 import json
 import logging
 import re
+from datetime import datetime
 
 from aiogram import Router
 from aiogram.filters import Command, CommandObject
@@ -10,7 +11,12 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.config import Config
 from app.services import NotionClient
-from app.services.salary_report import build_salary_report, load_salary_accounting, salary_pending_redis_key
+from app.services.salary_report import (
+    build_salary_report,
+    load_salary_accounting,
+    salary_pending_redis_key,
+    salary_reported_redis_key,
+)
 from app.services.salary_sheet_writer import write_salary_report
 from app.services.sheets import SheetsClient
 from app.utils.formatting import today
@@ -20,6 +26,7 @@ router = Router()
 
 _YYYY_MM_RE = re.compile(r"^\d{4}-\d{2}$")
 _PENDING_ROW_TTL_SECONDS = 24 * 3600
+_REPORTED_TTL_SECONDS = 60 * 24 * 3600
 
 
 def _resolve_month(arg: str | None, config: Config) -> str | None:
@@ -74,6 +81,12 @@ async def cmd_reports(
         LOGGER.exception("Failed to write salary report to Sheets for %s", yyyy_mm)
         await message.answer("Не удалось записать отчёт в Google Sheets, попробуй позже.")
         return
+
+    if redis is not None:
+        try:
+            await redis.set(salary_reported_redis_key(yyyy_mm), datetime.utcnow().isoformat(), ex=_REPORTED_TTL_SECONDS)
+        except Exception:
+            LOGGER.warning("Could not store the salary-reported flag for %s", yyyy_mm, exc_info=True)
 
     total_models = sum(len(rows) for rows in report.values())
     lines = [
