@@ -31,11 +31,11 @@ LOGGER = logging.getLogger(__name__)
 # 200 can stall for tens of seconds. Held open it runs at full speed; past this limit we answer 200
 # anyway (Telegram would retry on its own timeout) and the update keeps going in the background.
 WEBHOOK_HOLD_SECONDS = 25.0
-_UPDATE_TASKS: set[asyncio.Task] = set()
+SHUTDOWN_DRAIN_SECONDS = 8.0  # Cloud Run gives SIGTERM -> SIGKILL ~10 s
 
 
-def _update_task_done(task: asyncio.Task) -> None:
-    _UPDATE_TASKS.discard(task)
+def _update_task_done(tasks: set, task: asyncio.Task) -> None:
+    tasks.discard(task)
     if not task.cancelled() and task.exception() is not None:
         LOGGER.error("Update processing failed", exc_info=task.exception())
 
@@ -81,11 +81,16 @@ async def create_app() -> web.Application:
     # from the companion set before it is silently dropped by the deque.
     app["_seen_update_ids_deque"] = deque(maxlen=200)
     app["_seen_update_ids_set"]: set[int] = set()
+    app["_update_tasks"] = set()  # updates still being processed (past the webhook hold, or in flight)
 
     setup_application(app, dp, bot=bot)
 
     async def on_shutdown(_app: web.Application) -> None:
         LOGGER.info("Shutting down...")
+        pending = set(_app["_update_tasks"])
+        if pending:  # let in-flight updates finish before their sessions are closed under them
+            LOGGER.info("Waiting for %d in-flight update(s)", len(pending))
+            await asyncio.wait(pending, timeout=SHUTDOWN_DRAIN_SECONDS)
         await bot.session.close()
         from app.services.notion import NotionClient
         await NotionClient.close_all()
@@ -190,8 +195,9 @@ async def create_app() -> web.Application:
         bot = request.app["bot"]
         dp = request.app["dp"]
         task = asyncio.create_task(dp.feed_raw_update(bot=bot, update=body))
-        _UPDATE_TASKS.add(task)
-        task.add_done_callback(_update_task_done)
+        tasks = request.app["_update_tasks"]
+        tasks.add(task)
+        task.add_done_callback(lambda t: _update_task_done(tasks, t))
         await asyncio.wait({task}, timeout=WEBHOOK_HOLD_SECONDS)
 
         return web.Response(status=200, text="ok")
