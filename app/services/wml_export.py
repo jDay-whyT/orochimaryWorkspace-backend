@@ -113,19 +113,25 @@ def files_month(records: list, fallback: str) -> str:
     owner closes September its records still say "сентябрь 2026" even in early
     October. The most common "<month> <year>" among live titles wins.
     """
-    from app.utils.formatting import MONTHS_RU_LOWER
-
     seen: Counter = Counter()
     for record in records:
         if (record.status or "").strip().lower() == "stop":
             continue
-        # Whole words only: a model called "МАЙЯ" must not read as May.
-        words = (record.title or "").lower().split()
-        year = next((w for w in words if w.isdigit() and len(w) == 4), None)
-        month = next((MONTHS_RU_LOWER.index(w) + 1 for w in words if w in MONTHS_RU_LOWER), None)
-        if year and month:
-            seen[f"{year}-{month:02d}"] += 1
+        month = title_month(record.title)
+        if month:
+            seen[month] += 1
     return seen.most_common(1)[0][0] if seen else fallback
+
+
+def title_month(title: str | None) -> str | None:
+    """YYYY-MM named in a record title ("КАЗАШКА сентябрь 2026"), or None."""
+    from app.utils.formatting import MONTHS_RU_LOWER
+
+    # Whole words only: a model called "МАЙЯ" must not read as May.
+    words = (title or "").lower().split()
+    year = next((w for w in words if w.isdigit() and len(w) == 4), None)
+    month = next((MONTHS_RU_LOWER.index(w) + 1 for w in words if w in MONTHS_RU_LOWER), None)
+    return f"{year}-{month:02d}" if year and month else None
 
 
 def files_payload(record, model: NotionModel | None, yyyy_mm: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -168,6 +174,11 @@ async def pick_files(config: Config, notion: NotionClient, calendar_month: str) 
     batch = FilesBatch(month=month)
     for model_key, record in working.items():
         payload, reason = files_payload(record, models.get(model_key), month)
+        named = title_month(record.title)
+        if payload is not None and named and named != month:
+            # Not renamed/zeroed at month close (status new/inactive): its numbers belong to the
+            # month in its title, and sending them under the current month would put them in the CRM twice.
+            payload, reason = None, "другой месяц"
         if payload is None:
             batch.skipped[reason] += 1
         elif model_key in duplicates:  # which record holds the real numbers is unclear

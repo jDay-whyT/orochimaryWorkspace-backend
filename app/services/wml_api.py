@@ -15,8 +15,8 @@ import requests
 LOGGER = logging.getLogger(__name__)
 
 API_URL = "https://wml.pp.ua/api"
-_TIMEOUT = 20
-_CALL_TIMEOUT = 60  # evening peaks on the CRM side hit 20 s
+_CALL_TIMEOUT = 60  # the CRM is slow on the first requests of the night run (23:00 UTC), 20 s was not enough
+_LOGIN_TIMEOUT = 60
 
 # Order types the CRM accepts — sent by name, same spelling as Notion's `type`
 ORDER_TYPES = ("ad request", "custom", "short", "call", "verif reddit")
@@ -34,11 +34,19 @@ class WmlApi:
         self._token: str | None = None
 
     def _login(self) -> None:
-        resp = self._session.post(
-            f"{API_URL}/login",
-            json={"username": self._username, "password": self._password},
-            timeout=_TIMEOUT,
-        )
+        """Login only issues a token, so one retry on a timeout is safe (unlike a create)."""
+        for attempt in (1, 2):
+            try:
+                resp = self._session.post(
+                    f"{API_URL}/login",
+                    json={"username": self._username, "password": self._password},
+                    timeout=_LOGIN_TIMEOUT,
+                )
+                break
+            except (requests.Timeout, requests.ConnectionError):
+                if attempt == 2:
+                    raise
+                LOGGER.warning("WML login timed out, retrying once")
         data = self._json(resp)
         if not data.get("success") or not data.get("token"):
             raise WmlApiError(f"WML login failed (HTTP {resp.status_code})")

@@ -165,6 +165,25 @@ def test_call_uses_long_timeout():
     assert session.request.call_args.kwargs["timeout"] == 60
 
 
+def test_login_retries_once_on_timeout_then_succeeds():
+    session = MagicMock()
+    session.post.side_effect = [requests.ReadTimeout(), _resp(200, {"success": True, "token": "t"})]
+    session.request.return_value = _resp(200, {"success": True, "id": 7})
+    api = WmlApi("u", "p", session=session)
+
+    assert api.create_order({"title": "x"})["id"] == 7  # the order itself was sent once, after the login retry
+    assert session.post.call_count == 2 and session.request.call_count == 1
+    assert session.post.call_args.kwargs["timeout"] == 60
+
+
+def test_login_gives_up_after_two_timeouts_without_sending_the_order():
+    session = MagicMock()
+    session.post.side_effect = [requests.ReadTimeout(), requests.ReadTimeout()]
+    with pytest.raises(requests.ReadTimeout):
+        WmlApi("u", "p", session=session).create_order({"title": "x"})
+    session.request.assert_not_called()  # nothing reached the CRM, so no duplicate is possible
+
+
 # ---------- monthly file counts ----------
 
 from app.services.notion import NotionAccounting  # noqa: E402
@@ -224,6 +243,29 @@ async def test_pick_files_one_row_per_model_for_records_month():
     assert batch.month == "2026-09"
     assert [p["profile"] for _, p in batch.items] == ["ТВИКСИ"]
     assert batch.skipped == {"Tango": 1}
+
+
+@pytest.mark.asyncio
+async def test_pick_files_skips_record_left_in_the_previous_month_after_close():
+    """Month close renames/zeroes only `work` records; an inactive one keeps last month's title and numbers."""
+    other = NotionModel(page_id="m-3", title="ГРАНАДА", project="КИЕВ")
+    notion = AsyncMock()
+    notion.query_all_models.return_value = [MODEL, other]
+    notion.query_all_accounting.return_value = [
+        _acc(page_id="a1", title="ТВИКСИ октябрь 2026", of_files=0, reddit_files=0, twitter_files=0,
+             fansly_files=0, request_files=0, social_files=0),
+        _acc(page_id="a3", title="ГРАНАДА сентябрь 2026", model_id="m-3", status="inactive"),
+    ]
+    batch = await wml_export.pick_files(SimpleNamespace(db_accounting="a", db_models="m"), notion, "2026-10")
+    assert batch.month == "2026-10"
+    assert [p["profile"] for _, p in batch.items] == ["ТВИКСИ"]  # ГРАНАДА's September numbers are not sent as October
+    assert batch.skipped == {"другой месяц": 1}
+
+
+def test_title_month():
+    assert wml_export.title_month("ГРАНАДА сентябрь 2026") == "2026-09"
+    assert wml_export.title_month("МАЙЯ") is None
+    assert wml_export.title_month("") is None and wml_export.title_month(None) is None
 
 
 @pytest.mark.asyncio

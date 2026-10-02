@@ -119,8 +119,8 @@ def _notify_query(user_id=OWNER, data="notify_month:2026-10"):
     return query
 
 
-def _notify_config(targets=None, topic=7):
-    return SimpleNamespace(owner_telegram_id=OWNER, managers_chat_id=-100, crm_topic_thread_id=topic,
+def _notify_config(targets=None, topic=7, crm_chat=-100):
+    return SimpleNamespace(owner_telegram_id=OWNER, managers_chat_id=-555, crm_chat_id=crm_chat, crm_topic_thread_id=topic,
                            manager_targets={"di": (456, None)} if targets is None else targets)
 
 
@@ -150,6 +150,7 @@ async def test_notify_ignores_non_owner_bad_month_and_no_targets():
         (_notify_query(user_id=999), _notify_config()),
         (_notify_query(data="notify_month:oops"), _notify_config()),
         (_notify_query(), _notify_config({}, topic=0)),
+        (_notify_query(), _notify_config({}, crm_chat=0)),  # CRM group unknown: managers chat is NOT a stand-in
     ):
         await accounting_rename.cb_notify_month(query, config)
         query.bot.send_message.assert_not_called()
@@ -247,7 +248,7 @@ async def test_close_button_notifies_managers_and_reaches_the_summary_message(mo
     monkeypatch.setattr(accounting_rename, "try_acquire_write_lock", AsyncMock(return_value=True))
     monkeypatch.setattr(accounting_rename, "release_write_lock", AsyncMock())
     query = _notify_query(data="close_month:2026-10")
-    config = SimpleNamespace(owner_telegram_id=OWNER, managers_chat_id=-100, crm_topic_thread_id=7,
+    config = SimpleNamespace(owner_telegram_id=OWNER, managers_chat_id=-555, crm_chat_id=-100, crm_topic_thread_id=7,
                              manager_targets={}, wml_username="", wml_password="", wml_export_apply=False)
 
     await accounting_rename.cb_close_month(query, config, MagicMock(), None)
@@ -256,7 +257,7 @@ async def test_close_button_notifies_managers_and_reaches_the_summary_message(mo
     assert "Месяц закрыт" in final.args[1]
     assert final.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "notify_month:2026-10"
 
-    config.managers_chat_id = 0  # nobody to notify -> no button
+    config.crm_chat_id = 0  # nobody to notify -> no button
     sent.reset_mock()
     await accounting_rename.cb_close_month(query, config, MagicMock(), None)
     assert sent.call_args_list[-1].kwargs["reply_markup"] is None
@@ -278,3 +279,33 @@ def test_month_closed_text_is_plain_english_and_wraps_the_year():
     text = accounting_rename.month_closed_text("2026-10")
     assert "The September report has been sent." in text and "start tracking October now." in text
     assert "December report" in accounting_rename.month_closed_text("2027-01")
+
+
+class _SetRedis:
+    def __init__(self):
+        self.sets = {}
+
+    async def smembers(self, key):
+        return set(self.sets.get(key, set()))
+
+    async def sadd(self, key, value):
+        self.sets.setdefault(key, set()).add(value)
+
+    async def expire(self, key, seconds):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_notify_retry_only_sends_to_those_who_missed_it():
+    redis = _SetRedis()
+    query = _notify_query()
+    query.bot.send_message.side_effect = [RuntimeError("thread not found"), None]  # CRM topic (first) fails, DM ok
+    await accounting_rename.cb_notify_month(query, _notify_config({"di": (456, None)}), redis)
+    assert query.bot.send_message.call_count == 2
+    query.message.edit_reply_markup.assert_not_called()
+
+    query = _notify_query()  # second press, the topic works now
+    await accounting_rename.cb_notify_month(query, _notify_config({"di": (456, None)}), redis)
+    sent = [(c.kwargs["chat_id"], c.kwargs["message_thread_id"]) for c in query.bot.send_message.call_args_list]
+    assert sent == [(-100, 7)]  # di already had it
+    query.message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)

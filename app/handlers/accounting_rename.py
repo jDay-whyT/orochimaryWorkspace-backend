@@ -192,8 +192,8 @@ TOPIC_MANAGERS = {"robin"}  # served by the CRM topic of the managers group, not
 def notify_targets(config: Config) -> dict[tuple[int, int | None], str]:
     """destination -> label: the CRM topic (Robin's) plus every other manager's DM, one per destination."""
     targets: dict[tuple[int, int | None], str] = {}
-    if config.managers_chat_id and config.crm_topic_thread_id:
-        targets[(config.managers_chat_id, config.crm_topic_thread_id)] = "CRM-топик"
+    if config.crm_chat_id and config.crm_topic_thread_id:
+        targets[(config.crm_chat_id, config.crm_topic_thread_id)] = "CRM-топик"
     for name, target in config.manager_targets.items():
         if name.lower() not in TOPIC_MANAGERS:
             targets.setdefault(target, name)
@@ -215,7 +215,7 @@ def month_closed_text(yyyy_mm: str) -> str:
 
 
 @router.callback_query(F.data.startswith("notify_month:"))
-async def cb_notify_month(query: CallbackQuery, config: Config) -> None:
+async def cb_notify_month(query: CallbackQuery, config: Config, redis=None) -> None:
     """Owner presses it after finishing the manual Orders cleanup — the bot can't know when that is.
 
     Robin gets it in the CRM topic, the other managers in their DM (see `notify_targets`).
@@ -232,8 +232,21 @@ async def cb_notify_month(query: CallbackQuery, config: Config) -> None:
         await safe_query_answer(query, "Неверный месяц", show_alert=True)
         return
 
+    sent_key = f"notify_month:sent:{yyyy_mm}"
+    already: set[str] = set()
+    if redis is not None:
+        try:
+            already = {v.decode() if isinstance(v, bytes) else str(v) for v in await redis.smembers(sent_key)}
+        except Exception:
+            LOGGER.warning("Could not read the notified set", exc_info=True)
+
     failed: list[str] = []
+    delivered = skipped = 0
     for (chat_id, thread_id), name in targets.items():
+        dest = f"{chat_id}/{thread_id}"
+        if dest in already:
+            skipped += 1
+            continue
         try:
             await query.bot.send_message(
                 chat_id=chat_id,
@@ -241,6 +254,13 @@ async def cb_notify_month(query: CallbackQuery, config: Config) -> None:
                 text=month_closed_text(yyyy_mm),
                 parse_mode="HTML",
             )
+            delivered += 1
+            if redis is not None:
+                try:
+                    await redis.sadd(sent_key, dest)
+                    await redis.expire(sent_key, 30 * 24 * 3600)
+                except Exception:
+                    LOGGER.warning("Could not remember the notified destination", exc_info=True)
         except Exception as e:
             LOGGER.exception("Month-closed notification failed for %s", name)
             failed.append(f"{name}: {str(e)[:60]}")
@@ -248,7 +268,7 @@ async def cb_notify_month(query: CallbackQuery, config: Config) -> None:
         await safe_query_answer(query, f"Не дошло ({len(failed)} из {len(targets)}): " + "; ".join(failed)[:160],
                                 show_alert=True)
         return  # keep the button; a retry would repeat the ones that went through
-    await safe_query_answer(query, f"Отправлено: {len(targets)}")
+    await safe_query_answer(query, f"Отправлено: {delivered}" + (f" (ещё {skipped} уже получили)" if skipped else ""))
     if query.message:  # drop the button so a second press can't post it twice
         try:
             await query.message.edit_reply_markup(reply_markup=None)

@@ -34,6 +34,7 @@ class Config:
     files_per_month: int
     managers_topic_thread_id: int = 0
     managers_chat_id: int = 0
+    crm_chat_id: int = 0  # the group that holds the CRM topic (crm_topic_thread_id); 0 = unknown
     board_message_id: int | None = None
     internal_secret: str = ""
     redis_url: str | None = None
@@ -77,6 +78,9 @@ def _parse_mini_app_viewers(value: str) -> tuple[set[int], set[str]]:
             except ValueError:
                 pass
     return ids, handles
+
+
+DEFAULT_CRM_CHAT_ID = -1002047661163  # the group with the CRM topic (CRM_TOPIC_THREAD_ID); CRM_CHAT_ID overrides it
 
 
 def _parse_manager_targets(value: str) -> dict[str, tuple[int, int | None]]:
@@ -268,6 +272,7 @@ def load_config(validate: bool = True) -> Config:
         mini_app_viewer_ids=mini_app_viewer_ids,
         mini_app_viewer_handles=mini_app_viewer_handles,
         crm_topic_thread_id=crm_topic_thread_id,
+        crm_chat_id=_int_env("CRM_CHAT_ID", DEFAULT_CRM_CHAT_ID),
         scouts_chat_id=scouts_chat_id,
         timezone=timezone,
         files_per_month=files_per_month,
