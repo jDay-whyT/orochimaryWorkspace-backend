@@ -111,11 +111,11 @@ def files_month(records: list, fallback: str) -> str:
 
     Records are renamed by hand at month close (/rename_month), so until the
     owner closes September its records still say "сентябрь 2026" even in early
-    October. The most common "<month> <year>" among live titles wins.
+    October. The most common "<month> <year>" among `work` titles wins.
     """
     seen: Counter = Counter()
     for record in records:
-        if (record.status or "").strip().lower() == "stop":
+        if (record.status or "").strip().lower() != "work":
             continue
         month = title_month(record.title)
         if month:
@@ -140,8 +140,8 @@ def files_payload(record, model: NotionModel | None, yyyy_mm: str) -> tuple[dict
         return None, "нет модели"
     if is_tango_model(model) or "Tango" in (record.content or []):
         return None, "Tango"
-    if (record.status or "").strip().lower() == "stop":
-        return None, "stop"
+    if (record.status or "").strip().lower() != "work":
+        return None, "не work"  # new / inactive / stop: only working models go to the CRM
     counts = {
         "of": record.of_files,
         "reddit": record.reddit_files,
@@ -176,7 +176,7 @@ async def pick_files(config: Config, notion: NotionClient, calendar_month: str) 
         payload, reason = files_payload(record, models.get(model_key), month)
         named = title_month(record.title)
         if payload is not None and named and named != month:
-            # Not renamed/zeroed at month close (status new/inactive): its numbers belong to the
+            # Not renamed/zeroed at month close yet: its numbers belong to the
             # month in its title, and sending them under the current month would put them in the CRM twice.
             payload, reason = None, "другой месяц"
         if payload is None:

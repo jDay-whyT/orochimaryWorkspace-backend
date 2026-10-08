@@ -201,7 +201,8 @@ def test_files_month_majority_whole_words_and_fallback():
         _acc(title="МАЙЯ сентябрь 2026"),          # "май" inside a name must not count as May
         _acc(title="X сентябрь 2026"),
         _acc(title="Y октябрь 2026"),
-        _acc(title="Z апрель 2026", status="stop"),  # dead pages don't vote
+        _acc(title="Z апрель 2026", status="stop"),  # non-work pages don't vote
+        _acc(title="W август 2026", status="new"),
         _acc(title=""),
     ]
     assert wml_export.files_month(records, "2026-10") == "2026-09"
@@ -225,7 +226,10 @@ def test_files_payload_total_falls_back_to_sum():
     (_acc(), TANGO, "Tango"),
     (_acc(), TANGO_NO_PROJECT, "Tango"),
     (_acc(content=["Tango"]), MODEL, "Tango"),
-    (_acc(status="stop"), MODEL, "stop"),
+    (_acc(status="stop"), MODEL, "не work"),
+    (_acc(status="new"), MODEL, "не work"),
+    (_acc(status="inactive"), MODEL, "не work"),
+    (_acc(status=None), MODEL, "не work"),
 ])
 def test_files_payload_skips(record, model, reason):
     assert wml_export.files_payload(record, model, "2026-09") == (None, reason)
@@ -247,14 +251,14 @@ async def test_pick_files_one_row_per_model_for_records_month():
 
 @pytest.mark.asyncio
 async def test_pick_files_skips_record_left_in_the_previous_month_after_close():
-    """Month close renames/zeroes only `work` records; an inactive one keeps last month's title and numbers."""
+    """A `work` record not yet renamed/zeroed keeps last month's title and numbers: not sent as the new month."""
     other = NotionModel(page_id="m-3", title="ГРАНАДА", project="КИЕВ")
     notion = AsyncMock()
     notion.query_all_models.return_value = [MODEL, other]
     notion.query_all_accounting.return_value = [
         _acc(page_id="a1", title="ТВИКСИ октябрь 2026", of_files=0, reddit_files=0, twitter_files=0,
              fansly_files=0, request_files=0, social_files=0),
-        _acc(page_id="a3", title="ГРАНАДА сентябрь 2026", model_id="m-3", status="inactive"),
+        _acc(page_id="a3", title="ГРАНАДА сентябрь 2026", model_id="m-3", status="work"),
     ]
     batch = await wml_export.pick_files(SimpleNamespace(db_accounting="a", db_models="m"), notion, "2026-10")
     assert batch.month == "2026-10"
