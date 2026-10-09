@@ -83,12 +83,38 @@ def _fast(monkeypatch):
 @pytest.mark.asyncio
 async def test_report_mode_sends_and_stores_nothing():
     redis, api, report = FakeRedis(), _api(), ws.ExportReport()
-    notion = _notion([_order("new"), _order("gone", status="Canceled"), _order("old", in_date="2026-08-20")])
+    notion = _notion([_order("new", out_date="2026-09-25"), _order("gone", status="Canceled"),
+                      _order("old", in_date="2026-08-20", out_date="2026-08-25")])
     await ws.export_orders(_config(apply=False), notion, redis, api, False, report)
     assert report.created == ["ТВИКСИ | new"]          # canceled and pre-September orders are not created
     api.create_order.assert_not_called()
     notion.set_order_wml_id.assert_not_awaited()
     assert redis.h == {}
+
+
+@pytest.mark.asyncio
+async def test_open_order_is_created_only_once_it_has_an_out_date():
+    # scouts see CRM orders: an open one there looks like a delay, so it waits for its out date
+    redis, api = FakeRedis(), _api()
+    order = _order("new", count=8, received=5)
+    report = ws.ExportReport()
+    await ws.export_orders(_config(), _notion([order]), redis, api, True, report)
+    api.create_order.assert_not_called()
+    assert report.empty() and redis.h == {}
+
+    order.out_date, order.received = "2026-09-28", 8
+    await ws.export_orders(_config(), _notion([order]), redis, api, True, report)
+    payload = api.create_order.call_args.args[0]
+    assert payload["out"] == "2026-09-28" and payload["received"] == 8 and payload["count"] == 8
+
+
+@pytest.mark.asyncio
+async def test_open_order_already_in_crm_keeps_getting_updates():
+    redis, api = FakeRedis(), _api()
+    redis.h[ws.ORDER_STATE_KEY] = {"o": ws._state(42, {"count": 2}, "active", False)}
+    await ws.export_orders(_config(), _notion([_order("o", wml_id=42, count=3)]), redis, api, True,
+                           ws.ExportReport())
+    api.update_order.assert_called_once_with(42, {"count": 3, "status": "active"})
 
 
 @pytest.mark.asyncio
@@ -234,7 +260,8 @@ async def test_unknown_profile_is_reported_once():
 async def test_identical_orders_are_all_created():
     # several identical orders on one day are normal (entered one by one)
     redis, api = FakeRedis(), _api()
-    orders = [_order("a", title="ТВИКСИ | custom"), _order("b", title="ТВИКСИ | custom")]
+    orders = [_order("a", title="ТВИКСИ | custom", out_date="2026-09-25"),
+              _order("b", title="ТВИКСИ | custom", out_date="2026-09-25")]
     report = ws.ExportReport()
     await ws.export_orders(_config(), _notion(orders), redis, api, True, report)
     assert api.create_order.call_count == 2 and not report.warnings
@@ -270,7 +297,7 @@ async def test_skipped_during_month_close_and_silent_when_nothing_happens(monkey
 @pytest.mark.asyncio
 async def test_crm_id_saved_before_notion_so_a_failed_notion_write_is_not_a_duplicate():
     redis, api = FakeRedis(), _api()
-    notion = _notion([_order("a")])
+    notion = _notion([_order("a", out_date="2026-09-25")])
     notion.set_order_wml_id.side_effect = RuntimeError("Notion 502")
     report = ws.ExportReport()
     await ws.export_orders(_config(), notion, redis, api, True, report)

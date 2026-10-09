@@ -140,6 +140,10 @@ async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi
                 payload, _ = order_payload(order, model)
                 if payload is None or (order.in_date or "")[:10] < config.wml_export_from:
                     continue  # canceled / Tango / unknown type / before the export start
+                if "out" not in payload:
+                    # open orders stay out of the CRM: scouts there chased the owner about every delay.
+                    # The order is created once it has its out date, already closed.
+                    continue
                 try:
                     resp = await _call(apply, api.create_order, payload)
                 except Exception as e:
