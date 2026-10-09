@@ -221,12 +221,12 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient, redis) 
         model = resolve_wml_match(key, index)
         if model and key not in index.by_title:
             fallback_key = _tango_fallback_key(key) or _tango_prefix_collapse_key(key)
-            LOGGER.info("WML profile matched via Tango-annotation fallback (%r -> %r): %s",
+            LOGGER.debug("WML profile matched via Tango-annotation fallback (%r -> %r): %s",
                         key, fallback_key, profile.name)
 
         if model is None:
             if profile.wml_id and profile.wml_id in seen_ids:
-                LOGGER.info("WML profile new but already notified before, skipping: %s (id=%s)",
+                LOGGER.debug("WML profile new but already notified before, skipping: %s (id=%s)",
                             profile.name, profile.wml_id)
                 continue
             LOGGER.info("WML profile NOT matched in Notion (treated as new): %r (key=%r)",
@@ -234,7 +234,7 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient, redis) 
             await _notify_new_profile(bot, config, session, profile, redis)
             continue
 
-        LOGGER.info("WML profile matched Notion page %s: %r", model.page_id, profile.name)
+        LOGGER.debug("WML profile matched Notion page %s: %r", model.page_id, profile.name)
 
         wml_fansly = _parse_wml_date(profile.fansly_date)
         notion_fansly = _parse_notion_date(model.fansly)
@@ -251,8 +251,8 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient, redis) 
             project_diffs.append(diff)
 
     if project_diffs:
-        # log only: the hourly Telegram report was noise for the owner
-        LOGGER.info("WML project differs from Notion (%d): %s", len(project_diffs),
+        # debug only: the hourly Telegram report and log line were noise for the owner
+        LOGGER.debug("WML project differs from Notion (%d): %s", len(project_diffs),
                     [(d.name, d.notion_project, d.wml_office) for d in project_diffs])
 
 

@@ -67,7 +67,8 @@ async def sync_accounting_status(
         changes.append(f"{model.title}: {record.status or '—'} → {target}")
 
     if changes:
-        LOGGER.info("Accounting status sync (apply=%s): %d: %s", apply, len(changes), changes)
+        # report-only runs (apply off) are hourly noise: debug level
+        (LOGGER.info if apply else LOGGER.debug)("Accounting status sync (apply=%s): %d: %s", apply, len(changes), changes)
     return changes, dup_lines
 
 
