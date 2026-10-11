@@ -546,8 +546,10 @@ class NotionClient:
             "status": {"status": {"name": "new"}},
         }
 
-        if scoutname:
-            properties["scoutname"] = {"select": {"name": scoutname}}
+        # Notion select options can't contain commas; WML may list several scouts ("di, inna").
+        first_scout = scoutname.split(",")[0].strip() if scoutname else ""
+        if first_scout:
+            properties["scoutname"] = {"select": {"name": first_scout}}
 
         if project:
             properties["project"] = {"select": {"name": project}}
