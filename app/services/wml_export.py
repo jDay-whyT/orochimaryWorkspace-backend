@@ -130,7 +130,8 @@ def title_month(title: str | None) -> str | None:
     # Whole words only: a model called "МАЙЯ" must not read as May.
     words = (title or "").lower().split()
     year = next((w for w in words if w.isdigit() and len(w) == 4), None)
-    month = next((MONTHS_RU_LOWER.index(w) + 1 for w in words if w in MONTHS_RU_LOWER), None)
+    # Last month word wins: a model called "ФЕВРАЛЬ" comes before the real month.
+    month = next((MONTHS_RU_LOWER.index(w) + 1 for w in reversed(words) if w in MONTHS_RU_LOWER), None)
     return f"{year}-{month:02d}" if year and month else None
 
 

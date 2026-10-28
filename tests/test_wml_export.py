@@ -269,6 +269,7 @@ async def test_pick_files_skips_record_left_in_the_previous_month_after_close():
 def test_title_month():
     assert wml_export.title_month("ГРАНАДА сентябрь 2026") == "2026-09"
     assert wml_export.title_month("МАЙЯ") is None
+    assert wml_export.title_month("ФЕВРАЛЬ октябрь 2026") == "2026-10"
     assert wml_export.title_month("") is None and wml_export.title_month(None) is None
 
 
