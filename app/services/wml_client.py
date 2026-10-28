@@ -16,6 +16,8 @@ LOGGER = logging.getLogger(__name__)
 
 BASE_URL = "https://wml.pp.ua"
 STATS_URL = f"{BASE_URL}/profile/statistics"
+# (connect, read) seconds: without it a hung wml.pp.ua blocks the hourly sync forever.
+TIMEOUT = (10, 60)
 
 # "ДАХ ИИ_1035" -> name="ДАХ", excluded=True ; "ТАНГО 47_1134" -> name="ТАНГО 47", excluded=False
 _SUFFIX_RE = re.compile(r"^(?P<name>.*?)(?P<ii>\s+ИИ)?_(?P<num>\d+)\s*$")
@@ -110,7 +112,7 @@ def _login(session: requests.Session, resp: requests.Response, username: str, pa
     data[user_field] = username
     data[pass_field] = password
 
-    login_resp = session.post(post_url, data=data, headers={"Referer": resp.url})
+    login_resp = session.post(post_url, data=data, headers={"Referer": resp.url}, timeout=TIMEOUT)
     if _has_login_form(login_resp.text):
         raise RuntimeError("WML login failed — still showing login form (bad credentials?)")
 
@@ -119,15 +121,15 @@ def fetch_statistics_html(session: requests.Session, username: str, password: st
                            per_page: int = 1000, sort: str = "-register_date") -> str:
     """Login (if needed) and return the raw HTML of the statistics grid page."""
     params = {"perPage": per_page, "sort": sort}
-    resp = session.get(STATS_URL, params=params)
+    resp = session.get(STATS_URL, params=params, timeout=TIMEOUT)
     if _has_login_form(resp.text):
         _login(session, resp, username, password)
-        resp = session.get(STATS_URL, params=params)
+        resp = session.get(STATS_URL, params=params, timeout=TIMEOUT)
     return resp.text
 
 
 def fetch_profile_detail_html(session: requests.Session, profile_url: str) -> str:
-    resp = session.get(profile_url)
+    resp = session.get(profile_url, timeout=TIMEOUT)
     return resp.text
 
 
@@ -138,10 +140,10 @@ def fetch_profile_by_id(session: requests.Session, username: str, password: str,
     rather than relying on a snapshot from whenever the notify was generated.
     """
     profile_url = f"{BASE_URL}/profile/{wml_id}"
-    resp = session.get(profile_url)
+    resp = session.get(profile_url, timeout=TIMEOUT)
     if _has_login_form(resp.text):
         _login(session, resp, username, password)
-        resp = session.get(profile_url)
+        resp = session.get(profile_url, timeout=TIMEOUT)
     return parse_profile_detail(resp.text)
 
 
