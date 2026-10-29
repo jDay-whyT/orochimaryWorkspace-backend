@@ -4,6 +4,7 @@ The owner gets the full list in DM; each manager (Accounting `assist`, mapped vi
 MANAGER_TELEGRAM_IDS) gets only their own models — in DM or in a group topic.
 Silent when nothing is due.
 One scheduled call: POST /internal/daily-reminders.
+On demand: /lists or the "Lists" button shows both lists now (see lists_text).
 """
 
 import logging
@@ -21,6 +22,8 @@ LOGGER = logging.getLogger(__name__)
 
 CONTENT_REMINDER_DAYS = (20, 27)
 CONTENT_STATUSES = ("work", "new")
+OVERDUE_HEADER = "⏳ <b>Orders open longer than {n} days</b>"
+LOW_CONTENT_HEADER = "📉 <b>Low content this month (under {n} files)</b>"
 
 
 def _key(page_id: str | None) -> str:
@@ -108,10 +111,29 @@ async def low_content(config: Config, notion: NotionClient, today: date) -> dict
     return grouped
 
 
-async def _send(bot: Bot, target: Target, header: str, lines: list[str]) -> None:
-    text = f"{header} ({len(lines)})\n\n" + "\n".join(lines)
+def _fit(text: str) -> str:
+    """Cut at a line break under Telegram's 4096 limit."""
     if len(text) > 4000:
         text = text[: text.rfind("\n", 0, 4000)] + "\n…"
+    return text
+
+
+async def lists_text(config: Config, notion: NotionClient, assist: str | None) -> str:
+    """Both reminder lists right now, any day. `assist` set -> only that manager's models."""
+    today = datetime.now(config.timezone).date()
+    want = (assist or "").strip().lower()
+    parts = []
+    for header, build in ((OVERDUE_HEADER.format(n=config.overdue_order_days), overdue_orders),
+                          (LOW_CONTENT_HEADER.format(n=config.low_content_threshold), low_content)):
+        grouped = await build(config, notion, today)
+        lines = [line for manager, group in grouped.items()
+                 if not want or (manager or "").strip().lower() == want for line in group]
+        parts.append(f"{header} ({len(lines)})\n\n" + ("\n".join(lines) or "None ✅"))
+    return _fit("\n\n".join(parts))
+
+
+async def _send(bot: Bot, target: Target, header: str, lines: list[str]) -> None:
+    text = _fit(f"{header} ({len(lines)})\n\n" + "\n".join(lines))
     chat_id, thread_id = target
     await bot.send_message(chat_id, text, parse_mode="HTML", message_thread_id=thread_id)
 
@@ -120,10 +142,9 @@ async def run_daily_reminders(bot: Bot, config: Config, notion: NotionClient) ->
     """Scheduled entry point. Never raises; each reminder fails independently."""
     today = datetime.now(config.timezone).date()
 
-    jobs = [("⏳ <b>Orders open longer than {n} days</b>".format(n=config.overdue_order_days), overdue_orders)]
+    jobs = [(OVERDUE_HEADER.format(n=config.overdue_order_days), overdue_orders)]
     if today.day in CONTENT_REMINDER_DAYS:
-        jobs.append(("📉 <b>Low content this month (under {n} files)</b>".format(n=config.low_content_threshold),
-                     low_content))
+        jobs.append((LOW_CONTENT_HEADER.format(n=config.low_content_threshold), low_content))
 
     for header, build in jobs:
         try:

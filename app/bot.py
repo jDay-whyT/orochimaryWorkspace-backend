@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher
 
 from app.config import Config
 from app.handlers import (
-    access, accounting_rename, start, nlp_callbacks, notifications, reports,
+    access, accounting_rename, lists, start, nlp_callbacks, notifications, reports,
     salary_callbacks, tango, wml_callbacks, wml_export_cmd,
 )
 from app.services import NotionClient
@@ -26,6 +26,7 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, An
     dp.include_router(tango.router)        # /tango command
     dp.include_router(reports.router)      # /reports command (salary report)
     dp.include_router(accounting_rename.router)  # /rename_month command
+    dp.include_router(lists.router)        # /lists + "📋 Lists" button (overdue orders, low content)
     # Salary report "Добавить в таблицу" button (salary_add: prefixed callbacks)
     dp.include_router(salary_callbacks.router)
     # NLP callback router (handles nlp: prefixed callbacks, including report detail)

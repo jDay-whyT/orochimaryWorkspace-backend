@@ -138,3 +138,21 @@ async def test_low_content_ignores_numbers_on_a_dead_stop_page():
     ]
     grouped = await reminders.low_content(_config(), notion, TODAY)
     assert grouped[None] == ["• REVIVED — 0 files"]
+
+
+@pytest.mark.asyncio
+async def test_lists_text_manager_sees_own_owner_sees_all():
+    with patch.object(reminders, "datetime") as dt:
+        dt.now.return_value.date.return_value = TODAY
+        di = await reminders.lists_text(_config(), _notion(), "Di")
+        everyone = await reminders.lists_text(_config(), _notion(), None)
+    assert "DIS_MODEL — call · 6 d" in di and "ROBINS_MODEL" not in di
+    assert "Low content this month (under 30 files)</b> (0)\n\nNone ✅" in di  # any day, not only 20/27
+    assert "ROBINS_MODEL — custom · 16 d" in everyone and "NO_RECORD — 0 files" in everyone
+
+
+def test_complete_keyboard_has_lists_button():
+    from app.keyboards.inline import nlp_action_complete_keyboard
+    rows = nlp_action_complete_keyboard("m-1").inline_keyboard
+    assert [b.callback_data for b in rows[0]] == ["nlp:more_actions:m-1", "nlp:done:m-1"]
+    assert rows[1][0].callback_data == "lists"
