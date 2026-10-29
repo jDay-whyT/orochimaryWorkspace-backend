@@ -35,7 +35,10 @@ from datetime import date, datetime, timedelta
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery, InaccessibleMessage
+from aiogram.types import (
+    CallbackQuery, InaccessibleMessage, InputRichBlockParagraph, InputRichMessage,
+    RichMessageButton, RichTextButton,
+)
 
 from app.config import Config
 from app.filters.topic_access import TopicAccessCallbackFilter
@@ -47,7 +50,7 @@ from app.services import accounting as accounting_cache
 from app.services import orders as orders_cache
 from app.services import planner as planner_cache
 from app.state import MemoryState, RecentModels, generate_token
-from app.keyboards.inline import ORDER_TYPE_CB_MAP
+from app.keyboards.inline import ORDER_TYPE_CB_MAP, lists_keyboard
 from app.utils.accounting import format_accounting_progress
 from app.utils import PAGE_SIZE
 from app.utils.telegram import safe_edit_message, safe_query_answer
@@ -3083,15 +3086,23 @@ async def _handle_more_actions(query, parts, config, notion, memory_state):
 
 
 async def _handle_done(query, parts, memory_state):
-    """«Готово» — remove keyboard from the ✅ message and clear state.
+    """«Готово» — drop the keyboard from the ✅ message, put «📋 Lists» at the end of its text.
 
     Callback: nlp:done:{model_id}
-    The ✅ text stays; only the inline keyboard is removed.
+    The ✅ text stays (as a rich message, formatting flattened); the Lists button sits
+    inside the text. If Telegram refuses the rich edit, a one-button keyboard instead.
     """
     chat_id, user_id = _state_ids_from_query(query)
     memory_state.clear(chat_id, user_id)
     try:
-        await query.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
+        await query.message.edit_text(rich_message=InputRichMessage(blocks=[InputRichBlockParagraph(text=[
+            f"{query.message.text or ''}  ",
+            RichTextButton(button=RichMessageButton(text="📋 Lists", callback_data="lists", style="link")),
+        ])]))
+    except Exception as e:
+        LOGGER.warning("Rich Done edit failed, falling back to keyboard: %s", e)
+        try:
+            await query.message.edit_reply_markup(reply_markup=lists_keyboard())
+        except Exception:
+            pass
     await safe_query_answer(query)

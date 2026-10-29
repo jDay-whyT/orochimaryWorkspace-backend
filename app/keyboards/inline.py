@@ -499,7 +499,6 @@ def nlp_action_complete_keyboard(model_id: str) -> InlineKeyboardMarkup:
     Buttons:
       • «Еще действие»  → nlp:more_actions:{model_id}  (opens model card for next action)
       • «Готово»         → nlp:done:{model_id}          (removes keyboard, clears state)
-      • «Lists»          → lists                        (overdue orders + low content now)
     """
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
@@ -510,7 +509,12 @@ def nlp_action_complete_keyboard(model_id: str) -> InlineKeyboardMarkup:
             text="Done",
             callback_data=f"nlp:done:{model_id}",
         ),
-    ], [
+    ]])
+
+
+def lists_keyboard() -> InlineKeyboardMarkup:
+    """Fallback after «Done» when the in-text Lists button can't be shown."""
+    return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="📋 Lists", callback_data="lists"),
     ]])
 

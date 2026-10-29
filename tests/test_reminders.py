@@ -151,8 +151,40 @@ async def test_lists_text_manager_sees_own_owner_sees_all():
     assert "ROBINS_MODEL — custom · 16 d" in everyone and "NO_RECORD — 0 files" in everyone
 
 
-def test_complete_keyboard_has_lists_button():
-    from app.keyboards.inline import nlp_action_complete_keyboard
+def test_collapsed_shows_five_then_expandable():
+    lines = [f"• M{i} — {i} files" for i in range(8)]
+    text = reminders._collapsed(lines)
+    head, quote = text.split("<blockquote expandable>")
+    assert head.strip().splitlines() == lines[:5]
+    assert quote == "\n".join(lines[5:]) + "</blockquote>"
+    assert reminders._collapsed(lines[:5]) == "\n".join(lines[:5])  # nothing to hide
+
+
+def test_complete_keyboard_unchanged_and_lists_fallback():
+    from app.keyboards.inline import lists_keyboard, nlp_action_complete_keyboard
     rows = nlp_action_complete_keyboard("m-1").inline_keyboard
-    assert [b.callback_data for b in rows[0]] == ["nlp:more_actions:m-1", "nlp:done:m-1"]
-    assert rows[1][0].callback_data == "lists"
+    assert [[b.callback_data for b in r] for r in rows] == [["nlp:more_actions:m-1", "nlp:done:m-1"]]
+    assert lists_keyboard().inline_keyboard[0][0].callback_data == "lists"
+
+
+@pytest.mark.asyncio
+async def test_done_puts_lists_button_in_text_or_falls_back():
+    from unittest.mock import MagicMock
+    from app.handlers import nlp_callbacks
+
+    query = MagicMock()
+    query.message.text = "✅ Order added"
+    query.message.edit_text = AsyncMock()
+    query.message.edit_reply_markup = AsyncMock()
+    with patch.object(nlp_callbacks, "safe_query_answer", AsyncMock()), \
+         patch.object(nlp_callbacks, "_state_ids_from_query", return_value=(1, 2)):
+        await nlp_callbacks._handle_done(query, [], MagicMock())
+        rich = query.message.edit_text.call_args.kwargs["rich_message"]
+        text, button = rich.blocks[0].text
+        assert text.startswith("✅ Order added") and button.button.callback_data == "lists"
+        query.message.edit_reply_markup.assert_not_called()
+
+        query.message.edit_text.side_effect = Exception("rich edit not allowed")
+        await nlp_callbacks._handle_done(query, [], MagicMock())
+        markup = query.message.edit_reply_markup.call_args.kwargs["reply_markup"]
+        assert markup.inline_keyboard[0][0].callback_data == "lists"

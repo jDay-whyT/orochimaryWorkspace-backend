@@ -24,6 +24,7 @@ CONTENT_REMINDER_DAYS = (20, 27)
 CONTENT_STATUSES = ("work", "new")
 OVERDUE_HEADER = "⏳ <b>Orders open longer than {n} days</b>"
 LOW_CONTENT_HEADER = "📉 <b>Low content this month (under {n} files)</b>"
+LISTS_SHOWN = 5  # /lists: lines shown before the collapsed rest
 
 
 def _key(page_id: str | None) -> str:
@@ -128,8 +129,21 @@ async def lists_text(config: Config, notion: NotionClient, assist: str | None) -
         grouped = await build(config, notion, today)
         lines = [line for manager, group in grouped.items()
                  if not want or (manager or "").strip().lower() == want for line in group]
-        parts.append(f"{header} ({len(lines)})\n\n" + ("\n".join(lines) or "None ✅"))
-    return _fit("\n\n".join(parts))
+        parts.append(f"{header} ({len(lines)})\n\n" + _collapsed(lines))
+    return "\n\n".join(parts)
+
+
+def _collapsed(lines: list[str], shown: int = LISTS_SHOWN) -> str:
+    """First `shown` lines open, the rest in a tap-to-expand quote (kept under 4096)."""
+    if not lines:
+        return "None ✅"
+    head, rest = "\n".join(lines[:shown]), lines[shown:]
+    if not rest:
+        return head
+    tail = "\n".join(rest)
+    if len(tail) > 1500:  # two sections in one message
+        tail = tail[: tail.rfind("\n", 0, 1500)] + "\n…"
+    return f"{head}\n<blockquote expandable>{tail}</blockquote>"
 
 
 async def _send(bot: Bot, target: Target, header: str, lines: list[str]) -> None:
