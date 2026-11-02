@@ -354,3 +354,44 @@ async def test_push_orders_now_releases_lock_and_skips_when_busy_or_no_redis():
     api.create_order.assert_not_called()
 
     assert await ws.push_orders_now(_config(), _notion([_order("c")]), None, api) is None
+
+
+class _StateRedis:
+    def __init__(self, state):
+        self.state = state
+
+    async def hgetall(self, key):
+        return self.state if key == ws.FILES_STATE_KEY else {}
+
+
+def _files(profile, total, **counts):
+    return (None, {"profile": profile, "month": "2026-10", "total": total, **counts})
+
+
+@pytest.mark.asyncio
+async def test_close_guard_keeps_crm_numbers_when_counters_cleared_by_hand():
+    """2026-11-02: counters cleared by hand before close sent zeros over good October numbers."""
+    sent = json.dumps({"profile": "CHIMBA", "month": "2026-10", "of": 151, "reddit": 59, "total": 210})
+    redis = _StateRedis({"CHIMBA|2026-10": sent,
+                         "ТЯПА|2026-10": json.dumps({"of": 186, "reddit": 327, "total": 513})})
+    items = [_files("CHIMBA", 0, of=0, reddit=0),          # wiped -> skipped + warned
+             _files("ТЯПА", 186, of=186, reddit=0),        # partly wiped -> skipped + warned
+             _files("НОВАЯ", 0, of=0),                     # never counted -> skipped silently
+             _files("КЛЕЩ", 256, of=148, reddit=108)]      # normal -> sent
+    kept, skipped = await ws.guard_close_files(redis, items)
+    assert [i[1]["profile"] for i in kept] == ["КЛЕЩ"]
+    assert len(skipped) == 2 and "CHIMBA" in skipped[0] and "reddit 327→0" in skipped[1]
+
+
+@pytest.mark.asyncio
+async def test_close_guard_without_redis_still_drops_zeros():
+    kept, skipped = await ws.guard_close_files(None, [_files("A", 0, of=0), _files("B", 5, of=5)])
+    assert [i[1]["profile"] for i in kept] == ["B"] and skipped == []
+
+
+def test_update_resends_in_only_for_shifted_customs():
+    custom = SimpleNamespace(in_date="2026-10-05")
+    payload = {"in": "2026-10-06", "out": "2026-10-07", "count": 1}
+    assert ws._tracked(custom, payload) == {"out": "2026-10-07", "count": 1, "in": "2026-10-06"}
+    short = SimpleNamespace(in_date="2026-10-05")
+    assert "in" not in ws._tracked(short, {"in": "2026-10-05", "out": "2026-10-07"})

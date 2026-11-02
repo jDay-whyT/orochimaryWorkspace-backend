@@ -20,7 +20,7 @@ from app.services.month_close import apply_close, month_label, plan_close
 from app.services.salary_report import salary_reported_redis_key
 from app.services.wml_api import WmlApi
 from app.services.wml_export import pick_files, send_files
-from app.services.wml_scheduled import push_orders_now
+from app.services.wml_scheduled import guard_close_files, push_orders_now
 from app.utils.formatting import today
 from app.utils.locks import release_write_lock, try_acquire_write_lock
 from app.utils.telegram import is_owner_callback, safe_edit_message, safe_query_answer
@@ -141,9 +141,14 @@ async def cb_close_month(query: CallbackQuery, config: Config, notion: NotionCli
             await safe_edit_message(query, "⏳ Досылаю цифры в CRM…")
             try:
                 batch = await pick_files(config, notion, datetime.now(config.timezone).strftime("%Y-%m"))
-                sent, errors = await send_files(WmlApi(config.wml_username, config.wml_password), batch.items)
-                lines.append(f"📤 CRM ({batch.month}): отправлено {sent} из {len(batch.items)}.")
+                items, guarded = await guard_close_files(redis, batch.items)
+                sent, errors = await send_files(WmlApi(config.wml_username, config.wml_password), items)
+                lines.append(f"📤 CRM ({batch.month}): отправлено {sent} из {len(items)}.")
                 lines.extend(f"  ⚠️ {html.escape(e[:150])}" for e in errors[:10])
+                if guarded:
+                    lines.append(f"🛡 Не отправлено, в CRM остались прежние цифры ({len(guarded)}). "
+                                 "Счётчики обнулять руками не нужно, закрытие делает это само:")
+                    lines.extend(f"  • {html.escape(g[:150])}" for g in guarded[:30])
             except Exception as e:
                 LOGGER.exception("Final CRM files push failed before month close")
                 lines.append(f"⚠️ В CRM дослать не получилось: {html.escape(str(e))}. Месяц всё равно закрываю.")

@@ -9,6 +9,7 @@ import asyncio
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Any
 
 from app.config import Config
@@ -29,6 +30,22 @@ def is_tango_model(model: NotionModel) -> bool:
     return "танго" in title or "tango" in title
 
 
+CUSTOM_IN_SHIFT_FROM = "2026-10-01"  # customs closed (out) from this date get the shifted `in`
+
+
+def crm_in_date(order_type: str, in_date: str, out_date: str | None) -> str:
+    """`in` date to send to the CRM.
+
+    The owner pays a custom by whole days (Notion): done the same or the next day = $2, in 2 days = $1,
+    because an order can arrive in the evening. The CRM pays same day = $2, next day = $1. Sending a
+    custom's `in` one day later (never after `out`) makes the CRM pay the owner's amounts.
+    """
+    if order_type != "custom" or not out_date or out_date < CUSTOM_IN_SHIFT_FROM:
+        return in_date
+    shifted = (date.fromisoformat(in_date) + timedelta(days=1)).isoformat()
+    return min(shifted, out_date)
+
+
 def order_payload(order: NotionOrder, model: NotionModel | None) -> tuple[dict[str, Any] | None, str | None]:
     """CRM fields for an order, or (None, reason) when it must not be sent."""
     if model is None:
@@ -46,7 +63,7 @@ def order_payload(order: NotionOrder, model: NotionModel | None) -> tuple[dict[s
     payload: dict[str, Any] = {
         "profile": model.title,
         "title": order.title,
-        "in": order.in_date[:10],
+        "in": crm_in_date(order_type, order.in_date[:10], (order.out_date or "")[:10] or None),
         "type": order_type,
     }
     if order.count is not None:

@@ -31,7 +31,7 @@ from aiogram import Bot
 
 from app.config import Config
 from app.services.month_close import CLOSE_IN_PROGRESS_KEY
-from app.services.notion import NotionClient
+from app.services.notion import NotionClient, NotionOrder
 from app.services.wml_api import WmlApi
 from app.services.wml_export import order_payload, pick_files
 
@@ -107,6 +107,15 @@ async def _known_profile(redis, apply: bool, profile: str) -> None:
         await redis.hdel(MISSING_PROFILES_KEY, profile)
 
 
+def _tracked(order: NotionOrder, payload: dict[str, Any]) -> dict[str, Any]:
+    """Fields re-sent on update. `in` only when shifted for the CRM (customs), so orders whose
+    `in` is sent as is keep their stored state and are not all re-sent at once."""
+    fields = {k: payload[k] for k in _TRACKED if k in payload}
+    if payload.get("in") != (order.in_date or "")[:10]:
+        fields["in"] = payload["in"]
+    return fields
+
+
 async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi, apply: bool, report: ExportReport) -> None:
     orders = await notion.query_all_orders(config.db_orders)
     models = {m.page_id.replace("-", ""): m for m in await notion.query_all_models(config.db_models)}
@@ -154,7 +163,7 @@ async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi
                 await _known_profile(redis, apply, payload["profile"])
                 if apply:
                     wml_id = int(resp["id"])
-                    fields = {k: payload[k] for k in _TRACKED if k in payload}
+                    fields = _tracked(order, payload)
                     # Redis first: if the Notion write fails, the next run finds the id here
                     await redis.hset(ORDER_STATE_KEY, order.page_id, _state(wml_id, fields, "active", "out" in payload))
                     await notion.set_order_wml_id(order.page_id, wml_id)
@@ -173,7 +182,7 @@ async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi
             payload, _ = order_payload(order, model)
             if payload is None:
                 continue
-            fields = {k: payload[k] for k in _TRACKED if k in payload}
+            fields = _tracked(order, payload)
             if last and last.get("fields") == fields and last.get("status") == "active":
                 continue
             await _call(apply, api.update_order, order.wml_id, {**fields, "status": "active"})
@@ -205,6 +214,30 @@ async def export_orders(config: Config, notion: NotionClient, redis, api: WmlApi
     if apply:
         for pid in vanished_done:  # archived at month close — the CRM keeps them as history
             await redis.hdel(ORDER_STATE_KEY, pid)
+
+
+async def guard_close_files(redis, items: list[tuple[Any, dict[str, Any]]]) -> tuple[list, list[str]]:
+    """Month-close push: never overwrite good CRM numbers with cleared ones.
+    Skips a model whose total is 0, or whose counts went down vs the last successful push
+    (counters cleared by hand before closing). Returns (items to send, warning lines)."""
+    state = (await redis.hgetall(FILES_STATE_KEY) or {}) if redis is not None else {}
+    kept: list = []
+    skipped: list[str] = []
+    for item in items:
+        payload = item[1]
+        raw = state.get(f"{payload['profile']}|{payload['month']}")
+        previous = json.loads(raw) if raw else {}
+        if payload["total"] == 0:
+            if previous.get("total", 0) > 0:
+                skipped.append(f"{payload['profile']}: в Notion 0, в CRM уже {previous['total']}")
+            continue  # zero never needs sending at close
+        went_down = [f for f in _FILE_FIELDS if payload.get(f, 0) < previous.get(f, 0)]
+        if went_down:
+            skipped.append(f"{payload['profile']}: уменьшилось " + ", ".join(
+                f"{f} {previous.get(f, 0)}→{payload.get(f, 0)}" for f in went_down))
+            continue
+        kept.append(item)
+    return kept, skipped
 
 
 async def export_files(config: Config, notion: NotionClient, redis, api: WmlApi, apply: bool, report: ExportReport) -> None:

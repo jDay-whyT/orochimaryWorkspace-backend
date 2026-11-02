@@ -287,3 +287,16 @@ def test_top_keeps_biggest_by_total():
     batch = wml_export.FilesBatch(month="2026-09", items=[(None, {"total": t}) for t in (5, 50, 20, 0)])
     assert [p["total"] for _, p in _top(batch, 2).items] == [50, 20]
     assert len(_top(wml_export.FilesBatch(items=[(None, {"total": 1})]), 0).items) == 1
+
+
+def test_crm_in_date_shifts_customs_one_day_never_past_out():
+    """Owner pays customs by whole days: same/next day = $2, 2 days = $1. CRM pays same day = $2,
+    next day = $1, so a custom's `in` goes to the CRM one day later (capped at `out`)."""
+    f = wml_export.crm_in_date
+    assert f("custom", "2026-10-05", "2026-10-05") == "2026-10-05"   # same day stays (capped)
+    assert f("custom", "2026-10-05", "2026-10-06") == "2026-10-06"   # next day -> CRM sees same day ($2)
+    assert f("custom", "2026-10-05", "2026-10-07") == "2026-10-06"   # 2 days -> CRM sees next day ($1)
+    assert f("custom", "2026-10-31", "2026-11-02") == "2026-11-01"   # month boundary
+    assert f("short", "2026-10-05", "2026-10-06") == "2026-10-05"    # only customs
+    assert f("custom", "2026-10-05", None) == "2026-10-05"           # open order: nothing to shift
+    assert f("custom", "2026-09-20", "2026-09-30") == "2026-09-20"   # September (already paid) untouched
