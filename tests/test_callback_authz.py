@@ -4,6 +4,7 @@ These handlers perform Notion/Sheets writes and previously had no identity
 check of their own — see app.utils.telegram.is_owner_callback. Non-owner
 presses must be rejected before any side effect runs.
 """
+import zoneinfo
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -25,6 +26,7 @@ def _clear_in_memory_locks():
 def _make_config(owner_telegram_id: int = OWNER_ID):
     cfg = MagicMock()
     cfg.owner_telegram_id = owner_telegram_id
+    cfg.timezone = zoneinfo.ZoneInfo("Europe/Brussels")
     return cfg
 
 
@@ -88,7 +90,7 @@ async def test_wml_add_second_concurrent_tap_is_blocked():
 
     notion = MagicMock()
     notion.query_all_models = AsyncMock()
-    query = _make_query(OWNER_ID, "wml_add:123")
+    query = _make_query(OWNER_ID, "wml_add:123:0:di")
     await wml_callbacks.cb_wml_add(query, _make_config(), notion)
 
     notion.query_all_models.assert_not_called()
@@ -114,8 +116,9 @@ async def test_wml_add_lock_released_after_success_allows_retry():
     """Once a run completes, the lock must be released so a legitimate retry can proceed."""
     notion = MagicMock()
     notion.query_all_models = AsyncMock(return_value=[])
-    notion.create_model_from_wml = AsyncMock()
-    query = _make_query(OWNER_ID, "wml_add:123")
+    notion.create_model_from_wml = AsyncMock(return_value="model-page")
+    notion.create_new_model_accounting = AsyncMock()
+    query = _make_query(OWNER_ID, "wml_add:123:0:di")
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
@@ -128,3 +131,41 @@ async def test_wml_add_lock_released_after_success_allows_retry():
 
     # Lock released — a second, independent call for the same wml_id must proceed again.
     assert await locks_module.try_acquire_write_lock(None, "wml_add_lock:123")
+
+
+def _profile():
+    return MagicMock(wml_name="Test Model", office=None, scout=None, language=None,
+                     location=None, comment=None, tg_content_manager=None, model_telegram=None)
+
+
+@pytest.mark.asyncio
+async def test_wml_add_card_button_shows_manager_picker_without_writes():
+    notion = MagicMock()
+    notion.get_select_options = AsyncMock(return_value=["caramel", "di"])
+    notion.create_model_from_wml = AsyncMock()
+    query = _make_query(OWNER_ID, "wml_add:123:1")
+    await wml_callbacks.cb_wml_add(query, _make_config(), notion)
+
+    notion.create_model_from_wml.assert_not_called()
+    markup = query.message.edit_text.call_args.kwargs["reply_markup"]
+    data = [b.callback_data for row in markup.inline_keyboard for b in row]
+    assert data == ["wml_add:123:1:caramel", "wml_add:123:1:di", "wml_add:123:1:-", "wml_reject:123"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("picked, expected", [("di", "di"), ("-", None)])
+async def test_wml_add_creates_model_and_accounting_with_manager(picked, expected):
+    cfg = _make_config()
+    notion = MagicMock()
+    notion.query_all_models = AsyncMock(return_value=[])
+    notion.create_model_from_wml = AsyncMock(return_value="model-page")
+    notion.create_new_model_accounting = AsyncMock()
+    query = _make_query(OWNER_ID, f"wml_add:123:0:{picked}")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(wml_callbacks, "fetch_profile_by_id", lambda *a, **k: _profile())
+        mp.setattr("app.handlers.models.invalidate", AsyncMock())
+        await wml_callbacks.cb_wml_add(query, cfg, notion)
+
+    args, kwargs = notion.create_new_model_accounting.call_args
+    assert args[1:3] == ("model-page", "Test Model")
+    assert kwargs["assist"] == expected

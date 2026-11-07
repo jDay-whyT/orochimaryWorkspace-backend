@@ -4,6 +4,7 @@ Complements tests/test_callback_authz.py (which only covers the owner-check
 and lock-rejection short-circuits) — these exercise the actual write logic
 each button performs, previously untested (see [[project_security_review_jul2026]]).
 """
+import zoneinfo
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -28,6 +29,7 @@ def _config(**overrides):
     cfg.wml_username = "wml_user"
     cfg.wml_password = "wml_pass"
     cfg.db_models = "db_models_id"
+    cfg.timezone = zoneinfo.ZoneInfo("Europe/Brussels")
     for k, v in overrides.items():
         setattr(cfg, k, v)
     return cfg
@@ -67,7 +69,7 @@ class TestWmlAdd:
     @pytest.mark.asyncio
     async def test_missing_wml_credentials(self):
         notion = MagicMock()
-        query = _query("wml_add:123")
+        query = _query("wml_add:123:0:di")
         await wml_callbacks.cb_wml_add(query, _config(wml_username=""), notion)
         assert "не налаштовані" in _last_message_text(query)
 
@@ -77,7 +79,7 @@ class TestWmlAdd:
             raise RuntimeError("connection refused")
         monkeypatch.setattr(wml_callbacks, "fetch_profile_by_id", _raise)
         notion = MagicMock()
-        query = _query("wml_add:123")
+        query = _query("wml_add:123:0:di")
         await wml_callbacks.cb_wml_add(query, _config(), notion)
         assert "Не вдалось отримати дані" in _last_message_text(query)
 
@@ -85,7 +87,7 @@ class TestWmlAdd:
     async def test_profile_not_found_on_wml(self, monkeypatch):
         monkeypatch.setattr(wml_callbacks, "fetch_profile_by_id", lambda *a, **k: _wml_detail(wml_name=""))
         notion = MagicMock()
-        query = _query("wml_add:123")
+        query = _query("wml_add:123:0:di")
         await wml_callbacks.cb_wml_add(query, _config(), notion)
         assert "не знайдено на WML" in _last_message_text(query)
 
@@ -93,7 +95,7 @@ class TestWmlAdd:
     async def test_excluded_profile_ii_suffix(self, monkeypatch):
         monkeypatch.setattr(wml_callbacks, "fetch_profile_by_id", lambda *a, **k: _wml_detail(wml_name="Test ИИ_1234"))
         notion = MagicMock()
-        query = _query("wml_add:123")
+        query = _query("wml_add:123:0:di")
         await wml_callbacks.cb_wml_add(query, _config(), notion)
         assert "виключено" in _last_message_text(query)
 
@@ -104,7 +106,7 @@ class TestWmlAdd:
         existing = MagicMock(title="Test Model")
         notion.query_all_models = AsyncMock(return_value=[existing])
         notion.create_model_from_wml = AsyncMock()
-        query = _query("wml_add:123")
+        query = _query("wml_add:123:0:di")
         await wml_callbacks.cb_wml_add(query, _config(), notion)
         assert "вже є в Notion" in _last_message_text(query)
         notion.create_model_from_wml.assert_not_awaited()
@@ -118,7 +120,8 @@ class TestWmlAdd:
         notion = MagicMock()
         notion.query_all_models = AsyncMock(return_value=[])
         notion.create_model_from_wml = AsyncMock()
-        query = _query("wml_add:123:1")  # has_tango_date=True
+        notion.create_new_model_accounting = AsyncMock()
+        query = _query("wml_add:123:1:di")  # has_tango_date=True
         await wml_callbacks.cb_wml_add(query, _config(), notion)
 
         notion.create_model_from_wml.assert_awaited_once()
@@ -134,7 +137,7 @@ class TestWmlAdd:
         monkeypatch.setattr(wml_callbacks, "fetch_profile_by_id", lambda *a, **k: _wml_detail())
         notion = MagicMock()
         notion.query_all_models = AsyncMock(side_effect=RuntimeError("notion down"))
-        query = _query("wml_add:999")
+        query = _query("wml_add:999:0:di")
         with pytest.raises(RuntimeError):
             await wml_callbacks.cb_wml_add(query, _config(), notion)
         # Lock must be released in `finally` despite the uncaught exception.

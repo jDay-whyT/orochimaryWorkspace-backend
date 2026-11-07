@@ -57,6 +57,9 @@ class WmlProfileDetail:
     comment: str | None
     tg_content_manager: str | None
     model_telegram: str | None
+    content_head: str | None = None
+    content_manager: str | None = None
+    content_manager_outsource: str | None = None
 
 
 def strip_wml_suffix(wml_name: str) -> str | None:
@@ -213,6 +216,10 @@ def parse_profile_detail(html: str) -> WmlProfileDetail:
     comment = _field("Comments")
     tg_content_manager = _field("TG Content Manager")
 
+    def _person(label: str) -> str | None:
+        value = _field(label)
+        return None if value in (None, "-") else value
+
     model_telegram = None
     tg_link = soup.find("a", href=re.compile(r"^https?://t\.me/"))
     if tg_link:
@@ -231,4 +238,7 @@ def parse_profile_detail(html: str) -> WmlProfileDetail:
         comment=comment,
         tg_content_manager=tg_content_manager,
         model_telegram=model_telegram,
+        content_head=_person("Content Head"),
+        content_manager=_person("Content Manager"),
+        content_manager_outsource=_person("Content Manager (outsource)"),
     )

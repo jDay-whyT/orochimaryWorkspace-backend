@@ -300,6 +300,12 @@ async def _notify_new_profile(bot, config: Config, session: requests.Session, pr
             lines.append(f"TG Content Manager: {detail.tg_content_manager}")
         if detail.model_telegram:
             lines.append(f"TG моделі: {detail.model_telegram}")
+        if detail.content_head:
+            lines.append(f"Content Head: {detail.content_head}")
+        if detail.content_manager:
+            lines.append(f"Content Manager: {detail.content_manager}")
+        if detail.content_manager_outsource:
+            lines.append(f"Content Manager (outsource): {detail.content_manager_outsource}")
         if detail.comment:
             lines.append(f"Comment: {detail.comment}")
 

@@ -574,6 +574,31 @@ class NotionClient:
         data = await self._request("POST", url, json=payload)
         return data["id"]
 
+    async def create_new_model_accounting(
+        self,
+        database_id: str,
+        model_page_id: str,
+        model_name: str,
+        yyyy_mm: str,
+        assist: str | None = None,
+    ) -> str:
+        """Empty monthly Accounting record for a just-approved model: status new,
+        title "{MODEL} {месяц} {year}" like the other records, optional manager."""
+        from app.utils.formatting import MONTHS_RU_LOWER
+
+        year, month_str = yyyy_mm.split("-")
+        title = f"{model_name} {MONTHS_RU_LOWER[int(month_str) - 1]} {year}"
+        properties: dict[str, Any] = {
+            "Title": {"title": [{"text": {"content": title}}]},
+            "model": {"relation": [{"id": model_page_id}]},
+            "status": {"status": {"name": "new"}},
+        }
+        if assist:
+            properties["assist"] = {"select": {"name": assist}}
+        payload = {"parent": {"database_id": database_id}, "properties": properties}
+        data = await self._request("POST", "https://api.notion.com/v1/pages", json=payload)
+        return data["id"]
+
     async def update_model_fansly(self, page_id: str, fansly_date: date) -> None:
         """Update the fansly date on a model page."""
         payload = {"properties": {"fansly": {"date": {"start": fansly_date.isoformat()}}}}

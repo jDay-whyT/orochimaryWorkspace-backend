@@ -7,10 +7,11 @@ token/state store to expire or lose across a Cloud Run restart.
 """
 import asyncio
 import logging
+from datetime import datetime
 
 import requests
 from aiogram import F, Router
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import Config
 from app.services.notion import NotionClient
@@ -21,6 +22,28 @@ from app.utils.telegram import is_owner_callback, safe_edit_message, safe_query_
 LOGGER = logging.getLogger(__name__)
 router = Router()
 
+NO_ASSIST = "-"
+
+
+async def _show_manager_picker(query: CallbackQuery, config: Config, notion: NotionClient,
+                               wml_id: str, tango: str) -> None:
+    """Step 1 of "Add": pick the manager (Accounting `assist`) before anything is written."""
+    try:
+        managers = await notion.get_select_options(config.db_accounting, "assist")
+    except Exception:
+        LOGGER.exception("Failed to read Accounting assist options")
+        managers = []
+    buttons = [InlineKeyboardButton(text=m, callback_data=f"wml_add:{wml_id}:{tango}:{m}")
+               for m in managers if len(f"wml_add:{wml_id}:{tango}:{m}".encode()) <= 64]
+    rows = [buttons[i:i + 3] for i in range(0, len(buttons), 3)]
+    rows.append([
+        InlineKeyboardButton(text="без менеджера", callback_data=f"wml_add:{wml_id}:{tango}:{NO_ASSIST}"),
+        InlineKeyboardButton(text="❌ Відхилити", callback_data=f"wml_reject:{wml_id}"),
+    ])
+    await safe_query_answer(query)
+    text = (query.message.html_text if query.message and query.message.html_text else "")
+    await safe_edit_message(query, f"{text}\n\n👤 Менеджер?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
 
 @router.callback_query(F.data.startswith("wml_add:"))
 async def cb_wml_add(query: CallbackQuery, config: Config, notion: NotionClient, redis=None) -> None:
@@ -28,9 +51,14 @@ async def cb_wml_add(query: CallbackQuery, config: Config, notion: NotionClient,
         await safe_query_answer(query, "⛔ Немає доступу", show_alert=True)
         return
 
-    parts = query.data.split(":")
+    parts = query.data.split(":", 3)
     wml_id = parts[1]
-    has_tango_date = len(parts) > 2 and parts[2] == "1"
+    tango = parts[2] if len(parts) > 2 else "0"
+    has_tango_date = tango == "1"
+    if len(parts) < 4:  # card button (or an old card): choose the manager first
+        await _show_manager_picker(query, config, notion, wml_id, tango)
+        return
+    assist = None if parts[3] == NO_ASSIST else parts[3]
 
     lock_key = f"wml_add_lock:{wml_id}"
     if not await try_acquire_write_lock(redis, lock_key):
@@ -74,7 +102,7 @@ async def cb_wml_add(query: CallbackQuery, config: Config, notion: NotionClient,
 
         from app.handlers import models as models_list
 
-        await notion.create_model_from_wml(
+        model_page_id = await notion.create_model_from_wml(
             database_id=config.db_models,
             title=title,
             scoutname=detail.scout.strip().lower() if detail.scout else None,
@@ -85,6 +113,16 @@ async def cb_wml_add(query: CallbackQuery, config: Config, notion: NotionClient,
         )
         await models_list.invalidate()  # the new model must be findable right away
 
+        yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
+        try:
+            await notion.create_new_model_accounting(
+                config.db_accounting, model_page_id, title, yyyy_mm, assist=assist,
+            )
+            accounting_line = f"\nAccounting: {assist or 'без менеджера'}"
+        except Exception:
+            LOGGER.exception("Accounting record for new model %s failed", title)
+            accounting_line = "\n⚠️ Accounting не створено, додай вручну."
+
         extra_lines = []
         if detail.tg_content_manager:
             extra_lines.append(f"TG контент-менеджер: {detail.tg_content_manager}")
@@ -92,7 +130,7 @@ async def cb_wml_add(query: CallbackQuery, config: Config, notion: NotionClient,
             extra_lines.append(f"TG моделі: {detail.model_telegram}")
         extra = ("\n" + "\n".join(extra_lines)) if extra_lines else ""
 
-        await safe_edit_message(query, f"✅ {title} додано в Notion.{extra}")
+        await safe_edit_message(query, f"✅ {title} додано в Notion.{accounting_line}{extra}")
     finally:
         await release_write_lock(redis, lock_key)
 

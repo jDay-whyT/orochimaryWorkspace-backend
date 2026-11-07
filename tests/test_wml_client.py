@@ -121,6 +121,20 @@ def test_parse_profile_detail():
     assert detail.model_telegram == "@OnlyDakaria"
 
 
+def test_parse_profile_detail_content_manager_rows():
+    # live WML markup 2026-11-07: <strong>Label:</strong><span>value</span>, "-" = empty
+    def block(label: str, value: str) -> str:
+        return f'<div><strong class="d-block mb-1">{label}:</strong><span>{value}</span></div>'
+
+    html = ("<html><body>" + block("Content Head", "LordOrochimaru_2411")
+            + block("Content Manager", "robin_cm") + block("Content Manager (outsource)", "-")
+            + "</body></html>")
+    detail = parse_profile_detail(html)
+    assert detail.content_head == "LordOrochimaru_2411"
+    assert detail.content_manager == "robin_cm"
+    assert detail.content_manager_outsource is None
+
+
 def test_parse_profile_detail_telegram_already_has_at():
     html = '<html><body><a href="https://t.me/foo">@foo</a></body></html>'
     detail = parse_profile_detail(html)
