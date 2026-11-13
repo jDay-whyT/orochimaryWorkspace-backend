@@ -320,3 +320,16 @@ class TestWebhookHoldsRequestWhileProcessing:
         for handler in app.on_shutdown:
             await handler(app)
         assert finished == [True]  # drained before the sessions were closed
+
+
+def test_shared_redis_survives_idle_drops():
+    """Upstash drops idle connections: shared client must health-check and retry (2026-11-13 WML sync crash)."""
+    from redis.exceptions import ConnectionError as RedisConnectionError
+    from app.server import make_shared_redis
+
+    client = make_shared_redis("redis://localhost:6379/0")
+    kw = client.connection_pool.connection_kwargs
+    assert kw["health_check_interval"] == 30
+    assert kw["socket_keepalive"] is True
+    assert RedisConnectionError in kw["retry_on_error"]
+    assert kw["retry"]._retries == 2

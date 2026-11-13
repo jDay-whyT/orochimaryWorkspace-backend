@@ -43,6 +43,25 @@ def _update_task_done(tasks: set, task: asyncio.Task) -> None:
 GIT_SHA = os.environ.get("GIT_SHA", "unknown")
 
 
+def make_shared_redis(url: str):
+    """Shared async Redis client. Upstash drops idle connections, so check pooled connections
+    and retry once or twice on connection errors (same settings as RedisMemoryState)."""
+    from redis.asyncio import Redis as AioRedis
+    from redis.backoff import ExponentialBackoff
+    from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError
+    from redis.retry import Retry
+
+    return AioRedis.from_url(
+        url,
+        decode_responses=True,
+        socket_keepalive=True,
+        health_check_interval=30,
+        retry_on_timeout=True,
+        retry_on_error=[RedisConnectionError, RedisTimeoutError],
+        retry=Retry(ExponentialBackoff(), 2),
+    )
+
+
 async def create_app() -> web.Application:
     """Create aiohttp application."""
     config = load_config()
@@ -57,8 +76,7 @@ async def create_app() -> web.Application:
     # Redis client for scout identity cache (permanent keys, no TTL).
     # Reuses REDIS_URL from existing config — separate connection pool.
     if config.redis_url:
-        from redis.asyncio import Redis as AioRedis
-        app["redis"] = AioRedis.from_url(config.redis_url, decode_responses=True)
+        app["redis"] = make_shared_redis(config.redis_url)
         LOGGER.info("Scout Redis client initialized")
     dp["redis"] = app.get("redis")  # exposes the same client to aiogram handler DI
     activity_log.init(app.get("redis"))
