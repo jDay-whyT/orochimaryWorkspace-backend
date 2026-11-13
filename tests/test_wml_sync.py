@@ -111,3 +111,28 @@ class TestResolveWmlMatch:
     def test_no_match_returns_none(self):
         index = build_notion_title_index([_model("ГЕРЕРО")])
         assert resolve_wml_match(_normalize_title("СОВЕРШЕННО НОВАЯ"), index) is None
+
+
+import pytest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+from app.services import wml_sync
+from app.services.wml_client import WmlProfile
+
+
+@pytest.mark.asyncio
+async def test_fansly_notice_escapes_name(monkeypatch):
+    """Regression: a local `html` variable shadowed the html module -> 'str' has no attribute 'escape'."""
+    profile = WmlProfile(wml_id="1", wml_name="A<B_1", name="A<B", profile_url=None, register_date="",
+                         office="", scout="", fansly_date="01.12.2026", tango_date=None)
+    monkeypatch.setattr(wml_sync, "fetch_statistics_html", lambda *a: "<html>")
+    monkeypatch.setattr(wml_sync, "parse_statistics", lambda _: [profile])
+    notion = SimpleNamespace(query_all_models=AsyncMock(return_value=[_model("A<B")]),
+                             update_model_fansly=AsyncMock())
+    bot = SimpleNamespace(send_message=AsyncMock())
+    config = SimpleNamespace(wml_username="u", wml_password="p", db_models="db", owner_telegram_id=1)
+
+    await wml_sync._run_wml_sync_inner(bot, config, notion, None)
+
+    assert "A&lt;B" in bot.send_message.call_args.kwargs["text"]

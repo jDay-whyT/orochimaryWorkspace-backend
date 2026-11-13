@@ -197,10 +197,10 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient, redis) 
         raise RuntimeError("WML_USERNAME/WML_PASSWORD not configured")
 
     session = requests.Session()
-    html = await asyncio.to_thread(
+    stats_html = await asyncio.to_thread(
         fetch_statistics_html, session, config.wml_username, config.wml_password
     )
-    profiles = parse_statistics(html)
+    profiles = parse_statistics(stats_html)
 
     existing = await notion.query_all_models(config.db_models)
     index = build_notion_title_index(existing)
