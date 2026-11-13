@@ -114,7 +114,16 @@ def build_salary_report(
     return dict(sorted(by_manager.items(), key=lambda kv: kv[0].lower()))
 
 
-async def load_salary_accounting(notion, config, yyyy_mm: str) -> list[NotionAccounting]:
+class SalaryMonthMismatch(Exception):
+    """The working Accounting records hold another month than the requested one."""
+
+    def __init__(self, held: str, requested: str):
+        super().__init__(f"Accounting holds {held}, requested {requested}")
+        self.held = held
+        self.requested = requested
+
+
+async def load_salary_accounting(notion, config, yyyy_mm: str, check_month: bool = False) -> list[NotionAccounting]:
     """Accounting rows for the salary report: each model's working record.
 
     Working records are found by model, not by title — records are renamed by
@@ -124,5 +133,13 @@ async def load_salary_accounting(notion, config, yyyy_mm: str) -> list[NotionAcc
     from app.services.accounting import working_records
 
     records = await notion.query_all_accounting(config.db_accounting)
+    if check_month:
+        # The records are the CURRENT month: for a closed month they would
+        # overwrite its tab with other counts. check_month callers refuse instead.
+        from app.services.wml_export import files_month
+
+        held = files_month(records, yyyy_mm)
+        if held != yyyy_mm:
+            raise SalaryMonthMismatch(held, yyyy_mm)
     working, _ = working_records(records, yyyy_mm)
     return list(working.values())

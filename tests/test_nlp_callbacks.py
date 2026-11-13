@@ -532,18 +532,14 @@ class TestKeyboardStructure:
 # ============================================================================
 
 class TestDispatcherDateFix:
-    """Tests that the dispatcher date logic uses timedelta(days=90)."""
+    """The typed DD.MM year is the one closest to today (see tests/test_bugfixes_nov13.py)."""
 
-    def test_dispatcher_uses_timedelta_not_resolution(self):
-        """Verify the dispatcher code uses timedelta(days=90), not datetime.resolution."""
+    def test_dispatcher_has_no_resolution_hack(self):
         import inspect
         from app.router import dispatcher
 
         source = inspect.getsource(dispatcher._handle_custom_date_input)
-        assert "timedelta(days=90)" in source, \
-            "Expected timedelta(days=90) in _handle_custom_date_input"
-        assert "datetime.resolution" not in source, \
-            "datetime.resolution should be replaced with timedelta(days=90)"
+        assert "datetime.resolution" not in source
 
 
 # ============================================================================

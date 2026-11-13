@@ -14,6 +14,7 @@ from aiogram.types import (
 )
 
 from app.config import Config
+from app.roles import is_editor
 from app.services import NotionClient
 from app.utils.formatting import MONTHS_SHORT, parse_date, today
 
@@ -53,11 +54,11 @@ def _format_board(shoots: list) -> str:
         for shoot in day_shoots:
             model = shoot.model_title or shoot.title or "?"
             status = shoot.status or "—"
-            day_lines.append(f"├ <b>{model}</b> — {status}")
+            day_lines.append(f"├ <b>{escape(model)}</b> — {escape(status)}")
             if shoot.content:
-                day_lines.append(f"│  ▸ {' | '.join(shoot.content)}")
+                day_lines.append(f"│  ▸ {escape(' | '.join(shoot.content))}")
             if shoot.location:
-                day_lines.append(f"│  • {shoot.location}")
+                day_lines.append(f"│  • {escape(shoot.location)}")
         day_blocks.append("\n".join(day_lines))
 
     return header + "\n\n" + "\n\n".join(day_blocks)
@@ -211,7 +212,9 @@ async def cmd_upcoming_shoots(
     config: Config,
     notion: NotionClient,
 ) -> None:
-    """Show upcoming shoots board for the next 5 days (/shoots)."""
+    """Show upcoming shoots board for the next 5 days (/shoots). Editors only."""
+    if not message.from_user or not is_editor(message.from_user.id, config):
+        return
     if message.chat.type == "private":
         shoots, today_date = await _fetch_shoots(config, notion)
         try:

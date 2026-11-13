@@ -290,7 +290,7 @@ class TestShootMenu:
             monkeypatch, [self._shoot("s2", "2099-10-03"), self._shoot("s1", "2099-09-29")],
         )
         assert text.index("29 Sep") < text.index("3 Oct")          # by date
-        assert "nlp:smn:pick0" in buttons and "nlp:smn:pick1" in buttons
+        assert "nlp:smn:pick0:m1" in buttons and "nlp:smn:pick1:m1" in buttons
         assert "nlp:smn:close" not in buttons                       # nothing acts on a hidden shoot
         assert state["shoot_ids"] == ["s1", "s2"] and state["shoot_id"] is None
 
@@ -476,7 +476,7 @@ async def test_edit_opens_date_content_comment_and_back_returns(monkeypatch):
 
     await nlp_callbacks._handle_shoot_menu_action(query, ["nlp", "smn", "edit"], config, notion, memory, MagicMock())
     assert shown[-1][0].startswith("✏️") and shown[-1][1] == [
-        "nlp:smn:reschedule", "nlp:smn:content", "nlp:smn:comment", "nlp:smn:view"]
+        "nlp:smn:reschedule:s1", "nlp:smn:content:s1", "nlp:smn:comment:s1", "nlp:smn:view"]
     await nlp_callbacks._handle_shoot_menu_action(query, ["nlp", "smn", "view"], config, notion, memory, MagicMock())
     assert "nlp:smn:edit" in shown[-1][1] and "nlp:smn:close" in shown[-1][1]
 
@@ -612,6 +612,7 @@ async def test_add_part_updates_and_closes_when_everything_came_in(monkeypatch):
     monkeypatch.setattr(nlp_callbacks, "_safe_confirm", AsyncMock())
     config = _make_config({1})
     notion = AsyncMock()
+    notion.get_page.return_value = {"properties": {"received": {"number": 5}}}
     memory = MemoryState()
     query = MagicMock()
     query.from_user.id = 1
@@ -620,12 +621,12 @@ async def test_add_part_updates_and_closes_when_everything_came_in(monkeypatch):
             "model_id": "m1", "model_name": "M"}
 
     memory.set(100, 1, dict(base))
-    await nlp_callbacks._handle_received_quick(query, ["nlp", "prq", "2"], config, notion, memory)
+    await nlp_callbacks._handle_received_quick(query, ["nlp", "prq", "2", "o1"], config, notion, memory)
     notion.update_order_received.assert_awaited_with("o1", 7)
     notion.close_order_with_received.assert_not_awaited()
 
     memory.set(100, 1, dict(base))
-    await nlp_callbacks._handle_received_quick(query, ["nlp", "prq", "3"], config, notion, memory)
+    await nlp_callbacks._handle_received_quick(query, ["nlp", "prq", "3", "o1"], config, notion, memory)
     assert notion.close_order_with_received.await_args.args[0] == "o1"
     assert notion.close_order_with_received.await_args.args[2] == 8
     assert "all received" in nlp_callbacks._safe_confirm.await_args.args[1]

@@ -54,7 +54,7 @@ from app.keyboards.inline import ORDER_TYPE_CB_MAP, lists_keyboard
 from app.utils.accounting import format_accounting_progress
 from app.utils import PAGE_SIZE
 from app.utils.telegram import safe_edit_message, safe_query_answer
-from app.utils.locks import get_user_lock
+from app.utils.locks import ModelBusy, get_user_lock, model_write_lock, recall_page, remember_page
 
 
 async def _safe_confirm(
@@ -359,6 +359,7 @@ async def handle_nlp_callback(
     notion: NotionClient,
     memory_state: MemoryState,
     recent_models: RecentModels,
+    redis=None,
 ) -> None:
     """Handle all NLP-related callbacks.
 
@@ -368,7 +369,7 @@ async def handle_nlp_callback(
     """
     chat_id, user_id = _state_ids_from_query(query)
     async with get_user_lock(chat_id, user_id):
-        await _handle_nlp_callback_impl(query, config, notion, memory_state, recent_models)
+        await _handle_nlp_callback_impl(query, config, notion, memory_state, recent_models, redis)
 
 
 async def _handle_nlp_callback_impl(
@@ -377,6 +378,7 @@ async def _handle_nlp_callback_impl(
     notion: NotionClient,
     memory_state: MemoryState,
     recent_models: RecentModels,
+    redis=None,
 ) -> None:
     if not is_authorized(query.from_user.id, config):
         await query.answer("❌ No access", show_alert=True)
@@ -543,7 +545,7 @@ async def _handle_nlp_callback_impl(
         elif action == "af":
             await _handle_add_files(query, parts, config, notion, memory_state, recent_models)
         elif action == "afc":
-            await _handle_files_confirm(query, parts, config, notion, memory_state, recent_models)
+            await _handle_files_confirm(query, parts, config, notion, memory_state, recent_models, redis)
         elif action == "fct":
             await _handle_files_content_type(query, parts, config, notion, memory_state, recent_models)
 
@@ -569,7 +571,7 @@ async def _handle_nlp_callback_impl(
 
         # ===== Received Tracking =====
         elif action == "prq":
-            await _handle_received_quick(query, parts, config, notion, memory_state)
+            await _handle_received_quick(query, parts, config, notion, memory_state, redis)
         elif action == "pra":
             await _handle_partial_received(query, parts, config, memory_state)
 
@@ -1298,7 +1300,7 @@ async def _show_shoot_view(query, config, notion, memory_state, shoot_id: str, e
     model_name = state.get("model_name", "")
     if edit:
         text = f"✏️ <b>{html.escape(model_name)}</b>\n\n{_shoot_line(shoot, today)}"
-        markup = nlp_shoot_edit_keyboard(has_date=bool(shoot.date))
+        markup = nlp_shoot_edit_keyboard(has_date=bool(shoot.date), shoot_id=shoot.page_id)
     else:
         text = f"📅 <b>{html.escape(model_name)}</b>\n\n{_shoot_line(shoot, today)}"
         markup = nlp_shoot_menu_keyboard(
@@ -1341,6 +1343,17 @@ async def _handle_shoot_menu_action(
     model_name = state.get("model_name", "")
     shoot_id = state.get("shoot_id")
 
+    # Buttons that act on a shoot carry its id (pick: the model id): a stale tap
+    # after another model/shoot was opened must not act on the new one.
+    obj = parts[3] if len(parts) > 3 else None
+    if action.startswith("pick") and action[4:].isdigit():
+        stale = obj != model_id
+    else:
+        stale = action in ("closeok", "reschedule", "content", "comment") and obj != shoot_id
+    if stale:
+        await _reject_stale(query, f"stale_object(smn:{action})", memory_state)
+        return
+
     if action == "new":
         memory_state.set(chat_id, user_id, {
             "flow": "nlp_shoot",
@@ -1375,7 +1388,7 @@ async def _handle_shoot_menu_action(
         msg = await safe_edit_message(
             query,
             f"📅 <b>{html.escape(model_name)}</b>\n\nMark {html.escape(label)} as done?",
-            reply_markup=nlp_shoot_done_confirm_keyboard(),
+            reply_markup=nlp_shoot_done_confirm_keyboard(shoot_id),
             parse_mode="HTML",
         )
         _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
@@ -2154,6 +2167,9 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
     # When called from short_options, parts[2] is order_id — navigate to date picker
     if state and state.get("step") == "short_options":
         order_id_for_close = date_choice  # date_choice actually holds the order_id here
+        if order_id_for_close != state.get("order_id"):  # button of another order
+            await _reject_stale(query, "stale_order(cd)", memory_state)
+            return
         k = generate_token()
         from app.keyboards.inline import nlp_close_order_date_keyboard
         memory_state.set(chat_id, user_id, {
@@ -2219,7 +2235,10 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
         await _cleanup_prompt_message(query, memory_state)
         from app.keyboards.inline import nlp_action_complete_keyboard
         in_date_str = state.get("in_date") if state else None
-        days_value = (out_date - date.fromisoformat(in_date_str)).days if in_date_str else None
+        try:  # best-effort: Notion may return a datetime, the close is already written
+            days_value = (out_date - date.fromisoformat(str(in_date_str)[:10])).days if in_date_str else None
+        except ValueError:
+            days_value = None
         days_text = f" · <b>{days_value} d</b>" if days_value is not None else ""
         await _safe_confirm(
             query,
@@ -2335,24 +2354,36 @@ async def files_confirm_text(config, notion, model_id, model_name, count, conten
     )
 
 
-async def save_files(config, notion, user, model_id, model_name, count, content_type, recent_models=None) -> str:
+async def save_files(
+    config, notion, user, model_id, model_name, count, content_type, recent_models=None, redis=None,
+) -> str:
     """Add `count` files of `content_type` to the model's monthly record; returns the confirmation text."""
     from app.utils.content_mapping import content_tag, label
 
     field_name = _get_field_for_content_type(content_type)
     yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
-    record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
-    if not record:
-        await notion.create_accounting_record(
-            config.db_accounting, model_id, model_name, count, yyyy_mm, content_type=content_type,
-        )
-        total = count
-    else:
-        total = int(getattr(record, field_name, 0) or 0) + count
-        await notion.update_accounting_files_by_type(record.page_id, field_name, total)
-        tag = content_tag(content_type)
-        if tag:
-            await notion.add_to_accounting_content(record.page_id, tag)
+    page_key = f"acc:{model_id}:{yyyy_mm}"
+    # Notion has no atomic increment and the record query lags behind writes:
+    # serialize per model, then read the CURRENT total from the page itself.
+    async with model_write_lock(redis, model_id):
+        page_id = await recall_page(redis, page_key)
+        if not page_id:
+            record = await notion.get_monthly_record(config.db_accounting, model_id, yyyy_mm)
+            page_id = record.page_id if record else None
+        if not page_id:
+            page_id = await notion.create_accounting_record(
+                config.db_accounting, model_id, model_name, count, yyyy_mm, content_type=content_type,
+            )
+            await remember_page(redis, page_key, page_id)
+            total = count
+        else:
+            page = await notion.get_page(page_id)
+            current = int((((page.get("properties") or {}).get(field_name) or {}).get("number")) or 0)
+            total = current + count
+            await notion.update_accounting_files_by_type(page_id, field_name, total)
+            tag = content_tag(content_type)
+            if tag:
+                await notion.add_to_accounting_content(page_id, tag)
 
     accounting_cache.clear_cache(model_id, yyyy_mm)
     if recent_models is not None:
@@ -2445,7 +2476,7 @@ async def _handle_add_files(query, parts, config, notion, memory_state, recent_m
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
-async def _handle_files_confirm(query, parts, config, notion, memory_state, recent_models):
+async def _handle_files_confirm(query, parts, config, notion, memory_state, recent_models, redis=None):
     """Last step of adding files: write (yes) or go back to the amount (no). Callback: nlp:afc:{yes|no}[:{k}]"""
     from app.keyboards.inline import nlp_action_complete_keyboard, nlp_files_qty_keyboard
     from app.utils.content_mapping import label
@@ -2491,11 +2522,15 @@ async def _handle_files_confirm(query, parts, config, notion, memory_state, rece
         return
     _oc_in_progress.add(_fct_key)
     try:
-        text = await save_files(config, notion, query.from_user, model_id, model_name, int(count), content_type, recent_models)
+        text = await save_files(
+            config, notion, query.from_user, model_id, model_name, int(count), content_type, recent_models, redis,
+        )
         await _clear_previous_screen_keyboard(query, memory_state)
         await _cleanup_prompt_message(query, memory_state)
         await _safe_confirm(query, text, reply_markup=nlp_action_complete_keyboard(model_id), parse_mode="HTML")
         memory_state.clear(chat_id, user_id)
+    except ModelBusy:
+        await safe_query_answer(query, "Busy, try again in a few seconds", show_alert=True)
     except Exception as e:
         LOGGER.exception("Failed to add files: %s", e)
         await safe_edit_message(query, "❌ Notion error — try later", parse_mode=None)
@@ -2911,31 +2946,38 @@ async def _show_report(query, model_id, model_name, config, notion, memory_state
     _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
 
 
-async def apply_received(config, notion, state: dict, added: int) -> str:
+async def apply_received(config, notion, state: dict, added: int, redis=None) -> str:
     """Add `added` to the order's received count; closes it (today) once everything came in.
 
     Returns the confirmation text.
     """
     order_id = state.get("order_id", "")
     count = int(state.get("count") or 0)
-    new_received = int(state.get("current_received") or 0) + added
     model_name = html.escape(state.get("model_name", ""))
-    if new_received >= count:
-        await notion.close_order_with_received(order_id, today_in_tz(config.timezone), new_received)
-        text = f"✅ Order closed — <b>{model_name}</b>\n📥 {new_received}/{count} · all received"
-    else:
-        await notion.update_order_received(order_id, new_received)
-        text = f"🔄 Updated — <b>{model_name}</b>\nReceived: <b>{new_received}/{count}</b>"
+    async with model_write_lock(redis, state.get("model_id") or order_id):
+        # current value read fresh: the cached state may be minutes old
+        page = await notion.get_page(order_id)
+        current = int((((page.get("properties") or {}).get("received") or {}).get("number")) or 0)
+        new_received = current + added
+        if new_received >= count:
+            await notion.close_order_with_received(order_id, today_in_tz(config.timezone), new_received)
+            text = f"✅ Order closed — <b>{model_name}</b>\n📥 {new_received}/{count} · all received"
+        else:
+            await notion.update_order_received(order_id, new_received)
+            text = f"🔄 Updated — <b>{model_name}</b>\nReceived: <b>{new_received}/{count}</b>"
     orders_cache.clear_cache(state.get("model_id", ""))
     return text
 
 
-async def _handle_received_quick(query, parts, config, notion, memory_state):
-    """Quick 'Add part' amount. Callback: nlp:prq:{n}"""
+async def _handle_received_quick(query, parts, config, notion, memory_state, redis=None):
+    """Quick 'Add part' amount. Callback: nlp:prq:{n}:{order_id}"""
     chat_id, user_id = _state_ids_from_query(query)
     state = memory_state.get(chat_id, user_id)
     if not state or state.get("flow") != "nlp_received" or len(parts) < 3 or not parts[2].isdigit():
         await _session_expired(query, memory_state)
+        return
+    if len(parts) < 4 or parts[3] != state.get("order_id"):  # button of another order
+        await _reject_stale(query, "stale_order(prq)", memory_state)
         return
     if not is_editor(user_id, config):
         await safe_query_answer(query, "❌ No access", show_alert=True)
@@ -2946,11 +2988,13 @@ async def _handle_received_quick(query, parts, config, notion, memory_state):
         return
     _oc_in_progress.add(key)
     try:
-        text = await apply_received(config, notion, state, int(parts[2]))
+        text = await apply_received(config, notion, state, int(parts[2]), redis)
         memory_state.clear(chat_id, user_id)
         from app.keyboards.inline import nlp_action_complete_keyboard
         await _safe_confirm(query, text, reply_markup=nlp_action_complete_keyboard(state.get("model_id", "")),
                             parse_mode="HTML")
+    except ModelBusy:
+        await safe_query_answer(query, "Busy, try again in a few seconds", show_alert=True)
     except Exception as e:
         LOGGER.exception("Failed to update received: %s", e)
         await safe_edit_message(query, "❌ Notion error — try later")
@@ -2994,7 +3038,7 @@ async def _handle_partial_received(query, parts, config, memory_state):
             f"📥 <b>{html.escape(model_name)}</b> · {order_type} × {count}\n"
             f"Received so far: {current_received}/{count}\n\n"
             f"How many more came in? Tap or type a number:",
-            reply_markup=nlp_received_keyboard(max(count - current_received, 0), model_id),
+            reply_markup=nlp_received_keyboard(max(count - current_received, 0), model_id, order_id),
             parse_mode="HTML",
         )
     except TelegramBadRequest:

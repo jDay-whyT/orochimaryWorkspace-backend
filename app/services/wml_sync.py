@@ -5,6 +5,7 @@ exception disappear silently: any failure is reported to the owner via
 Telegram instead of the job just quietly doing nothing.
 """
 import asyncio
+import html
 import logging
 import re
 from dataclasses import dataclass
@@ -242,7 +243,7 @@ async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient, redis) 
             await notion.update_model_fansly(model.page_id, wml_fansly)
             await bot.send_message(
                 chat_id=config.owner_telegram_id,
-                text=f"📌 <b>{profile.name}</b> йде на Fansly: {wml_fansly.strftime('%d.%m.%Y')}",
+                text=f"📌 <b>{html.escape(profile.name)}</b> йде на Fansly: {wml_fansly.strftime('%d.%m.%Y')}",
                 parse_mode="HTML",
             )
 
@@ -284,30 +285,31 @@ async def _notify_new_profile(bot, config: Config, session: requests.Session, pr
         except Exception:
             LOGGER.exception("Failed to fetch WML profile detail for %s", profile.name)
 
-    lines = [f"🆕 <b>{profile.name}</b>", f"Register: {profile.register_date}"]
+    e = html.escape
+    lines = [f"🆕 <b>{e(profile.name)}</b>", f"Register: {e(profile.register_date)}"]
     if profile.office:
-        lines.append(f"Office: {profile.office}")
+        lines.append(f"Office: {e(profile.office)}")
     if profile.scout:
-        lines.append(f"Scout: {profile.scout}")
+        lines.append(f"Scout: {e(profile.scout)}")
     if profile.fansly_date:
-        lines.append(f"Fansly: {profile.fansly_date}")
+        lines.append(f"Fansly: {e(profile.fansly_date)}")
     if detail:
         if detail.location:
-            lines.append(f"Location: {detail.location}")
+            lines.append(f"Location: {e(detail.location)}")
         if detail.language:
-            lines.append(f"Language: {detail.language}")
+            lines.append(f"Language: {e(detail.language)}")
         if detail.tg_content_manager:
-            lines.append(f"TG Content Manager: {detail.tg_content_manager}")
+            lines.append(f"TG Content Manager: {e(detail.tg_content_manager)}")
         if detail.model_telegram:
-            lines.append(f"TG моделі: {detail.model_telegram}")
+            lines.append(f"TG моделі: {e(detail.model_telegram)}")
         if detail.content_head:
-            lines.append(f"Content Head: {detail.content_head}")
+            lines.append(f"Content Head: {e(detail.content_head)}")
         if detail.content_manager:
-            lines.append(f"Content Manager: {detail.content_manager}")
+            lines.append(f"Content Manager: {e(detail.content_manager)}")
         if detail.content_manager_outsource:
-            lines.append(f"Content Manager (outsource): {detail.content_manager_outsource}")
+            lines.append(f"Content Manager (outsource): {e(detail.content_manager_outsource)}")
         if detail.comment:
-            lines.append(f"Comment: {detail.comment}")
+            lines.append(f"Comment: {e(detail.comment)}")
 
     keyboard = None
     if profile.wml_id:

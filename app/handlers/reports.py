@@ -13,6 +13,7 @@ from app.config import Config
 from app.services import NotionClient
 from app.services.salary_report import (
     build_salary_report,
+    SalaryMonthMismatch,
     load_salary_accounting,
     salary_pending_redis_key,
     salary_reported_redis_key,
@@ -62,9 +63,14 @@ async def cmd_reports(
     await message.answer(f"Собираю отчёт за {yyyy_mm}…")
 
     try:
-        accounting_records = await load_salary_accounting(notion, config, yyyy_mm)
+        accounting_records = await load_salary_accounting(notion, config, yyyy_mm, check_month=True)
         orders = await notion.query_orders_closed_in_month(config.db_orders, yyyy_mm)
         models = await notion.query_all_models(config.db_models)
+    except SalaryMonthMismatch as e:
+        await message.answer(
+            f"Записи в Accounting уже за {e.held}, отчёт за {e.requested} перезаписать нельзя."
+        )
+        return
     except Exception:
         LOGGER.exception("Failed to fetch salary report data for %s", yyyy_mm)
         await message.answer("Не удалось собрать данные из Notion, попробуй позже.")

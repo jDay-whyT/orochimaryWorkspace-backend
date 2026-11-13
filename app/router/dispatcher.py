@@ -490,12 +490,14 @@ async def _handle_custom_date_input(message, text, user_state, config, notion, m
     day, month = int(m.group(1)), int(m.group(2))
     try:
         today = today_in_tz(config.timezone)
-        year = today.year
-        parsed_date = date(year, month, day)
-        # Only bump to next year if the date is more than 90 days in the past.
-        # This prevents e.g. "10.01" from jumping to next year when today is 06.02.
-        if parsed_date < today - timedelta(days=90):
-            parsed_date = date(year + 1, month, day)
+        # Year closest to today among last/this/next ("28.12" on 5 Jan = last December).
+        candidates = []
+        for y in (today.year, today.year - 1, today.year + 1):  # ties -> current year
+            try:
+                candidates.append(date(y, month, day))
+            except ValueError:
+                pass
+        parsed_date = min(candidates, key=lambda d: abs((d - today).days))
     except ValueError:
         await message.answer("❌ Invalid date")
         return
@@ -862,11 +864,11 @@ def _parse_files_count(text: str) -> int | None:
 
 async def _show_help_message(message: Message) -> None:
     """Show help message when no model was recognized in the message."""
-    await message.answer(
+    await safe_answer(
+        message,
         "🤔 No model found in the message.\n\n"
         "Just type the model name.\n\n"
         "Or /start",
-        parse_mode="HTML",
     )
 
 
@@ -935,10 +937,14 @@ async def _handle_received_input(message, text, user_state, config, notion, memo
     screen_message_id = user_state.get("screen_message_id")
 
     from app.handlers.nlp_callbacks import apply_received
+    from app.utils.locks import ModelBusy
     from app.keyboards.inline import nlp_action_complete_keyboard
 
     try:
         result_text = await apply_received(config, notion, user_state, added)
+    except ModelBusy:
+        await message.answer("⏳ Busy, send the number again in a few seconds")
+        return
     except Exception:
         LOGGER.exception("Failed to update received")
         await message.answer("❌ Notion error — try later")

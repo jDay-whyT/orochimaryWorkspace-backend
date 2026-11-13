@@ -14,6 +14,7 @@ from app.config import load_config
 from app.handlers.notifications import update_board
 from app.handlers import models as models_list
 from app.services import access, activity_log
+from app.utils import locks
 from app.services.forms_watch import run_forms_watch
 from app.services.reminders import run_daily_reminders
 from app.services.status_sync import run_status_sync
@@ -62,6 +63,7 @@ async def create_app() -> web.Application:
     dp["redis"] = app.get("redis")  # exposes the same client to aiogram handler DI
     activity_log.init(app.get("redis"))
     models_list.init(app.get("redis"))
+    locks.init(app.get("redis"))
 
     async def warm_models(_app: web.Application) -> None:
         # the first message after a cold start should not wait for the full Models scan

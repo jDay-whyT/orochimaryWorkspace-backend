@@ -142,6 +142,7 @@ async def test_files_confirm_yes_saves_and_updates_recent_models():
     config.allowed_editors = {1}
     notion = AsyncMock()
     notion.get_monthly_record.return_value = MagicMock(page_id="acc-1", status=None)
+    notion.get_page.return_value = {"properties": {"request_files": {"number": 0}, "of_files": {"number": 0}}}
     recent_models = MagicMock()
 
     await _handle_files_confirm(query, ["nlp", "afc", "yes", "abc123"], config, notion, memory_state, recent_models)
@@ -341,6 +342,7 @@ async def test_request_kind_counts_in_request_files_and_tags_the_kind(monkeypatc
     notion = AsyncMock()
     record = MagicMock(page_id="acc-1", request_files=5)
     notion.get_monthly_record.return_value = record
+    notion.get_page.return_value = {"properties": {"request_files": {"number": 5}}}
 
     text = await nc.save_files(config, notion, _files_query("x").from_user, "m-1", "Model", 10, "pornhub")
     notion.update_accounting_files_by_type.assert_awaited_with("acc-1", "request_files", 15)
@@ -357,6 +359,7 @@ async def test_plain_of_adds_new_main_content_tag():
     config.timezone = ZoneInfo("UTC")
     notion = AsyncMock()
     notion.get_monthly_record.return_value = MagicMock(page_id="acc-1", of_files=40)
+    notion.get_page.return_value = {"properties": {"of_files": {"number": 40}}}
     await nc.save_files(config, notion, _files_query("x").from_user, "m-1", "Model", 20, "of")
     notion.update_accounting_files_by_type.assert_awaited_with("acc-1", "of_files", 60)
     notion.add_to_accounting_content.assert_awaited_with("acc-1", "new_main")
@@ -373,3 +376,173 @@ def test_files_type_menu_matches_notion_columns():
              if b.callback_data not in ("nlp:fct:back",)]
     assert kinds == ["pornhub", "instagram", "snapchat", "event", "sfs", "request"]
     assert all(get_field_for_content_type(k) == "request_files" for k in kinds)
+
+
+# ---------- regression: lost updates, stale object buttons, datetime in_date ----------
+
+def _cfg(editors=frozenset({1})):
+    config = MagicMock()
+    config.timezone = ZoneInfo("UTC")
+    config.allowed_editors = set(editors)
+    return config
+
+
+class _FakeRedis:
+    def __init__(self):
+        self.data = {}
+
+    async def set(self, key, value, nx=False, ex=None):
+        if nx and key in self.data:
+            return None
+        self.data[key] = value
+        return True
+
+    async def get(self, key):
+        return self.data.get(key)
+
+    async def delete(self, key):
+        self.data.pop(key, None)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_file_adds_are_serialized_and_read_fresh_total():
+    """Two adds at once: both land (5 -> 10) because the total is re-read inside the lock."""
+    import asyncio
+    from app.handlers import nlp_callbacks as nc
+
+    page = {"properties": {"reddit_files": {"number": 5}}}
+
+    async def get_page(_id):
+        await asyncio.sleep(0.01)
+        return {"properties": {"reddit_files": {"number": page["properties"]["reddit_files"]["number"]}}}
+
+    async def update(_id, field, value):
+        await asyncio.sleep(0.01)
+        page["properties"][field] = {"number": value}
+
+    notion = AsyncMock()
+    notion.get_monthly_record.return_value = MagicMock(page_id="acc-1")
+    notion.get_page.side_effect = get_page
+    notion.update_accounting_files_by_type.side_effect = update
+    user = MagicMock(id=1)
+    for redis in (None, _FakeRedis()):
+        page["properties"]["reddit_files"] = {"number": 5}
+        await asyncio.gather(
+            nc.save_files(_cfg(), notion, user, "m-1", "Model", 3, "reddit", redis=redis),
+            nc.save_files(_cfg(), notion, user, "m-1", "Model", 2, "reddit", redis=redis),
+        )
+        assert page["properties"]["reddit_files"]["number"] == 10
+
+
+@pytest.mark.asyncio
+async def test_no_record_yet_creates_once_then_reuses_created_page():
+    """The query lags: a second add right after the first must not create a second record."""
+    from app.handlers import nlp_callbacks as nc
+
+    redis = _FakeRedis()
+    notion = AsyncMock()
+    notion.get_monthly_record.return_value = None  # the lagging query never sees it
+    notion.create_accounting_record.return_value = "new-page"
+    notion.get_page.return_value = {"properties": {"reddit_files": {"number": 4}}}
+    user = MagicMock(id=1)
+    await nc.save_files(_cfg(), notion, user, "m-1", "Model", 4, "reddit", redis=redis)
+    await nc.save_files(_cfg(), notion, user, "m-1", "Model", 1, "reddit", redis=redis)
+    assert notion.create_accounting_record.await_count == 1
+    notion.update_accounting_files_by_type.assert_awaited_with("new-page", "reddit_files", 5)
+
+
+@pytest.mark.asyncio
+async def test_model_lock_busy_raises_when_held():
+    from app.utils.locks import ModelBusy, model_write_lock
+
+    redis = _FakeRedis()
+    redis.data["lock:model:m-busy"] = "someone"
+    with pytest.raises(ModelBusy):
+        async with model_write_lock(redis, "m-busy", wait=0.3):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_apply_received_reads_current_value_fresh():
+    from app.handlers.nlp_callbacks import apply_received
+
+    notion = AsyncMock()
+    notion.get_page.return_value = {"properties": {"received": {"number": 6}}}
+    state = {"order_id": "o1", "count": 10, "current_received": 1, "model_id": "m1", "model_name": "M"}
+    text = await apply_received(_cfg(), notion, state, 2)
+    notion.update_order_received.assert_awaited_with("o1", 8)
+    assert "8/10" in text
+
+
+@pytest.mark.asyncio
+async def test_stale_shoot_close_confirm_does_not_close_other_shoot():
+    from app.handlers import nlp_callbacks as nc
+
+    memory = MemoryState()
+    memory.set(100, 1, {"flow": "nlp_shoot_menu", "model_id": "m2", "model_name": "B",
+                        "shoot_ids": ["s2"], "shoot_id": "s2"})
+    notion = AsyncMock()
+    query = _make_query(data="nlp:smn:closeok:s1")  # button of the previous model's shoot
+    await nc._handle_shoot_menu_action(query, ["nlp", "smn", "closeok", "s1"], _cfg(), notion, memory, MagicMock())
+    notion.update_shoot_status.assert_not_awaited()
+    assert memory.get(100, 1) in (None, {})
+
+
+def test_shoot_buttons_carry_object_ids_within_64_bytes():
+    from app.keyboards.inline import (
+        nlp_received_keyboard, nlp_shoot_done_confirm_keyboard, nlp_shoot_edit_keyboard, nlp_shoot_menu_keyboard,
+    )
+    nid = "12345678-1234-1234-1234-123456789012"
+    kbs = [
+        nlp_shoot_done_confirm_keyboard(nid), nlp_shoot_edit_keyboard(True, nid),
+        nlp_shoot_menu_keyboard(True, nid, picks=["a", "b"]), nlp_received_keyboard(300, nid, nid),
+    ]
+    data = [b.callback_data for kb in kbs for row in kb.inline_keyboard for b in row]
+    assert max(len(d.encode()) for d in data) <= 64
+    assert f"nlp:smn:closeok:{nid}" in data and f"nlp:prq:300:{nid}" in data
+
+
+@pytest.mark.asyncio
+async def test_stale_add_part_tap_of_other_order_is_rejected():
+    from app.handlers import nlp_callbacks as nc
+
+    memory = MemoryState()
+    memory.set(100, 1, {"flow": "nlp_received", "order_id": "o-new", "count": 8, "current_received": 0,
+                        "model_id": "m1", "model_name": "M"})
+    notion = AsyncMock()
+    query = _make_query(data="nlp:prq:2:o-old")
+    await nc._handle_received_quick(query, ["nlp", "prq", "2", "o-old"], _cfg(), notion, memory)
+    notion.get_page.assert_not_awaited()
+    notion.update_order_received.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stale_close_fully_tap_of_other_order_is_rejected():
+    from app.handlers import nlp_callbacks as nc
+
+    memory = MemoryState()
+    memory.set(100, 1, {"flow": "nlp_close", "step": "short_options", "order_id": "o-new",
+                        "order_type": "short", "count": 8, "model_id": "m1", "model_name": "M"})
+    query = _make_query(data="nlp:cd:o-old")
+    await nc._handle_close_date(query, ["nlp", "cd", "o-old"], _cfg(), AsyncMock(), memory)
+    state = memory.get(100, 1)
+    assert not state or state.get("order_id") != "o-old"
+
+
+@pytest.mark.asyncio
+async def test_close_order_with_datetime_in_date_still_confirms(monkeypatch):
+    from app.handlers import nlp_callbacks as nc
+
+    confirm = AsyncMock()
+    monkeypatch.setattr(nc, "_safe_confirm", confirm)
+    monkeypatch.setattr(nc, "_clear_previous_screen_keyboard", AsyncMock())
+    monkeypatch.setattr(nc, "_cleanup_prompt_message", AsyncMock())
+    memory = MemoryState()
+    memory.set(100, 1, {"flow": "nlp_close", "step": "awaiting_date", "order_id": "o1", "order_type": "of",
+                        "model_id": "m1", "model_name": "M", "in_date": "2026-10-01T10:00:00.000+03:00"})
+    notion = AsyncMock()
+    query = _make_query(data="nlp:cd:today")
+    await nc._handle_close_date(query, ["nlp", "cd", "today"], _cfg(), notion, memory)
+    notion.close_order.assert_awaited_once()
+    assert "Order closed" in confirm.await_args.args[1]
+    assert " d</b>" in confirm.await_args.args[1]

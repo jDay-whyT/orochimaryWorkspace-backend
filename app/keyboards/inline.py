@@ -234,7 +234,7 @@ def nlp_shoot_menu_keyboard(
                 InlineKeyboardButton(text="✏️ Edit", callback_data="nlp:smn:edit"),
             ])
         elif picks:
-            buttons = [InlineKeyboardButton(text=f"{label} ▸", callback_data=f"nlp:smn:pick{i}")
+            buttons = [InlineKeyboardButton(text=f"{label} ▸", callback_data=f"nlp:smn:pick{i}:{model_id}")
                        for i, label in enumerate(picks)]
             for i in range(0, len(buttons), 3):
                 rows.append(buttons[i:i + 3])
@@ -244,31 +244,34 @@ def nlp_shoot_menu_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def nlp_shoot_edit_keyboard(has_date: bool) -> InlineKeyboardMarkup:
-    """Edit a shoot: date, content, comment."""
+def nlp_shoot_edit_keyboard(has_date: bool, shoot_id: str = "") -> InlineKeyboardMarkup:
+    """Edit a shoot: date, content, comment. shoot_id pins the buttons to this shoot (stale taps are rejected)."""
+    s = f":{shoot_id}" if shoot_id else ""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📅 Date" if has_date else "📅 Set date", callback_data="nlp:smn:reschedule"),
-            InlineKeyboardButton(text="🗂 Content", callback_data="nlp:smn:content"),
-            InlineKeyboardButton(text="💬 Comment", callback_data="nlp:smn:comment"),
+            InlineKeyboardButton(text="📅 Date" if has_date else "📅 Set date", callback_data=f"nlp:smn:reschedule{s}"),
+            InlineKeyboardButton(text="🗂 Content", callback_data=f"nlp:smn:content{s}"),
+            InlineKeyboardButton(text="💬 Comment", callback_data=f"nlp:smn:comment{s}"),
         ],
         [InlineKeyboardButton(text="← Back", callback_data="nlp:smn:view")],
     ])
 
 
-def nlp_received_keyboard(remaining: int, model_id: str) -> InlineKeyboardMarkup:
-    """Quick amounts for 'Add part' (typing a number still works)."""
-    quick = [InlineKeyboardButton(text=f"+{n}", callback_data=f"nlp:prq:{n}") for n in (1, 2) if n < remaining]
+def nlp_received_keyboard(remaining: int, model_id: str, order_id: str = "") -> InlineKeyboardMarkup:
+    """Quick amounts for 'Add part' (typing a number still works). order_id pins them to this order."""
+    s = f":{order_id}" if order_id else ""
+    quick = [InlineKeyboardButton(text=f"+{n}", callback_data=f"nlp:prq:{n}{s}") for n in (1, 2) if n < remaining]
     if remaining > 0:
-        quick.append(InlineKeyboardButton(text=f"All remaining ({remaining})", callback_data=f"nlp:prq:{remaining}"))
+        quick.append(InlineKeyboardButton(text=f"All remaining ({remaining})", callback_data=f"nlp:prq:{remaining}{s}"))
     rows = [quick] if quick else []
     rows.append([nlp_back_button(model_id)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def nlp_shoot_done_confirm_keyboard() -> InlineKeyboardMarkup:
+def nlp_shoot_done_confirm_keyboard(shoot_id: str = "") -> InlineKeyboardMarkup:
+    s = f":{shoot_id}" if shoot_id else ""
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Yes, done", callback_data="nlp:smn:closeok"),
+        InlineKeyboardButton(text="✅ Yes, done", callback_data=f"nlp:smn:closeok{s}"),
         InlineKeyboardButton(text="No", callback_data="nlp:smn:list"),
     ]])
 

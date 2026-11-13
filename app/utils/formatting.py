@@ -123,7 +123,8 @@ def format_appended_comment(
         ---
         second comment
 
-    Truncates to MAX_COMMENT_LENGTH so Notion API never rejects the payload.
+    Truncates to MAX_COMMENT_LENGTH so Notion API never rejects the payload;
+    the oldest text is dropped, the new comment is always kept.
     """
     if existing:
         result = f"{existing}\n---\n{new_text}"
@@ -131,5 +132,7 @@ def format_appended_comment(
         result = new_text
 
     if len(result) > MAX_COMMENT_LENGTH:
-        result = result[:MAX_COMMENT_LENGTH]
+        if len(new_text) >= MAX_COMMENT_LENGTH:
+            return new_text[:MAX_COMMENT_LENGTH]
+        result = "…" + result[-(MAX_COMMENT_LENGTH - 1):]
     return result
