@@ -57,7 +57,7 @@ class RedisMemoryState:
             kwargs.setdefault("health_check_interval", 30)
             kwargs.setdefault("retry_on_timeout", True)
             kwargs.setdefault("retry_on_error", [RedisConnectionError, RedisTimeoutError])
-            kwargs.setdefault("retry", Retry(ExponentialBackoff(), 2))
+            kwargs.setdefault("retry", Retry(ExponentialBackoff(cap=2, base=0.25), 3))
             self.redis_client = Redis.from_url(self.redis_url, decode_responses=True, **kwargs)
             LOGGER.info("RedisMemoryState initialized: url=%s ttl=%s", _redact_redis_url(self.redis_url), self.ttl_seconds)
 

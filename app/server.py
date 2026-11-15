@@ -45,7 +45,7 @@ GIT_SHA = os.environ.get("GIT_SHA", "unknown")
 
 def make_shared_redis(url: str):
     """Shared async Redis client. Upstash drops idle connections, so check pooled connections
-    and retry once or twice on connection errors (same settings as RedisMemoryState)."""
+    and retry 3 times (0.25s, 0.5s, 1s) on connection errors (same settings as RedisMemoryState)."""
     from redis.asyncio import Redis as AioRedis
     from redis.backoff import ExponentialBackoff
     from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError
@@ -58,7 +58,7 @@ def make_shared_redis(url: str):
         health_check_interval=30,
         retry_on_timeout=True,
         retry_on_error=[RedisConnectionError, RedisTimeoutError],
-        retry=Retry(ExponentialBackoff(), 2),
+        retry=Retry(ExponentialBackoff(cap=2, base=0.25), 3),
     )
 
 

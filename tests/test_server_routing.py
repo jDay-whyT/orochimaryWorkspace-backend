@@ -332,4 +332,5 @@ def test_shared_redis_survives_idle_drops():
     assert kw["health_check_interval"] == 30
     assert kw["socket_keepalive"] is True
     assert RedisConnectionError in kw["retry_on_error"]
-    assert kw["retry"]._retries == 2
+    assert kw["retry"]._retries == 3
+    assert kw["retry"]._backoff._base == 0.25
