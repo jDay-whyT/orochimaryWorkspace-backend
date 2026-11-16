@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from aiogram import Router
 from aiogram.exceptions import TelegramAPIError, TelegramNetworkError
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.types import InputRichMessage, Message
 
 from app.config import Config
@@ -52,7 +52,9 @@ def _build_fallback_text(entries: list[TangoScheduleEntry], tomorrow_ddmm: str) 
 
 
 @router.message(Command("tango"))
-async def cmd_tango(message: Message, config: Config, sheets: SheetsClient | None) -> None:
+async def cmd_tango(
+    message: Message, command: CommandObject, config: Config, sheets: SheetsClient | None
+) -> None:
     if message.chat.type != "private":
         return
     if not config.owner_telegram_id or message.from_user.id != config.owner_telegram_id:
@@ -62,9 +64,12 @@ async def cmd_tango(message: Message, config: Config, sheets: SheetsClient | Non
         await message.answer("Google Sheets не настроен (SHEET_ID / GOOGLE_SERVICE_ACCOUNT_JSON отсутствуют).")
         return
 
+    # "/tango today" (or "сегодня") shows today's streams instead of tomorrow's.
+    is_today = (command.args or "").strip().lower() in ("today", "сегодня")
+    offset = 0 if is_today else 1
     now = today(config.timezone)
-    tomorrow_ddmm = (now + timedelta(days=1)).strftime("%d.%m")
-    day_after_ddmm = (now + timedelta(days=2)).strftime("%d.%m")
+    tomorrow_ddmm = (now + timedelta(days=offset)).strftime("%d.%m")
+    day_after_ddmm = (now + timedelta(days=offset + 1)).strftime("%d.%m")
 
     try:
         rows = await sheets.get_tab_rows(config.sheet_id, config.sheet_tab_name)
@@ -76,7 +81,7 @@ async def cmd_tango(message: Message, config: Config, sheets: SheetsClient | Non
     entries = build_tomorrow_schedule(rows, tomorrow_ddmm, day_after_ddmm)
 
     if not entries:
-        await message.answer("На завтра ничего не запланировано")
+        await message.answer("На сегодня ничего не запланировано" if is_today else "На завтра ничего не запланировано")
         return
 
     try:
