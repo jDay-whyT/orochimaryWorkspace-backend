@@ -46,7 +46,8 @@ class TopicAccessMessageFilter(BaseFilter):
 
 
 class TopicAccessCallbackFilter(BaseFilter):
-    """Allow all private callbacks, restrict group callbacks to CRM topic and editors."""
+    """Private callbacks: editors only (a revoked manager's old buttons stop working).
+    Group callbacks: CRM topic and editors."""
 
     async def __call__(self, query: CallbackQuery, config: Config) -> bool:
         message = query.message
@@ -55,7 +56,7 @@ class TopicAccessCallbackFilter(BaseFilter):
         if isinstance(message, InaccessibleMessage):
             return False
         if message.chat.type == "private":
-            return True
+            return query.from_user.id in config.allowed_editors
         if message.chat.type not in {"group", "supergroup"}:
             return False
         if message.message_thread_id != config.crm_topic_thread_id:

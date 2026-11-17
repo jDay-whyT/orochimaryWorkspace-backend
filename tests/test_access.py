@@ -264,13 +264,17 @@ def test_callback_filter_group_chat_needs_crm_topic_and_editor(user_id, thread_i
     assert asyncio.run(TopicAccessCallbackFilter()(query, config)) is expected
 
 
-def test_callback_filter_private_chat_is_open():
+@pytest.mark.parametrize("user_id, expected", [
+    (1, True),     # editor / approved manager
+    (99, False),   # unknown or revoked user pressing an old button
+])
+def test_callback_filter_private_chat_needs_editor(user_id, expected):
     config = SimpleNamespace(allowed_editors={1}, crm_topic_thread_id=123)
     query = SimpleNamespace(
-        from_user=SimpleNamespace(id=99),
+        from_user=SimpleNamespace(id=user_id),
         message=SimpleNamespace(chat=SimpleNamespace(type="private", id=10), message_thread_id=None),
     )
-    assert asyncio.run(TopicAccessCallbackFilter()(query, config)) is True
+    assert asyncio.run(TopicAccessCallbackFilter()(query, config)) is expected
 
 
 @pytest.mark.asyncio
