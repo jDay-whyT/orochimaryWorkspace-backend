@@ -75,8 +75,8 @@ async def test_low_content_counts_tango_and_missing_records():
     assert not any("DIS_MODEL" in l for l in lines)    # above threshold
     assert not any("STOPPED" in l for l in lines)      # not in work/new
     assert not any("PAUSED" in l for l in lines)       # inactive is skipped too
-    assert "• FRESH — 0 files" in lines               # new models count
-    assert grouped[None] == ["• NO_RECORD — 0 files", "• FRESH — 0 files"]  # unknown manager -> owner only
+    assert not any("FRESH" in line for line in lines)  # new models are not listed
+    assert grouped[None] == ["• NO_RECORD — 0 files"]  # unknown manager -> owner only
 
 
 def test_route_owner_gets_all_managers_get_own():

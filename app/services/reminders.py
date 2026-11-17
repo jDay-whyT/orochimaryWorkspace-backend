@@ -21,7 +21,7 @@ from app.services.notion import NotionAccounting, NotionClient
 LOGGER = logging.getLogger(__name__)
 
 CONTENT_REMINDER_DAYS = (20, 27)
-CONTENT_STATUSES = ("work", "new")
+CONTENT_STATUSES = ("work",)  # new models are starting out: low content is expected, not a signal
 OVERDUE_HEADER = "⏳ <b>Orders open longer than {n} days</b>"
 LOW_CONTENT_HEADER = "📉 <b>Low content this month (under {n} files)</b>"
 LISTS_SHOWN = 5  # /lists: lines shown before the collapsed rest
@@ -91,7 +91,7 @@ async def overdue_orders(config: Config, notion: NotionClient, today: date) -> d
 
 
 async def low_content(config: Config, notion: NotionClient, today: date) -> dict[str | None, list[str]]:
-    """Models in `work`/`new` with fewer than LOW_CONTENT_THRESHOLD files this month."""
+    """Models in `work` with fewer than LOW_CONTENT_THRESHOLD files this month."""
     models = [m for m in await notion.query_all_models(config.db_models)
               if (m.status or "").strip().lower() in CONTENT_STATUSES]
     record_of = await _working(config, notion, today)
