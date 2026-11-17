@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.filters.topic_access import TopicAccessMessageFilter
+from app.filters.topic_access import TopicAccessCallbackFilter, TopicAccessMessageFilter
 from app.handlers import access as access_handlers
 from app.handlers import notifications
 from app.services import access
@@ -249,6 +249,28 @@ def test_topic_access_scouts_chat_only_editor_allowed():
     )
     assert asyncio.run(filt(msg_editor, config)) is True
     assert asyncio.run(filt(msg_stranger, config)) is False
+
+@pytest.mark.parametrize("user_id, thread_id, expected", [
+    (1, 123, True),      # editor in the CRM topic
+    (99, 123, False),    # unknown / revoked user in the CRM topic
+    (1, 456, False),     # editor in another topic
+])
+def test_callback_filter_group_chat_needs_crm_topic_and_editor(user_id, thread_id, expected):
+    config = SimpleNamespace(allowed_editors={1}, crm_topic_thread_id=123)
+    query = SimpleNamespace(
+        from_user=SimpleNamespace(id=user_id),
+        message=SimpleNamespace(chat=SimpleNamespace(type="supergroup", id=-1001), message_thread_id=thread_id),
+    )
+    assert asyncio.run(TopicAccessCallbackFilter()(query, config)) is expected
+
+
+def test_callback_filter_private_chat_is_open():
+    config = SimpleNamespace(allowed_editors={1}, crm_topic_thread_id=123)
+    query = SimpleNamespace(
+        from_user=SimpleNamespace(id=99),
+        message=SimpleNamespace(chat=SimpleNamespace(type="private", id=10), message_thread_id=None),
+    )
+    assert asyncio.run(TopicAccessCallbackFilter()(query, config)) is True
 
 
 @pytest.mark.asyncio
