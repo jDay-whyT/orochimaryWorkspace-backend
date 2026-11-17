@@ -21,8 +21,7 @@ PLANNER_ACTIVE_STATUSES = [
 # Accounting content options
 ACCOUNTING_CONTENT_OPTIONS = [
     "basic",
-    "main pack",
-    "new main",
+    "of pack",
     "twitter",
     "reddit",
     "fansly",
@@ -54,7 +53,7 @@ FILES_MONTH_LIMIT = 200
 
 # NLP content types for shoots (canonical values for Planner multi-select)
 NLP_SHOOT_CONTENT_TYPES = [
-    "main pack", "new main", "basic",
+    "of pack", "basic",
     "twitter", "reddit", "fansly",
     "instagram", "snapchat", "sfs",
     "posting", "event",
@@ -63,8 +62,7 @@ NLP_SHOOT_CONTENT_TYPES = [
 # NLP content types for accounting (canonical values for Content multi-select)
 NLP_ACCOUNTING_CONTENT_TYPES = [
     "basic",
-    "main pack",
-    "new main",
+    "of pack",
     "twitter",
     "reddit",
     "fansly",

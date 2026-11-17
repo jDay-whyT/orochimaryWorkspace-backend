@@ -15,7 +15,7 @@ def nlp_accounting_content_keyboard(
 
     # Группа 1: Основные типы
     row1 = []
-    for ct in ["main", "new main", "basic"]:
+    for ct in ["of pack", "basic"]:
         mark = "✅ " if ct in selected else "⬜ "
         row1.append(InlineKeyboardButton(
             text=f"{mark}{ct}",

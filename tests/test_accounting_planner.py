@@ -312,7 +312,7 @@ class TestNlpShootContentTypes:
         assert "fansly" in NLP_SHOOT_CONTENT_TYPES
         # exactly the Planner `content` options, without the "main" duplicate
         assert set(NLP_SHOOT_CONTENT_TYPES) == {
-            "main pack", "new main", "basic", "event", "twitter", "reddit",
+            "of pack", "basic", "event", "twitter", "reddit",
             "fansly", "instagram", "snapchat", "sfs", "posting",
         }
 

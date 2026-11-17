@@ -14,6 +14,7 @@ CONTENT_TYPE_TO_FIELD = {
     "event": "request_files",
     "sfs": "request_files",
     "ad request": "request_files",
+    "of pack": "of_files",
     # older values still met in records / other callers
     "main pack": "of_files",
     "new main": "of_files",
@@ -24,8 +25,8 @@ CONTENT_TYPE_TO_FIELD = {
     "no content": None,
 }
 
-# Content tag written for a type when it differs from the type name. Plain OF files are tagged new_main.
-CONTENT_TAG = {"of": "new_main"}
+# Content tag written for a type when it differs from the type name. Plain OF files are tagged "of pack".
+CONTENT_TAG = {"of": "of pack"}
 
 LABELS = {
     "of": "OF",
