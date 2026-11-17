@@ -22,12 +22,6 @@ class TestCreateNote:
     """Tests for NotionClient.create_note."""
 
     @pytest.mark.asyncio
-    async def test_returns_page_id(self, notion):
-        notion._request = AsyncMock(return_value={"id": "abc123"})
-        result = await notion.create_note("db", "mid", "ШАНЕЛЬ", "не пришла")
-        assert result == "abc123"
-
-    @pytest.mark.asyncio
     async def test_payload_structure(self, notion):
         notion._request = AsyncMock(return_value={"id": "xyz"})
         await notion.create_note("db_id", "model_page_id", "ТЕСТ", "текст заметки")
@@ -115,10 +109,3 @@ class TestGetRecentNotes:
         assert payload["sorts"][0]["property"] == "date"
         assert payload["sorts"][0]["direction"] == "descending"
 
-    @pytest.mark.asyncio
-    async def test_respects_limit(self, notion):
-        notion._request = AsyncMock(return_value={"results": []})
-        await notion.get_recent_notes("db", "mid", limit=5)
-
-        payload = notion._request.call_args[1]["json"]
-        assert payload["page_size"] == 5

@@ -1,10 +1,14 @@
 import pytest
+from datetime import date
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
+from tests.conftest import FakeRedis
 from app.state.memory import MemoryState
 from app.handlers.nlp_callbacks import _handle_back_to_card, handle_nlp_callback
-from app.router.dispatcher import _handle_custom_files_input, _handle_custom_date_input
+from app.router import dispatcher
+from app.router.dispatcher import _handle_custom_files_input
 
 
 def _make_query(user_id=1, data="nlp:bk:model-1"):
@@ -52,38 +56,6 @@ async def test_back_is_stateless():
     assert state["model_id"] == "model-1"
     query.message.edit_text.assert_called_once()
     assert query.message.edit_text.call_args.args[0] == "CARD"
-
-
-@pytest.mark.asyncio
-async def test_remove_keyboard_on_success():
-    memory_state = MemoryState()
-    message = _make_message(text="5")
-    user_state = {
-        "flow": "nlp_files",
-        "step": "awaiting_count",
-        "model_id": "model-1",
-        "model_name": "Model",
-        "content_type": "reddit",
-        "screen_message_id": 111,
-        "prompt_message_id": 222,
-    }
-    memory_state.set(message.chat.id, message.from_user.id, dict(user_state))
-
-    from zoneinfo import ZoneInfo
-    config = MagicMock()
-    config.files_per_month = 200
-    config.timezone = ZoneInfo("UTC")
-    config.allowed_editors = {1}
-    notion = AsyncMock()
-    notion.get_monthly_record.return_value = MagicMock(files=0, page_id="acc-1", status=None)
-
-    await _handle_custom_files_input(message, "5", user_state, config, notion, memory_state)
-
-    message.bot.edit_message_reply_markup.assert_called_with(
-        chat_id=message.chat.id,
-        message_id=111,
-        reply_markup=None,
-    )
 
 
 @pytest.mark.asyncio
@@ -211,36 +183,6 @@ async def test_new_shoot_comment_input_updates_recent_models():
     )
 
     recent_models.add.assert_called_once_with(1, "model-1", "Model")
-
-
-@pytest.mark.asyncio
-async def test_date_prompt_cleanup():
-    memory_state = MemoryState()
-    message = _make_message(text="05.02")
-    user_state = {
-        "flow": "nlp_order",
-        "step": "awaiting_custom_date",
-        "model_id": "model-1",
-        "model_name": "Model",
-        "order_type": "custom",
-        "count": 1,
-        "prompt_message_id": 333,
-        "screen_message_id": 444,
-    }
-    memory_state.set(message.chat.id, message.from_user.id, dict(user_state))
-
-    config = MagicMock()
-    config.allowed_editors = {1}
-    config.timezone = ZoneInfo("Europe/Brussels")
-    notion = AsyncMock()
-
-    await _handle_custom_date_input(message, "05.02", user_state, config, notion, memory_state)
-
-    message.bot.delete_message.assert_called_with(
-        chat_id=message.chat.id,
-        message_id=333,
-    )
-    assert memory_state.get(message.chat.id, message.from_user.id).get("prompt_message_id") is None
 
 
 @pytest.mark.asyncio
@@ -387,23 +329,6 @@ def _cfg(editors=frozenset({1})):
     return config
 
 
-class _FakeRedis:
-    def __init__(self):
-        self.data = {}
-
-    async def set(self, key, value, nx=False, ex=None):
-        if nx and key in self.data:
-            return None
-        self.data[key] = value
-        return True
-
-    async def get(self, key):
-        return self.data.get(key)
-
-    async def delete(self, key):
-        self.data.pop(key, None)
-
-
 @pytest.mark.asyncio
 async def test_concurrent_file_adds_are_serialized_and_read_fresh_total():
     """Two adds at once: both land (5 -> 10) because the total is re-read inside the lock."""
@@ -425,7 +350,7 @@ async def test_concurrent_file_adds_are_serialized_and_read_fresh_total():
     notion.get_page.side_effect = get_page
     notion.update_accounting_files_by_type.side_effect = update
     user = MagicMock(id=1)
-    for redis in (None, _FakeRedis()):
+    for redis in (None, FakeRedis()):
         page["properties"]["reddit_files"] = {"number": 5}
         await asyncio.gather(
             nc.save_files(_cfg(), notion, user, "m-1", "Model", 3, "reddit", redis=redis),
@@ -439,7 +364,7 @@ async def test_no_record_yet_creates_once_then_reuses_created_page():
     """The query lags: a second add right after the first must not create a second record."""
     from app.handlers import nlp_callbacks as nc
 
-    redis = _FakeRedis()
+    redis = FakeRedis()
     notion = AsyncMock()
     notion.get_monthly_record.return_value = None  # the lagging query never sees it
     notion.create_accounting_record.return_value = "new-page"
@@ -455,8 +380,8 @@ async def test_no_record_yet_creates_once_then_reuses_created_page():
 async def test_model_lock_busy_raises_when_held():
     from app.utils.locks import ModelBusy, model_write_lock
 
-    redis = _FakeRedis()
-    redis.data["lock:model:m-busy"] = "someone"
+    redis = FakeRedis()
+    redis.kv["lock:model:m-busy"] = "someone"
     with pytest.raises(ModelBusy):
         async with model_write_lock(redis, "m-busy", wait=0.3):
             pass
@@ -546,3 +471,100 @@ async def test_close_order_with_datetime_in_date_still_confirms(monkeypatch):
     notion.close_order.assert_awaited_once()
     assert "Order closed" in confirm.await_args.args[1]
     assert " d</b>" in confirm.await_args.args[1]
+
+
+# ---- manual files input parsing ----
+
+class TestFilesInputParsing:
+    """Tests for _parse_files_count strict parsing."""
+
+    def _parse(self, text: str) -> int | None:
+        from app.router.dispatcher import _parse_files_count
+        return _parse_files_count(text)
+
+    # === Accepted ===
+
+    def test_plain_number(self):
+        assert self._parse("30") == 30
+
+    def test_plus_number(self):
+        assert self._parse("+30") == 30
+
+    def test_number_with_files_word(self):
+        assert self._parse("30 файлов") == 30
+
+    def test_number_with_short_suffix(self):
+        assert self._parse("30ф") == 30
+
+    def test_files_word_then_number(self):
+        assert self._parse("файлы 30") == 30
+
+    def test_english_files_word(self):
+        assert self._parse("30 files") == 30
+        assert self._parse("files 30") == 30
+
+    def test_min_value(self):
+        assert self._parse("1") == 1
+
+    def test_max_value(self):
+        assert self._parse("1500") == 1500
+
+    def test_number_with_files_suffix_plural(self):
+        assert self._parse("15 файлов") == 15
+
+    # === Rejected ===
+
+    def test_zero_rejected(self):
+        assert self._parse("0") is None
+
+    def test_negative_rejected(self):
+        assert self._parse("-5") is None
+
+    def test_over_limit_rejected(self):
+        assert self._parse("99999") is None
+
+    def test_1501_rejected(self):
+        assert self._parse("1501") is None
+
+    def test_text_without_number_rejected(self):
+        assert self._parse("много") is None
+
+    def test_empty_rejected(self):
+        assert self._parse("") is None
+
+    def test_random_text_rejected(self):
+        assert self._parse("привет мир") is None
+
+
+# ---- DD.MM year closest to today ----
+
+async def _typed(monkeypatch, today, text):
+    monkeypatch.setattr(dispatcher, "today_in_tz", lambda tz: today)
+    monkeypatch.setattr(dispatcher, "_clear_previous_screen_keyboard", AsyncMock())
+    monkeypatch.setattr(dispatcher, "_cleanup_prompt_message", AsyncMock())
+    message = MagicMock()
+    message.from_user.id = 1
+    message.chat.id = 100
+    message.answer = AsyncMock(return_value=MagicMock(message_id=9))
+    memory = MagicMock()
+    state = {"flow": "nlp_shoot", "step": "awaiting_custom_date", "new_shoot": True, "model_id": "m",
+             "model_name": "M", "content_types": []}
+    config = SimpleNamespace(timezone="UTC", allowed_editors={1})
+    await dispatcher._handle_custom_date_input(message, text, state, config, AsyncMock(), memory)
+    return next(c.kwargs["shoot_date"] for c in memory.update.call_args_list if "shoot_date" in c.kwargs)
+
+
+@pytest.mark.asyncio
+async def test_dd_mm_goes_back_to_previous_year(monkeypatch):
+    assert await _typed(monkeypatch, date(2027, 1, 5), "28.12") == "2026-12-28"
+
+
+@pytest.mark.asyncio
+async def test_dd_mm_goes_forward_and_stays(monkeypatch):
+    assert await _typed(monkeypatch, date(2026, 12, 20), "05.01") == "2027-01-05"
+    assert await _typed(monkeypatch, date(2026, 11, 13), "15.10") == "2026-10-15"
+
+
+@pytest.mark.asyncio
+async def test_dd_mm_leap_day_skips_invalid_year(monkeypatch):
+    assert await _typed(monkeypatch, date(2027, 3, 1), "29.02") == "2028-02-29"

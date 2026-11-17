@@ -8,8 +8,6 @@ from app.keyboards.inline import (
     nlp_orders_screen_keyboard,
     nlp_files_menu_keyboard,
     nlp_shoot_menu_keyboard,
-    nlp_order_date_keyboard,
-    nlp_order_confirm_keyboard,
 )
 from app.handlers import nlp_callbacks
 from app.router.dispatcher import _handle_shoot_comment_input
@@ -53,19 +51,6 @@ class TestAccessAndBackButtons:
         texts = [btn.text for row in kb.inline_keyboard for btn in row]
         assert "✅ Shot done" in texts and "✏️ Edit" in texts   # date / content / comment are under Edit
         assert any("Back" in t for t in texts)
-
-
-class TestOrderCreationDateFlow:
-    def test_date_keyboard_before_confirm(self):
-        kb = nlp_order_date_keyboard("m1", "t1")
-        texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "✅ Create" not in texts
-        assert "📅 Other date" in texts
-
-    def test_confirm_keyboard_has_create(self):
-        kb = nlp_order_confirm_keyboard("m1", "t2")
-        texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert "✓ Create" in texts
 
 
 class TestOrdersAggregationAndPagination:

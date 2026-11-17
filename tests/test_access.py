@@ -1,13 +1,18 @@
 """Managers approved in the bot: request -> owner button -> access lists."""
 
+import asyncio
 from dataclasses import dataclass, field
+from datetime import date
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.filters.topic_access import TopicAccessMessageFilter
 from app.handlers import access as access_handlers
+from app.handlers import notifications
 from app.services import access
+from tests.conftest import FakeRedis
 
 OWNER_ID = 1
 ROBIN_ID = 2
@@ -24,33 +29,6 @@ class FakeConfig:
     db_accounting: str = "acc-db"
     mini_app_viewer_ids: set = field(default_factory=lambda: {77})
     mini_app_viewer_handles: set = field(default_factory=lambda: {"@viewer"})
-
-
-class FakeRedis:
-    def __init__(self):
-        self.kv: dict[str, str] = {}
-        self.hashes: dict[str, dict[str, str]] = {}
-
-    async def set(self, key, value, ex=None, nx=False):
-        if nx and key in self.kv:
-            return None
-        self.kv[key] = value
-        return True
-
-    async def get(self, key):
-        return self.kv.get(key)
-
-    async def delete(self, key):
-        self.kv.pop(key, None)
-
-    async def hset(self, key, field_, value):
-        self.hashes.setdefault(key, {})[field_] = value
-
-    async def hdel(self, key, field_):
-        self.hashes.get(key, {}).pop(field_, None)
-
-    async def hgetall(self, key):
-        return dict(self.hashes.get(key, {}))
 
 
 @pytest.fixture
@@ -227,3 +205,65 @@ async def test_two_managers_on_one_assist_both_count_as_managers(config, redis):
     assert access.manager_assist(NEW_ID, config) == "ng"
     assert access.manager_assist(NEW_ID + 1, config) == "ng"   # not full mini-app access
     assert config.manager_targets["ng"] == (NEW_ID, None)       # reminders: the first one's DM
+
+
+# ---------- topic access filter / viewer commands ----------
+
+def test_topic_access_private_only_editor_allowed():
+    filt = TopicAccessMessageFilter()
+    config = SimpleNamespace(
+        allowed_editors={1},
+        scouts_chat_id=-1001,
+        crm_topic_thread_id=123,
+    )
+    msg_editor = SimpleNamespace(
+        chat=SimpleNamespace(type="private", id=10),
+        from_user=SimpleNamespace(id=1),
+        message_thread_id=None,
+    )
+    msg_viewer = SimpleNamespace(
+        chat=SimpleNamespace(type="private", id=10),
+        from_user=SimpleNamespace(id=2),
+        message_thread_id=None,
+    )
+    assert asyncio.run(filt(msg_editor, config)) is True
+    assert asyncio.run(filt(msg_viewer, config)) is False
+
+
+def test_topic_access_scouts_chat_only_editor_allowed():
+    filt = TopicAccessMessageFilter()
+    config = SimpleNamespace(
+        allowed_editors={1},
+        scouts_chat_id=-1001,
+        crm_topic_thread_id=123,
+    )
+    msg_editor = SimpleNamespace(
+        chat=SimpleNamespace(type="supergroup", id=-1001),
+        from_user=SimpleNamespace(id=1),
+        message_thread_id=None,
+    )
+    msg_stranger = SimpleNamespace(
+        chat=SimpleNamespace(type="supergroup", id=-1001),
+        from_user=SimpleNamespace(id=2),
+        message_thread_id=None,
+    )
+    assert asyncio.run(filt(msg_editor, config)) is True
+    assert asyncio.run(filt(msg_stranger, config)) is False
+
+
+@pytest.mark.asyncio
+async def test_shoots_ignored_for_non_editor(monkeypatch):
+    fetch = AsyncMock(return_value=([], date(2026, 11, 13)))
+    board = AsyncMock()
+    monkeypatch.setattr(notifications, "_fetch_shoots", fetch)
+    monkeypatch.setattr(notifications, "update_board", board)
+    message = MagicMock()
+    message.from_user.id = 99
+    message.answer = AsyncMock()
+    config = SimpleNamespace(allowed_editors={1})
+    for chat_type in ("private", "group"):
+        message.chat.type = chat_type
+        await notifications.cmd_upcoming_shoots(message, config, AsyncMock())
+    fetch.assert_not_awaited()
+    board.assert_not_awaited()
+    message.answer.assert_not_awaited()

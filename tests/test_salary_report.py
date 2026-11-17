@@ -1,4 +1,11 @@
 """Tests for salary report aggregation: app/services/salary_report.py."""
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from app.handlers import reports
+from app.services import salary_report
 from app.services.notion import NotionAccounting, NotionModel, NotionOrder
 from app.services.salary_report import (
     UNASSIGNED_MANAGER,
@@ -114,3 +121,31 @@ class TestBuildSalaryReport:
         accounting = [_accounting(None, "СИРОТА июль 2026")]
         report = build_salary_report(accounting, [], models=[])
         assert report == {}
+
+
+# ---- /reports must not overwrite a closed month ----
+
+@pytest.mark.asyncio
+async def test_reports_refuses_closed_month_and_writes_nothing(monkeypatch):
+    rec = NotionAccounting(page_id="a", title="КАЗАШКА ноябрь 2026", model_id="m", status="work")
+    notion = AsyncMock()
+    notion.query_all_accounting.return_value = [rec]
+    config = SimpleNamespace(owner_telegram_id=1, salary_sheet_id="s", timezone="UTC", db_accounting="d")
+    message = MagicMock()
+    message.chat.type = "private"
+    message.from_user.id = 1
+    message.answer = AsyncMock()
+    write = AsyncMock()
+    monkeypatch.setattr(reports, "write_salary_report", write)
+    await reports.cmd_reports(message, SimpleNamespace(args="2026-10"), config, notion, MagicMock())
+    write.assert_not_awaited()
+    assert "2026-11" in message.answer.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_load_salary_accounting_same_month_ok():
+    rec = NotionAccounting(page_id="a", title="КАЗАШКА ноябрь 2026", model_id="m", status="work")
+    notion = AsyncMock()
+    notion.query_all_accounting.return_value = [rec]
+    config = SimpleNamespace(db_accounting="d")
+    assert await salary_report.load_salary_accounting(notion, config, "2026-11", check_month=True)

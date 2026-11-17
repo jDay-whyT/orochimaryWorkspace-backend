@@ -105,6 +105,7 @@ async def test_apply_continues_after_error_and_flags_close_in_progress(monkeypat
 from unittest.mock import MagicMock  # noqa: E402
 
 from app.handlers import accounting_rename  # noqa: E402
+from tests.conftest import FakeRedis  # noqa: E402
 
 OWNER = 111
 
@@ -281,23 +282,9 @@ def test_month_closed_text_is_plain_english_and_wraps_the_year():
     assert "December report" in accounting_rename.month_closed_text("2027-01")
 
 
-class _SetRedis:
-    def __init__(self):
-        self.sets = {}
-
-    async def smembers(self, key):
-        return set(self.sets.get(key, set()))
-
-    async def sadd(self, key, value):
-        self.sets.setdefault(key, set()).add(value)
-
-    async def expire(self, key, seconds):
-        pass
-
-
 @pytest.mark.asyncio
 async def test_notify_retry_only_sends_to_those_who_missed_it():
-    redis = _SetRedis()
+    redis = FakeRedis()
     query = _notify_query()
     query.bot.send_message.side_effect = [RuntimeError("thread not found"), None]  # CRM topic (first) fails, DM ok
     await accounting_rename.cb_notify_month(query, _notify_config({"di": (456, None)}), redis)

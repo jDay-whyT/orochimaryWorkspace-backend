@@ -6,6 +6,7 @@ import json
 import pytest
 
 from app.handlers import models as ml
+from tests.conftest import FakeRedis
 
 
 def _page(pid, title, aliases=()):
@@ -34,20 +35,6 @@ class FakeNotion:
                     "has_more": False}
         self.full_loads += 1
         return {"results": self.pages, "has_more": False}
-
-
-class FakeRedis:
-    def __init__(self):
-        self.kv = {}
-
-    async def get(self, k):
-        return self.kv.get(k)
-
-    async def set(self, k, v, ex=None):
-        self.kv[k] = v
-
-    async def delete(self, k):
-        self.kv.pop(k, None)
 
 
 @pytest.fixture(autouse=True)

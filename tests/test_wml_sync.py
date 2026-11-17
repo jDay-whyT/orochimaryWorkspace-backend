@@ -136,3 +136,15 @@ async def test_fansly_notice_escapes_name(monkeypatch):
     await wml_sync._run_wml_sync_inner(bot, config, notion, None)
 
     assert "A&lt;B" in bot.send_message.call_args.kwargs["text"]
+
+
+# ---- scraped text is escaped ----
+
+@pytest.mark.asyncio
+async def test_new_profile_message_is_escaped():
+    profile = SimpleNamespace(name="A<b>&", register_date="x", office="O<", scout="S&", fansly_date=None,
+                              profile_url=None, wml_id=None, tango_date=None)
+    bot = AsyncMock()
+    await wml_sync._notify_new_profile(bot, SimpleNamespace(owner_telegram_id=1), None, profile, None)
+    text = bot.send_message.await_args.kwargs["text"]
+    assert "A&lt;b&gt;&amp;" in text and "O&lt;" in text and "S&amp;" in text

@@ -8,23 +8,10 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.services import activity_log
+from tests.conftest import FakeRedis
 
 OWNER_ID = 111
 MANAGER = SimpleNamespace(id=222, username="manager", full_name="Man Ager")
-
-
-class FakeRedis:
-    def __init__(self):
-        self.lists: dict[str, list[str]] = {}
-
-    async def rpush(self, key, value):
-        self.lists.setdefault(key, []).append(value)
-
-    async def expire(self, key, ttl):
-        pass
-
-    async def lrange(self, key, start, end):
-        return list(self.lists.get(key, []))
 
 
 @pytest.fixture

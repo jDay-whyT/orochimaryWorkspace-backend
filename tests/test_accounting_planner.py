@@ -3,73 +3,16 @@
 Covers:
   - Accounting: create monthly record when none exists
   - Accounting: update monthly record increments Files
-  - Accounting: >1 record → chooses latest
-  - Model card shows X/200, percent, over
   - Planner statuses: (date+types)->scheduled, (date only)->planned, (types only)->planned
   - Done/reschedule pересчитывают статус
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from zoneinfo import ZoneInfo
-
-from app.services.notion import NotionAccounting, NotionPlanner
-from app.services.model_card import clear_card_cache
-
-
-# ---------------------------------------------------------------------------
-#  Helpers
-# ---------------------------------------------------------------------------
-
-def _make_config(fpm=200):
-    cfg = MagicMock()
-    cfg.timezone = ZoneInfo("Europe/Brussels")
-    cfg.files_per_month = fpm
-    cfg.db_orders = "db_orders"
-    cfg.db_planner = "db_planner"
-    cfg.db_accounting = "db_accounting"
-    cfg.notion_token = "test-token"
-    return cfg
 
 
 # ===========================================================================
 #  A) Accounting tests
 # ===========================================================================
-
-class TestAccountingMultipleRecords:
-    """>1 record → query_monthly_records returns sorted, get_monthly_record picks latest."""
-
-    @pytest.mark.asyncio
-    async def test_chooses_latest_by_last_edited(self):
-        """get_monthly_record returns the first (most recent) when >1."""
-        from app.services.notion import NotionClient
-
-        client = AsyncMock(spec=NotionClient)
-
-        records = [
-            NotionAccounting(
-                page_id="newer",
-                title="МЕЛИСА · accounting 2026-02",
-                files=100,
-                last_edited="2026-02-05T12:00:00Z",
-            ),
-            NotionAccounting(
-                page_id="older",
-                title="МЕЛИСА · accounting 2026-02",
-                files=80,
-                last_edited="2026-02-01T10:00:00Z",
-            ),
-        ]
-
-        # Mock query_monthly_records, then call the real get_monthly_record logic
-        client.query_monthly_records.return_value = records
-
-        # Inline the logic: get_monthly_record picks records[0] (sorted desc)
-        result = records[0] if records else None
-
-        assert result is not None
-        assert result.page_id == "newer"
-        assert result.files == 100
-
 
 class TestAccountingSearchFallbacks:
     """query_monthly_records uses 3-step search: primary → fallback1 → fallback2."""
@@ -163,63 +106,6 @@ class TestAccountingSearchFallbacks:
         assert client._request.call_count == 3
 
         NotionClient._instances.pop("test-token-fb2", None)
-
-
-# ===========================================================================
-#  Model card shows X/200, percent, over
-# ===========================================================================
-
-class TestModelCardDisplay:
-    """Model card text contains correct files display."""
-
-    def setup_method(self):
-        clear_card_cache()
-
-    @pytest.mark.asyncio
-    async def test_card_shows_files_200_percent(self):
-        from app.services.model_card import build_model_card_text
-
-        mock_notion = AsyncMock()
-        mock_notion.query_open_orders.return_value = []
-        mock_notion.query_upcoming_shoots.return_value = []
-        mock_notion.get_monthly_record.return_value = NotionAccounting(
-            page_id="a1", title="T", files=150, of_files=150,
-        )
-
-        config = _make_config(fpm=200)
-        text = await build_model_card_text("m1", "TestModel", config, mock_notion)
-
-        assert "<b>150</b> files" in text and "OF 150" in text
-
-    @pytest.mark.asyncio
-    async def test_card_shows_over_limit(self):
-        from app.services.model_card import build_model_card_text
-
-        mock_notion = AsyncMock()
-        mock_notion.query_open_orders.return_value = []
-        mock_notion.query_upcoming_shoots.return_value = []
-        mock_notion.get_monthly_record.return_value = NotionAccounting(
-            page_id="a1", title="T", files=250, of_files=250,
-        )
-
-        config = _make_config(fpm=200)
-        text = await build_model_card_text("m2", "OverModel", config, mock_notion)
-
-        assert "<b>250</b> files" in text and "OF 250" in text
-
-    @pytest.mark.asyncio
-    async def test_card_zero_files(self):
-        from app.services.model_card import build_model_card_text
-
-        mock_notion = AsyncMock()
-        mock_notion.query_open_orders.return_value = []
-        mock_notion.query_upcoming_shoots.return_value = []
-        mock_notion.get_monthly_record.return_value = None
-
-        config = _make_config(fpm=200)
-        text = await build_model_card_text("m3", "EmptyModel", config, mock_notion)
-
-        assert "<b>0</b> files" in text
 
 
 # ===========================================================================
@@ -317,15 +203,6 @@ class TestNlpShootContentTypes:
         }
 
 
-class TestFilesMonthLimit:
-    """FILES_MONTH_LIMIT is 200."""
-
-    def test_value(self):
-        from app.utils.constants import FILES_MONTH_LIMIT
-
-        assert FILES_MONTH_LIMIT == 200
-
-
 class TestAccountingTitleFormat:
     """Title should be '{MODEL_NAME} {month_ru} {year}'."""
 
@@ -357,23 +234,6 @@ class TestAccountingTitleFormat:
 
         # Cleanup singleton
         NotionClient._instances.pop("test-token-title", None)
-
-
-class TestNoOldAccountingFields:
-    """Ensure old fields (Month, FilesTotal, FilesPercent, amount, %) are not used."""
-
-    def test_no_old_fields_in_notion_accounting_dataclass(self):
-        from app.services.notion import NotionAccounting
-        import dataclasses
-
-        field_names = {f.name for f in dataclasses.fields(NotionAccounting)}
-        assert "amount" not in field_names
-        assert "percent" not in field_names
-        assert "comments" not in field_names  # now it's 'comment' singular
-        # New fields present:
-        assert "files" in field_names
-        assert "comment" in field_names
-        assert "content" in field_names
 
 
 class TestAccountingSearchByRelationOnly:

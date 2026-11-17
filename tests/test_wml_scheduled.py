@@ -11,37 +11,9 @@ from app.services import wml_scheduled as ws
 from app.services.month_close import CLOSE_IN_PROGRESS_KEY
 from app.services.notion import NotionAccounting, NotionModel, NotionOrder
 from app.services.wml_api import WmlApiError
+from tests.conftest import FakeRedis
 
 MODEL = NotionModel(page_id="m-1", title="ТВИКСИ", project="КИЕВ")
-
-
-class FakeRedis:
-    def __init__(self):
-        self.kv, self.h = {}, {}
-
-    async def get(self, k):
-        return self.kv.get(k)
-
-    async def set(self, k, v, nx=False, ex=None):
-        if nx and k in self.kv:
-            return None
-        self.kv[k] = v
-        return True
-
-    async def delete(self, k):
-        self.kv.pop(k, None)
-
-    async def hget(self, k, f):
-        return self.h.get(k, {}).get(f)
-
-    async def hgetall(self, k):
-        return dict(self.h.get(k, {}))
-
-    async def hset(self, k, f, v):
-        self.h.setdefault(k, {})[f] = v
-
-    async def hdel(self, k, f):
-        self.h.get(k, {}).pop(f, None)
 
 
 def _config(apply=True):
@@ -89,7 +61,7 @@ async def test_report_mode_sends_and_stores_nothing():
     assert report.created == ["ТВИКСИ | new"]          # canceled and pre-September orders are not created
     api.create_order.assert_not_called()
     notion.set_order_wml_id.assert_not_awaited()
-    assert redis.h == {}
+    assert redis.hashes == {}
 
 
 @pytest.mark.asyncio
@@ -100,7 +72,7 @@ async def test_open_order_is_created_only_once_it_has_an_out_date():
     report = ws.ExportReport()
     await ws.export_orders(_config(), _notion([order]), redis, api, True, report)
     api.create_order.assert_not_called()
-    assert report.empty() and redis.h == {}
+    assert report.empty() and redis.hashes == {}
 
     order.out_date, order.received = "2026-09-28", 8
     await ws.export_orders(_config(), _notion([order]), redis, api, True, report)
@@ -111,7 +83,7 @@ async def test_open_order_is_created_only_once_it_has_an_out_date():
 @pytest.mark.asyncio
 async def test_open_order_already_in_crm_keeps_getting_updates():
     redis, api = FakeRedis(), _api()
-    redis.h[ws.ORDER_STATE_KEY] = {"o": ws._state(42, {"count": 2}, "active", False)}
+    redis.hashes[ws.ORDER_STATE_KEY] = {"o": ws._state(42, {"count": 2}, "active", False)}
     await ws.export_orders(_config(), _notion([_order("o", wml_id=42, count=3)]), redis, api, True,
                            ws.ExportReport())
     api.update_order.assert_called_once_with(42, {"count": 3, "status": "active"})
@@ -124,7 +96,7 @@ async def test_create_then_second_run_is_a_noop():
     notion = _notion([order])
     await ws.export_orders(_config(), notion, redis, api, True, ws.ExportReport())
     wml_id = notion.set_order_wml_id.await_args.args[1]
-    assert json.loads(redis.h[ws.ORDER_STATE_KEY]["new"])["closed"] is True
+    assert json.loads(redis.hashes[ws.ORDER_STATE_KEY]["new"])["closed"] is True
 
     order.wml_id = wml_id  # Notion now has the id
     report = ws.ExportReport()
@@ -135,7 +107,7 @@ async def test_create_then_second_run_is_a_noop():
 @pytest.mark.asyncio
 async def test_changed_fields_are_updated_and_cancel_sent_once():
     redis, api = FakeRedis(), _api()
-    redis.h[ws.ORDER_STATE_KEY] = {
+    redis.hashes[ws.ORDER_STATE_KEY] = {
         "a": ws._state(11, {"count": 1}, "active", False),
         "b": ws._state(12, {"count": 1}, "active", False),
     }
@@ -162,20 +134,20 @@ async def test_first_sight_of_test_sent_order_resyncs_silently():
 @pytest.mark.asyncio
 async def test_vanished_closed_is_archive_open_is_cancelled():
     redis, api = FakeRedis(), _api()
-    redis.h[ws.ORDER_STATE_KEY] = {
+    redis.hashes[ws.ORDER_STATE_KEY] = {
         "done": ws._state(21, {"out": "2026-09-10"}, "active", True),
         "open": ws._state(22, {"count": 1}, "active", False),
     }
     report = ws.ExportReport()
     await ws.export_orders(_config(), _notion([]), redis, api, True, report)
     api.update_order.assert_called_once_with(22, {"status": "cancelled"})
-    assert redis.h[ws.ORDER_STATE_KEY] == {}  # both forgotten; the done one stays in the CRM untouched
+    assert redis.hashes[ws.ORDER_STATE_KEY] == {}  # both forgotten; the done one stays in the CRM untouched
 
 
 @pytest.mark.asyncio
 async def test_mass_vanish_only_warns():
     redis, api = FakeRedis(), _api()
-    redis.h[ws.ORDER_STATE_KEY] = {f"o{i}": ws._state(i, {"count": 1}, "active", False) for i in range(11)}
+    redis.hashes[ws.ORDER_STATE_KEY] = {f"o{i}": ws._state(i, {"count": 1}, "active", False) for i in range(11)}
     report = ws.ExportReport()
     await ws.export_orders(_config(), _notion([]), redis, api, True, report)
     api.update_order.assert_not_called()
@@ -329,7 +301,7 @@ async def test_second_export_is_skipped_while_one_is_running(monkeypatch):
 async def test_push_orders_now_sends_out_date_so_later_deletion_is_not_a_cancel():
     redis, api = FakeRedis(), _api()
     # pushed open at the last scheduled run; the manager closed it in Notion since
-    redis.h[ws.ORDER_STATE_KEY] = {"o1": ws._state(21, {"count": 1}, "active", False)}
+    redis.hashes[ws.ORDER_STATE_KEY] = {"o1": ws._state(21, {"count": 1}, "active", False)}
     closed = _order("o1", wml_id=21, out_date="2026-09-30", status="Done")
 
     report = await ws.push_orders_now(_config(apply=False), _notion([closed]), redis, api)

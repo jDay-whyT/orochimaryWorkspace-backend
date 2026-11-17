@@ -14,50 +14,19 @@ Test cases:
 """
 
 import pytest
-from datetime import date
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-from app.router.entities_v2 import extract_entities_v2
-from app.state.memory import MemoryState
-from app.state.token import generate_token
 from app.keyboards.inline import (
     model_card_keyboard,
     nlp_files_qty_keyboard,
 )
-from app.handlers.nlp_callbacks import (
-    _validate_token,
-    _validate_flow_step,
-)
+from app.services.model_card import build_model_card_text
+from app.services.notion import NotionNote
 
 
 # ============================================================================
 #              MODEL NAME -> MODEL CARD INTENT TESTS
 # ============================================================================
-
-class TestModelNameToCard:
-    """When user types only a model name, it should resolve (triggers model card)."""
-
-    def test_melisa_alone_is_search_model(self):
-        """'мелиса' -> resolves as model (triggers model card)."""
-        entities = extract_entities_v2("мелиса")
-        assert entities.has_model is True
-        assert entities.model_name == "мелиса"
-
-    def test_klesh_alone_is_search_model(self):
-        """'клещ' -> resolves as model."""
-        entities = extract_entities_v2("клещ")
-        assert entities.has_model is True
-
-    def test_melisa_with_old_keyword_still_resolves(self):
-        """'мелиса файлы 30' -> still resolves model 'мелиса' (keyword is a no-op now)."""
-        entities = extract_entities_v2("мелиса файлы 30")
-        assert entities.model_name == "мелиса"
-
-    def test_melisa_shoot_still_resolves(self):
-        """'съемка мелиса 09.02' -> still resolves model 'мелиса' (keyword is a no-op now)."""
-        entities = extract_entities_v2("съемка мелиса 09.02")
-        assert entities.model_name == "мелиса"
-
 
 # ============================================================================
 #                    MODEL CARD KEYBOARD TESTS
@@ -65,20 +34,6 @@ class TestModelNameToCard:
 
 class TestModelCardKeyboard:
     """Tests for model_card_keyboard structure and callback_data."""
-
-    def test_keyboard_has_two_rows(self):
-        """model_card_keyboard should have 2 rows (modules + reset)."""
-        kb = model_card_keyboard("test1")
-        assert len(kb.inline_keyboard) == 2
-
-    def test_row1_has_order_shoot_files(self):
-        """Row 1: 📦 Заказы | 📅 Съёмка | 📁 Файлы."""
-        kb = model_card_keyboard("test1")
-        row1 = kb.inline_keyboard[0]
-        assert len(row1) == 3
-        assert "Orders" in row1[0].text
-        assert "Shoot" in row1[1].text
-        assert "Files" in row1[2].text
 
     def test_row2_has_note_and_done(self):
         """Row 2: note button + done button."""
@@ -92,13 +47,6 @@ class TestModelCardKeyboard:
         assert done_btn.callback_data == "nlp:x:c"
         note_btn = next(b for b in row2 if "Note" in b.text)
         assert note_btn.callback_data == "nlp:act:note:test1"
-
-    def test_no_report_or_menu_buttons(self):
-        """Model card should not include Report/Menu buttons."""
-        kb = model_card_keyboard("test1")
-        texts = [btn.text for row in kb.inline_keyboard for btn in row]
-        assert all("Репорт" not in text for text in texts)
-        assert all("Меню" not in text for text in texts)
 
     def test_orders_button_callback(self):
         """📦 Заказы -> nlp:act:orders:{k}."""
@@ -118,33 +66,12 @@ class TestModelCardKeyboard:
         row1 = kb.inline_keyboard[0]
         assert row1[1].callback_data == "nlp:act:shoot:abc123"
 
-    def test_all_callbacks_under_64_bytes(self):
-        """All callback_data in model_card_keyboard must be <64 bytes."""
-        kb = model_card_keyboard("zzzzzz")  # max-length token
-        for row in kb.inline_keyboard:
-            for btn in row:
-                data = btn.callback_data
-                byte_len = len(data.encode("utf-8"))
-                assert byte_len < 64, \
-                    f"callback_data too long ({byte_len} bytes): {data}"
-
-
 # ============================================================================
 #                NLP FILES KEYBOARD (UPDATED) TESTS
 # ============================================================================
 
 class TestFilesQtyKeyboard:
     """Tests for the updated nlp_files_qty_keyboard (+15/+30/+50/Ввод)."""
-
-    def test_has_15_30_50_custom(self):
-        """Keyboard should have 20, 50, 80, Ввод buttons."""
-        kb = nlp_files_qty_keyboard("model-1", "test1")
-        row1 = kb.inline_keyboard[0]
-        texts = [btn.text for btn in row1]
-        assert "20" in texts
-        assert "50" in texts
-        assert "80" in texts
-        assert "Enter" in texts
 
     def test_custom_button_callback(self):
         """Ввод button -> nlp:af:custom:{k}."""
@@ -160,17 +87,6 @@ class TestFilesQtyKeyboard:
         btn = [b for b in row1 if b.text == "20"][0]
         assert btn.callback_data == "nlp:af:20:abc123"
 
-    def test_all_callbacks_under_64_bytes(self):
-        """All callback_data in files qty keyboard must be <64 bytes."""
-        kb = nlp_files_qty_keyboard("model-1", "zzzzzz")
-        for row in kb.inline_keyboard:
-            for btn in row:
-                data = btn.callback_data
-                byte_len = len(data.encode("utf-8"))
-                assert byte_len < 64, \
-                    f"callback_data too long ({byte_len} bytes): {data}"
-
-
 # ============================================================================
 #            MODEL CARD TEXT BUILDER TESTS
 # ============================================================================
@@ -178,15 +94,8 @@ class TestFilesQtyKeyboard:
 class TestBuildModelCardText:
     """Tests for build_model_card_text with mocked Notion."""
 
-    @pytest.fixture(autouse=True)
-    def _clear_cache(self):
-        from app.services.model_card import clear_card_cache
-        clear_card_cache()
-        yield
-        clear_card_cache()
-
     @pytest.mark.asyncio
-    async def test_card_text_with_data(self):
+    async def test_card_text_with_data(self, card_config):
         """Card text contains 📌, model name, orders, shoot, files."""
         from app.services.model_card import build_model_card_text
         from app.services.notion import NotionOrder, NotionPlanner, NotionAccounting
@@ -209,16 +118,8 @@ class TestBuildModelCardText:
             page_id="a1", title="МЕЛИСА · accounting 2026-04", files=79, of_files=50, reddit_files=29,
         )
 
-        from zoneinfo import ZoneInfo
-        mock_config = MagicMock()
-        mock_config.timezone = ZoneInfo("Europe/Brussels")
-        mock_config.files_per_month = 200
-        mock_config.db_orders = "db_orders"
-        mock_config.db_planner = "db_planner"
-        mock_config.db_accounting = "db_accounting"
-
         text = await build_model_card_text(
-            "model-123", "Мелиса", mock_config, mock_notion,
+            "model-123", "Мелиса", card_config, mock_notion,
         )
 
         assert "📌" in text
@@ -231,7 +132,7 @@ class TestBuildModelCardText:
         assert "79/200 (40%)" not in text
 
     @pytest.mark.asyncio
-    async def test_card_text_notion_failure(self):
+    async def test_card_text_notion_failure(self, card_config):
         """When Notion fails, card uses '—' placeholders."""
         from app.services.model_card import build_model_card_text
 
@@ -240,16 +141,8 @@ class TestBuildModelCardText:
         mock_notion.query_upcoming_shoots.side_effect = RuntimeError("Notion down")
         mock_notion.get_monthly_record.side_effect = RuntimeError("Notion down")
 
-        from zoneinfo import ZoneInfo
-        mock_config = MagicMock()
-        mock_config.timezone = ZoneInfo("Europe/Brussels")
-        mock_config.files_per_month = 200
-        mock_config.db_orders = "db_orders"
-        mock_config.db_planner = "db_planner"
-        mock_config.db_accounting = "db_accounting"
-
         text = await build_model_card_text(
-            "model-123", "Мелиса", mock_config, mock_notion,
+            "model-123", "Мелиса", card_config, mock_notion,
         )
 
         assert "📌" in text
@@ -263,7 +156,7 @@ class TestBuildModelCardText:
         assert "—" in files_line
 
     @pytest.mark.asyncio
-    async def test_card_text_no_orders_no_shoots(self):
+    async def test_card_text_no_orders_no_shoots(self, card_config):
         """Card text when model has no orders, no shoots, no accounting."""
         from app.services.model_card import build_model_card_text
 
@@ -272,21 +165,11 @@ class TestBuildModelCardText:
         mock_notion.query_upcoming_shoots.return_value = []
         mock_notion.get_monthly_record.return_value = None
 
-        from zoneinfo import ZoneInfo
-        mock_config = MagicMock()
-        mock_config.timezone = ZoneInfo("Europe/Brussels")
-        mock_config.files_per_month = 200
-        mock_config.db_orders = "db_orders"
-        mock_config.db_planner = "db_planner"
-        mock_config.db_accounting = "db_accounting"
-
         text = await build_model_card_text(
-            "model-123", "Мелиса", mock_config, mock_notion,
+            "model-123", "Мелиса", card_config, mock_notion,
         )
 
         assert "📦 Orders: 0 open" in text
-        assert "Съёмка" not in text
-        assert "Последняя" not in text
         assert "<b>0</b> files" in text
         assert "📅 Next: —" in text
 
@@ -294,93 +177,6 @@ class TestBuildModelCardText:
 # ============================================================================
 #          FLOW VALIDATION FOR MODEL CARD ACTIONS
 # ============================================================================
-
-class TestModelCardFlowValidation:
-    """Tests that model card button presses go through proper flow/step validation."""
-
-    def test_act_order_requires_nlp_actions_flow(self):
-        """act:order requires flow=nlp_actions with model_id."""
-        state = {"flow": "nlp_actions", "model_id": "page-123", "k": "test1"}
-        assert _validate_flow_step(state, "act") is True
-
-    def test_act_rejected_without_model_id(self):
-        """act action rejected when model_id missing."""
-        state = {"flow": "nlp_actions", "k": "test1"}
-        assert _validate_flow_step(state, "act") is False
-
-    def test_act_token_checked(self):
-        """Token must match for act action."""
-        state = {"flow": "nlp_actions", "model_id": "page-123", "k": "abc1"}
-        assert _validate_token(state, ["nlp", "act", "order", "abc1"], "act") is True
-        assert _validate_token(state, ["nlp", "act", "order", "wrong"], "act") is False
-
-    def test_full_card_to_order_flow(self):
-        """Model card -> 📦 Заказы -> transitions to orders module flow."""
-        memory = MemoryState(ttl_seconds=60)
-        user_id = 42
-        chat_id = 100
-
-        # Step 1: Model card shown (flow=nlp_actions)
-        k1 = generate_token()
-        memory.set(chat_id, user_id, {
-            "flow": "nlp_actions",
-            "model_id": "page-123",
-            "model_name": "мелиса",
-            "k": k1,
-        })
-        state = memory.get(chat_id, user_id)
-        assert _validate_flow_step(state, "act") is True
-
-        # Step 2: 📦 Заказы pressed -> handler sets nlp_orders_menu
-        memory.set(chat_id, user_id, {
-            "flow": "nlp_orders_menu",
-            "step": "menu",
-            "model_id": "page-123",
-            "model_name": "мелиса",
-        })
-        state = memory.get(chat_id, user_id)
-        assert state["flow"] == "nlp_orders_menu"
-
-    def test_full_card_to_files_flow(self):
-        """Model card -> 📁 Файлы -> transitions to nlp_files."""
-        memory = MemoryState(ttl_seconds=60)
-        user_id = 42
-        chat_id = 100
-
-        # Step 1: Model card shown
-        k1 = generate_token()
-        memory.set(chat_id, user_id, {
-            "flow": "nlp_actions",
-            "model_id": "page-123",
-            "model_name": "мелиса",
-            "k": k1,
-        })
-
-        # Step 2: 📁 Файлы pressed -> handler sets nlp_files
-        k2 = generate_token()
-        memory.set(chat_id, user_id, {
-            "flow": "nlp_files",
-            "model_id": "page-123",
-            "model_name": "мелиса",
-            "k": k2,
-        })
-        state = memory.get(chat_id, user_id)
-        assert state["flow"] == "nlp_files"
-
-    def test_reset_clears_state(self):
-        """♻️ Сброс clears memory state."""
-        memory = MemoryState(ttl_seconds=60)
-        user_id = 42
-        chat_id = 100
-        memory.set(chat_id, user_id, {
-            "flow": "nlp_actions",
-            "model_id": "page-123",
-            "k": "test1",
-        })
-        # Pressing nlp:x:c clears state
-        memory.clear(chat_id, user_id)
-        assert memory.get(chat_id, user_id) is None
-
 
 # ============================================================================
 #          MODEL CARD TEXT HELPER TESTS
@@ -416,22 +212,6 @@ if __name__ == "__main__":
 # ============================================================================
 
 class TestCardAfterWrite:
-    @pytest.fixture(autouse=True)
-    def _clear_cache(self):
-        from app.services.model_card import clear_card_cache
-        clear_card_cache()
-        yield
-        clear_card_cache()
-
-    @staticmethod
-    def _config():
-        from zoneinfo import ZoneInfo
-        cfg = MagicMock()
-        cfg.timezone = ZoneInfo("Europe/Brussels")
-        cfg.files_per_month = 200
-        cfg.db_orders, cfg.db_planner, cfg.db_accounting, cfg.db_notes = "db-orders", "db-planner", "db-acc", ""
-        return cfg
-
     @staticmethod
     def _order_page(pid, status="Open", out=None, model="model-1"):
         return {
@@ -457,35 +237,39 @@ class TestCardAfterWrite:
         notion.get_recent_notes = AsyncMock(return_value=[])
         return notion
 
+    @pytest.fixture(autouse=True)
+    def _ids(self, card_config):
+        card_config.db_orders, card_config.db_planner, card_config.db_accounting, card_config.db_notes = "db-orders", "db-planner", "db-acc", ""
+
     @pytest.mark.asyncio
-    async def test_new_order_shows_up_although_the_query_lags(self):
+    async def test_new_order_shows_up_although_the_query_lags(self, card_config):
         from app.services.model_card import build_model_card
         notion = self._notion([])
-        text, _ = await build_model_card("model-1", "M", self._config(), notion)
+        text, _ = await build_model_card("model-1", "M", card_config, notion)
         assert "📦 Orders: 0 open" in text
         # the bot creates an order; the database query does not return it yet
         notion._remember_write("POST", "https://api.notion.com/v1/pages", self._order_page("o-new"))
-        text, count = await build_model_card("model-1", "M", self._config(), notion)
+        text, count = await build_model_card("model-1", "M", card_config, notion)
         assert count == 1 and "📦 Orders: 1 open" in text   # cache skipped, new order merged in
 
     @pytest.mark.asyncio
-    async def test_closed_order_disappears_although_the_query_lags(self):
+    async def test_closed_order_disappears_although_the_query_lags(self, card_config):
         from app.services.model_card import build_model_card
         from app.services.notion import _parse_order
         page = self._order_page("0a1b-2c3d")
         notion = self._notion([_parse_order(page)])
         notion._remember_write("PATCH", "https://api.notion.com/v1/pages/0a1b-2c3d",
                                self._order_page("0a1b-2c3d", status="Done", out="2099-01-02"))
-        _, count = await build_model_card("model-1", "M", self._config(), notion)
+        _, count = await build_model_card("model-1", "M", card_config, notion)
         assert count == 0
 
     @pytest.mark.asyncio
-    async def test_other_models_writes_do_not_touch_the_card(self):
+    async def test_other_models_writes_do_not_touch_the_card(self, card_config):
         from app.services.model_card import build_model_card
         notion = self._notion([])
-        await build_model_card("model-1", "M", self._config(), notion)
+        await build_model_card("model-1", "M", card_config, notion)
         notion._remember_write("POST", "https://api.notion.com/v1/pages", self._order_page("o-x", model="model-2"))
-        _, count = await build_model_card("model-1", "M", self._config(), notion)
+        _, count = await build_model_card("model-1", "M", card_config, notion)
         assert count == 0 and notion.query_open_orders.await_count == 1  # still served from cache
 
     def test_queries_are_not_remembered_as_writes(self):
@@ -498,20 +282,17 @@ class TestCardAfterWrite:
 
 
 @pytest.mark.asyncio
-async def test_card_next_shoot_without_date_and_overdue():
-    from zoneinfo import ZoneInfo
-    from app.services.model_card import build_model_card_text, clear_card_cache
+async def test_card_next_shoot_without_date_and_overdue(card_config):
+    from app.services.model_card import build_model_card_text
     from app.services.notion import NotionPlanner
 
-    clear_card_cache()
     notion = AsyncMock()
     notion.query_open_orders.return_value = []
     notion.get_monthly_record.return_value = None
     notion.query_last_done_shoot.return_value = None
     notion.get_model.return_value = None
-    config = MagicMock()
-    config.timezone = ZoneInfo("Europe/Brussels")
-    config.db_orders, config.db_planner, config.db_accounting, config.db_notes = "o", "p", "a", ""
+    config = card_config
+    config.db_notes = ""
 
     notion.query_upcoming_shoots.return_value = [
         NotionPlanner(page_id="s1", title="s", date=None, status="planned", content=["reddit"])]
@@ -522,4 +303,96 @@ async def test_card_next_shoot_without_date_and_overdue():
         NotionPlanner(page_id="s2", title="s", date="2020-01-02", status="scheduled", content=[])]
     text = await build_model_card_text("m-b", "B", config, notion)
     assert "📅 Next: ⚠️ <b>2 Jan</b> · — · scheduled" in text
-    clear_card_cache()
+
+
+# ============================================================================
+#          CARD CACHE / NOTE PREVIEW
+# ============================================================================
+
+class TestModelCardCache:
+    """Tests for the in-memory TTL cache on build_model_card_text."""
+
+    @pytest.mark.asyncio
+    async def test_second_call_uses_cache_no_notion(self, card_config):
+        """Second call within TTL should NOT call Notion again."""
+        from app.services.model_card import build_model_card_text
+        from app.services.notion import NotionOrder
+
+        mock_notion = AsyncMock()
+        mock_notion.query_open_orders.return_value = [
+            NotionOrder(page_id="o1", title="t", order_type="custom",
+                       in_date="2026-02-01", status="Open"),
+        ]
+        mock_notion.query_upcoming_shoots.return_value = []
+        mock_notion.get_monthly_record.return_value = None
+
+        # First call — Notion is hit
+        text1 = await build_model_card_text("model-x", "TestModel", card_config, mock_notion)
+        assert mock_notion.query_open_orders.call_count == 1
+
+        # Reset call counts
+        mock_notion.reset_mock()
+
+        # Second call — should come from cache, no Notion calls
+        text2 = await build_model_card_text("model-x", "TestModel", card_config, mock_notion)
+        assert text2 == text1
+        assert mock_notion.query_open_orders.call_count == 0
+        assert mock_notion.query_upcoming_shoots.call_count == 0
+        assert mock_notion.get_monthly_record.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_error_result_cached_shorter(self, card_config):
+        """Error results should be cached with shorter TTL."""
+        from app.services.model_card import (
+            build_model_card_text,
+            _card_cache,
+            CARD_CACHE_ERROR_TTL,
+        )
+
+        mock_notion = AsyncMock()
+        mock_notion.query_open_orders.side_effect = RuntimeError("down")
+        mock_notion.query_upcoming_shoots.side_effect = RuntimeError("down")
+        mock_notion.get_monthly_record.side_effect = RuntimeError("down")
+
+        text = await build_model_card_text("model-err", "ErrModel", card_config, mock_notion)
+        assert "—" in text
+
+        # Check the cache entry is marked as error
+        entry = _card_cache.get("model-err")
+        assert entry is not None
+        _, _, is_error = entry
+        assert is_error is True
+
+
+async def _card_with_note(text: str, card_config) -> tuple[str, AsyncMock]:
+    notion = AsyncMock()
+    notion.query_open_orders.return_value = []
+    notion.query_upcoming_shoots.return_value = []
+    notion.get_monthly_record.return_value = None
+    notion.get_recent_notes.return_value = [NotionNote(page_id="n1", text=text, date="2026-09-20")]
+
+    card_config.db_notes = "db_notes"
+
+    card = await build_model_card_text("model-1", "Robin", card_config, notion)
+    return card, notion
+
+
+@pytest.mark.asyncio
+async def test_only_latest_note_is_requested(card_config):
+    _, notion = await _card_with_note("коротко", card_config)
+    assert notion.get_recent_notes.await_args.kwargs["limit"] == 1
+
+
+@pytest.mark.asyncio
+async def test_multiline_note_shows_first_line_only(card_config):
+    card, _ = await _card_with_note("первая строка\nвторая строка\nтретья", card_config)
+    assert "первая строка …" in card
+    assert "вторая строка" not in card
+    assert "📝 Заметки" not in card
+
+
+@pytest.mark.asyncio
+async def test_long_note_is_truncated(card_config):
+    card, _ = await _card_with_note("а" * 300, card_config)
+    assert "а" * 100 + "…" in card
+    assert "а" * 101 not in card

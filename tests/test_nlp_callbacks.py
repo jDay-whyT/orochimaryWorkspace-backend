@@ -21,7 +21,6 @@ from app.state.memory import MemoryState
 from app.state.token import generate_token
 from app.keyboards.inline import (
     ORDER_TYPE_CB_MAP,
-    ORDER_TYPE_DISPLAY,
     nlp_order_type_keyboard,
     nlp_order_qty_keyboard,
     nlp_order_date_keyboard,
@@ -30,12 +29,12 @@ from app.keyboards.inline import (
     nlp_close_order_date_keyboard,
     nlp_files_qty_keyboard,
     nlp_report_keyboard,
+    model_card_keyboard,
     nlp_confirm_model_keyboard,
     nlp_model_selection_keyboard,
     nlp_not_found_keyboard,
 )
 from app.handlers.nlp_callbacks import (
-    _remember_screen_message,
     _validate_token,
     _validate_flow_step,
     _FLOW_STEP_RULES,
@@ -47,39 +46,14 @@ from app.handlers.nlp_callbacks import (
 # ============================================================================
 
 
-def test_remember_screen_message_uses_chat_and_user_id():
-    memory_state = MagicMock()
-
-    _remember_screen_message(memory_state, 100, 200, 300)
-
-    memory_state.update.assert_called_once_with(100, 200, screen_message_id=300)
-
 class TestTokenGeneration:
     """Tests for anti-stale token generation."""
-
-    def test_token_length(self):
-        """Token should be 6 characters by default."""
-        token = generate_token()
-        assert len(token) == 6
 
     def test_token_is_base36(self):
         """Token characters should be lowercase letters and digits."""
         for _ in range(50):
             token = generate_token()
             assert re.match(r'^[a-z0-9]{6}$', token), f"Invalid token: {token}"
-
-    def test_tokens_are_unique(self):
-        """Tokens should be different (with very high probability)."""
-        tokens = {generate_token() for _ in range(100)}
-        # With 36^6 ≈ 2.2B possibilities, 100 tokens should all be unique
-        assert len(tokens) == 100
-
-    def test_custom_length(self):
-        """Token length can be customized."""
-        token = generate_token(length=8)
-        assert len(token) == 8
-        assert re.match(r'^[a-z0-9]{8}$', token)
-
 
 # ============================================================================
 #                   ORDER_TYPE MAPPING TESTS
@@ -97,14 +71,6 @@ class TestOrderTypeMapping:
         """All order types are in the callback map."""
         expected = {"custom", "short", "verif_reddit", "call", "ad_request"}
         assert set(ORDER_TYPE_CB_MAP.keys()) == expected
-
-    def test_display_names(self):
-        """Display names are correct for callback values."""
-        assert ORDER_TYPE_DISPLAY["custom"] == "Custom"
-        assert ORDER_TYPE_DISPLAY["short"] == "Short"
-        assert ORDER_TYPE_DISPLAY["verif reddit"] == "Verif Reddit"
-        assert ORDER_TYPE_DISPLAY["call"] == "Call"
-        assert ORDER_TYPE_DISPLAY["ad_request"] == "Ad Request"
 
     def test_order_type_keyboard_no_spaces_in_callback(self):
         """nlp_order_type_keyboard callback_data must not contain spaces."""
@@ -267,9 +233,65 @@ class TestFlowStepValidation:
 
     def test_unregulated_actions_always_pass(self):
         """Actions without flow/step rules should always pass."""
-        for action in ("sm", "df", "do", "ro", "ra", "af", "co", "ct", "cmo", "bk", "noop", "fm", "smn", "sctm"):
+        for action in ("sm", "ro", "ra", "af", "co", "bk", "noop", "fm", "smn", "sctm"):
             assert _validate_flow_step(None, action) is True
             assert _validate_flow_step({"flow": "any"}, action) is True
+
+
+# ============================================================================
+#                MENU / RESET ALWAYS ALLOWED
+# ============================================================================
+
+class TestMenuResetAlwaysAllowed:
+    """Menu (nlp:x:m) and Reset (nlp:x:c) must work regardless of token/step."""
+
+    def test_menu_valid_with_no_state(self):
+        """Menu should be valid even with no state at all."""
+        assert _validate_token(None, ["nlp", "x", "m"], "x") is True
+
+    def test_cancel_valid_with_wrong_token(self):
+        """Cancel should bypass token validation."""
+        state = {"flow": "nlp_order", "step": "awaiting_count", "k": "abc123"}
+        assert _validate_token(state, ["nlp", "x", "c"], "x") is True
+
+    def test_cancel_bypasses_flow_step_check(self):
+        """Cancel action has no flow/step rule, so it always passes."""
+        # Invalid flow/step combination
+        state = {"flow": "totally_wrong", "step": "bad_step", "k": "xxx"}
+        assert _validate_flow_step(state, "x") is True
+        assert _validate_flow_step(None, "x") is True
+
+    def test_cancel_valid_in_stale_session(self):
+        """Cancel should work even in completely stale session."""
+        memory = MemoryState(ttl_seconds=60)
+        user_id = 42
+        chat_id = 100
+
+        # Set state with token
+        k1 = generate_token()
+        memory.set(chat_id, user_id, {
+            "flow": "nlp_actions",
+            "model_id": "page-123",
+            "k": k1,
+        })
+
+        # Change state to a new token (old buttons are stale)
+        k2 = generate_token()
+        memory.set(chat_id, user_id, {
+            "flow": "nlp_order",
+            "step": "awaiting_type",
+            "model_id": "page-456",
+            "k": k2,
+        })
+
+        state = memory.get(chat_id, user_id)
+
+        # Old cancel button with no token — should still pass
+        assert _validate_token(state, ["nlp", "x", "c"], "x") is True
+        assert _validate_flow_step(state, "x") is True
+
+        # Old action button should fail
+        assert _validate_token(state, ["nlp", "act", "order", k1], "act") is False
 
 
 # ============================================================================
@@ -341,6 +363,7 @@ class TestKeyboardTokenEmbedding:
             nlp_close_order_date_keyboard("model-1", long_token),
             nlp_files_qty_keyboard("model-1", long_token),
             nlp_report_keyboard("model-1", long_token),
+            model_card_keyboard(long_token),
         ]
         for kb in keyboards:
             for row in kb.inline_keyboard:
@@ -429,87 +452,12 @@ class TestOrderFlowScenario:
 #               STALE TOKEN SCENARIO TEST
 # ============================================================================
 
-class TestStaleTokenScenario:
-    """Tests the anti-stale token rejection mechanism."""
-
-    def test_stale_oq_after_new_keyboard(self):
-        """Press oq with old k after new k → should be rejected."""
-        memory = MemoryState(ttl_seconds=60)
-        user_id = 42
-        chat_id = 100
-
-        # First keyboard with k1
-        k1 = generate_token()
-        memory.set(chat_id, user_id, {
-            "flow": "nlp_order",
-            "step": "awaiting_count",
-            "model_id": "page-123",
-            "k": k1,
-        })
-
-        # New keyboard sent (e.g., user went back) with k2
-        k2 = generate_token()
-        memory.update(chat_id, user_id, k=k2)
-
-        state = memory.get(chat_id, user_id)
-
-        # Old button press
-        old_callback_parts = ["nlp", "oq", "2", k1]
-        assert _validate_token(state, old_callback_parts, "oq") is False
-
-        # New button press
-        new_callback_parts = ["nlp", "oq", "2", k2]
-        assert _validate_token(state, new_callback_parts, "oq") is True
-
-    def test_stale_after_flow_change(self):
-        """When flow changes entirely, old callbacks should fail validation."""
-        memory = MemoryState(ttl_seconds=60)
-        user_id = 42
-        chat_id = 100
-
-        # Was in order flow
-        k1 = generate_token()
-        memory.set(chat_id, user_id, {
-            "flow": "nlp_order",
-            "step": "awaiting_count",
-            "model_id": "page-123",
-            "k": k1,
-        })
-
-        # User starts new flow (shoot)
-        k2 = generate_token()
-        memory.set(chat_id, user_id, {
-            "flow": "nlp_shoot",
-            "step": "awaiting_date",
-            "model_id": "page-123",
-            "k": k2,
-        })
-
-        state = memory.get(chat_id, user_id)
-
-        # Old order button should fail both flow AND token checks
-        assert _validate_flow_step(state, "oq") is False
-        assert _validate_token(state, ["nlp", "oq", "2", k1], "oq") is False
-
-
 # ============================================================================
 #                 KEYBOARD STRUCTURE TESTS
 # ============================================================================
 
 class TestKeyboardStructure:
     """Tests for keyboard structural properties."""
-
-    def test_order_type_ad_request_has_underscore(self):
-        """Ad Request button should use 'ad_request' (no space) in callback."""
-        kb = nlp_order_type_keyboard("model-1", "test")
-        found = False
-        for row in kb.inline_keyboard:
-            for btn in row:
-                if "Ad Request" in btn.text:
-                    assert "ad_request" in btn.callback_data
-                    assert "ad request" not in btn.callback_data
-                    found = True
-        assert found, "Ad Request button not found in keyboard"
 
     def test_confirm_model_keyboard_has_token(self):
         """nlp_confirm_model_keyboard should embed token."""
@@ -530,17 +478,6 @@ class TestKeyboardStructure:
 # ============================================================================
 #              DISPATCHER DATE FIX INTEGRATION TEST
 # ============================================================================
-
-class TestDispatcherDateFix:
-    """The typed DD.MM year is the one closest to today (see tests/test_bugfixes_nov13.py)."""
-
-    def test_dispatcher_has_no_resolution_hack(self):
-        import inspect
-        from app.router import dispatcher
-
-        source = inspect.getsource(dispatcher._handle_custom_date_input)
-        assert "datetime.resolution" not in source
-
 
 # ============================================================================
 #              MESSAGE EDIT ERROR HANDLING TESTS

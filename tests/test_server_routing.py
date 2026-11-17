@@ -278,11 +278,11 @@ class TestWebhookHoldsRequestWhileProcessing:
         finished = _asyncio.Event()
 
         async def feed(bot, update):
-            await _asyncio.sleep(2.0)
+            await _asyncio.sleep(0.5)
             finished.set()
 
         status, took, _ = await self._post(feed, monkeypatch, hold=0.2, update_id=502)
-        assert status == 200 and took < 1.5
+        assert status == 200 and took < 0.45  # answered at the 0.2 s hold, not after the 0.5 s update
         await _asyncio.wait_for(finished.wait(), timeout=5)  # the update still completes in the background
 
     @pytest.mark.asyncio

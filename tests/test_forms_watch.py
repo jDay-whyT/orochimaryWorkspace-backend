@@ -6,27 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.services import forms_watch
-
-
-class FakeRedis:
-    def __init__(self, **kv):
-        self.kv = dict(kv)
-        self.sets = {}
-
-    async def get(self, k):
-        return self.kv.get(k)
-
-    async def set(self, k, v):
-        self.kv[k] = v
-
-    async def sismember(self, k, v):
-        return v in self.sets.get(k, set())
-
-    async def sadd(self, k, v):
-        self.sets.setdefault(k, set()).add(v)
-
-    async def expire(self, k, ttl):
-        pass
+from tests.conftest import FakeRedis
 
 
 def _page(name, created, lang="eng", platforms=("Reddit",)):

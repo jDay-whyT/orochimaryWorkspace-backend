@@ -1,5 +1,6 @@
 from datetime import date
 
+from app.handlers import notifications
 from app.handlers.notifications import _format_board_rich
 from app.services.notion import NotionPlanner
 
@@ -35,3 +36,9 @@ def test_escapes_and_empty_cells():
 
 def test_bad_dates_skipped():
     assert "нет" in _format_board_rich([_shoot("garbage", "A")], date(2026, 9, 30))
+
+
+def test_format_board_escapes():
+    shoot = NotionPlanner(page_id="p", title="t", model_title="A<i>", date="2026-11-14", location="L&")
+    out = notifications._format_board([shoot])
+    assert "A&lt;i&gt;" in out and "L&amp;" in out

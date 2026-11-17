@@ -85,5 +85,47 @@ class TestOrderTypeDisplayName:
         assert get_order_type_display_name("ad request") == "Ad Request"
 
 
+class TestStopWordsNotSearchModel:
+    """Stop-words like 'ок', 'да', 'привет' must NOT be taken as a model name."""
+
+    GARBAGE_WORDS = [
+        "ок", "да", "нет", "привет", "спс", "хз", "ага",
+        "угу", "ладно", "ясно", "понял", "хорошо", "спасибо",
+        "окей", "hi", "hello", "bye", "пока", "норм",
+    ]
+
+    @pytest.mark.parametrize("word", GARBAGE_WORDS)
+    def test_stop_word_not_model_name(self, word):
+        """Stop-word should not be extracted as model name."""
+        entities = extract_entities_v2(word)
+        assert entities.model_name is None, \
+            f"'{word}' was extracted as model name"
+
+    def test_validate_model_name_rejects_stop_words(self):
+        """validate_model_name should reject stop-words."""
+        assert validate_model_name("ок") is False
+        assert validate_model_name("привет") is False
+        assert validate_model_name("мелиса") is True
+
+
+class TestModelNameToCard:
+    """When user types only a model name, it should resolve (triggers model card)."""
+
+    def test_klesh_alone_is_search_model(self):
+        """'клещ' -> resolves as model."""
+        entities = extract_entities_v2("клещ")
+        assert entities.has_model is True
+
+    def test_melisa_with_old_keyword_still_resolves(self):
+        """'мелиса файлы 30' -> still resolves model 'мелиса' (keyword is a no-op now)."""
+        entities = extract_entities_v2("мелиса файлы 30")
+        assert entities.model_name == "мелиса"
+
+    def test_melisa_shoot_still_resolves(self):
+        """'съемка мелиса 09.02' -> still resolves model 'мелиса' (keyword is a no-op now)."""
+        entities = extract_entities_v2("съемка мелиса 09.02")
+        assert entities.model_name == "мелиса"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
