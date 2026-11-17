@@ -1284,20 +1284,6 @@ class NotionClient:
         await self._request("PATCH", url, json=payload)
         LOGGER.info("update_accounting_comment completed: page_id=%s", page_id)
 
-    async def update_accounting_content(
-        self,
-        page_id: str,
-        items: list[str],
-    ) -> None:
-        """Update accounting Content multi-select."""
-        payload = {
-            "properties": {
-                "Content": {"multi_select": [{"name": item} for item in items]},
-            }
-        }
-        url = f"https://api.notion.com/v1/pages/{page_id}"
-        await self._request("PATCH", url, json=payload)
-
     async def query_accounting_all_month(
         self,
         database_id: str,

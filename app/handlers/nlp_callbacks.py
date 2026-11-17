@@ -11,8 +11,8 @@ Callback prefix mapping:
   sdc = shoot_done_confirm
   ss  = shoot_select    co  = close_order      cd  = close_date
   ct  = comment_target  cmo = comment_order    df  = disambig_files
-  do  = disambig_orders ro  = report_orders    ra  = report_accounting
-  af  = add_files       afc = add_files_confirm    acct = acc_content_toggle  accs = acc_content_save
+  do  = disambig_orders
+  af  = add_files       afc = add_files_confirm
   fct = files_content_type
   om  = orders_menu     op   = orders_page         cp   = close_page
   fm  = files_menu      smn  = shoot_menu          bk   = back
@@ -51,7 +51,6 @@ from app.services import orders as orders_cache
 from app.services import planner as planner_cache
 from app.state import MemoryState, RecentModels, generate_token
 from app.keyboards.inline import ORDER_TYPE_CB_MAP, lists_keyboard
-from app.utils.accounting import format_accounting_progress
 from app.utils import PAGE_SIZE
 from app.utils.telegram import safe_edit_message, safe_query_answer
 from app.utils.locks import ModelBusy, get_user_lock, model_write_lock, recall_page, remember_page
@@ -252,8 +251,6 @@ _FLOW_STEP_RULES: dict[str, tuple[str, set[str] | None]] = {
     "scd": ("nlp_shoot", {"awaiting_content", "awaiting_content_update"}),
     "srs": ("nlp_actions", None),
     "scm": ("nlp_actions", None),
-    "acct": ("nlp_acc_content", {"selecting"}),
-    "accs": ("nlp_acc_content", {"selecting"}),
     "cd": ("nlp_close", {"awaiting_date", "awaiting_custom_date", "short_options"}),
     "cp": ("nlp_close_picker", {"selecting"}),
     "op": ("nlp_orders_view", {"viewing"}),
@@ -535,12 +532,6 @@ async def _handle_nlp_callback_impl(
         elif action == "cd":
             await _handle_close_date(query, parts, config, notion, memory_state)
 
-        # ===== Report Callbacks =====
-        elif action == "ro":
-            await _handle_report_orders(query, config, notion, memory_state)
-        elif action == "ra":
-            await _handle_report_accounting(query, config, notion, memory_state)
-
         # ===== Add Files Callback =====
         elif action == "af":
             await _handle_add_files(query, parts, config, notion, memory_state, recent_models)
@@ -556,12 +547,6 @@ async def _handle_nlp_callback_impl(
             await _handle_shoot_content_done(query, parts, config, notion, memory_state, recent_models)
         elif action == "sctm":
             await _handle_shoot_content_manage(query, parts, config, notion, memory_state)
-
-        # ===== Accounting Content =====
-        elif action == "acct":
-            await _handle_accounting_content_toggle(query, parts, config, memory_state)
-        elif action == "accs":
-            await _handle_accounting_content_save(query, parts, config, notion, memory_state)
 
         # ===== Shoot Manage (from model card) =====
         elif action == "srs":
@@ -707,17 +692,6 @@ async def _handle_model_action(query, parts, config, notion, memory_state, recen
 
     elif action == "shoot":
         await _show_shoot_menu(query, config, notion, memory_state)
-
-    elif action == "report":
-        # Show report inline
-        k = generate_token()
-        memory_state.set(chat_id, user_id, {
-            "flow": "nlp_report",
-            "model_id": model_id,
-            "model_name": model_name,
-            "k": k,
-        })
-        await _show_report(query, model_id, model_name, config, notion, memory_state, k)
 
     elif action == "orders":
         await _show_orders_menu(query, config, notion, memory_state)
@@ -2256,82 +2230,6 @@ async def _handle_close_date(query, parts, config, notion, memory_state):
 
 
 # ============================================================================
-#                        REPORT CALLBACKS
-# ============================================================================
-
-async def _handle_report_orders(query, config, notion, memory_state):
-    """Handle report orders detail. Callback: nlp:ro[:{k}]"""
-    chat_id, user_id = _state_ids_from_query(query)
-    state = memory_state.get(chat_id, user_id)
-    model_id = state.get("model_id") if state else None
-    if not model_id:
-        await _session_expired(query, memory_state)
-        return
-
-    orders = await orders_cache.get_cached_orders(notion, config, model_id)
-    if not orders:
-        await safe_query_answer(query, "No open orders", show_alert=True)
-        return
-
-    model_data = await notion.get_model(model_id)
-    model_name = model_data.title if model_data else "model"
-
-    orders_text = "\n".join(
-        f"• {o.order_type or 'order'} · {_format_date_short(o.in_date)}"
-        for o in orders[:10]
-    )
-    if len(orders) > 10:
-        orders_text += f"\n\n...and {len(orders) - 10} more"
-
-    k = generate_token()
-    memory_state.update(chat_id, user_id, k=k)
-    from app.keyboards.inline import nlp_report_keyboard
-    if query.message:
-        await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await safe_edit_message(query, 
-            f"📦 <b>Open orders: {html.escape(model_name)}</b>\n\n{orders_text}",
-            reply_markup=nlp_report_keyboard(model_id, k),
-            parse_mode="HTML",
-        )
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-
-
-async def _handle_report_accounting(query, config, notion, memory_state):
-    """Handle report accounting detail. Callback: nlp:ra[:{k}]"""
-    chat_id, user_id = _state_ids_from_query(query)
-    state = memory_state.get(chat_id, user_id)
-    model_id = state.get("model_id") if state else None
-    if not model_id:
-        await _session_expired(query, memory_state)
-        return
-
-    now = datetime.now(tz=config.timezone)
-    yyyy_mm = now.strftime("%Y-%m")
-    record = await accounting_cache.get_cached_monthly_record(notion, config, model_id, yyyy_mm)
-
-    model_data = await notion.get_model(model_id)
-    model_name = model_data.title if model_data else "model"
-
-    if not record:
-        accounting_text = f"Files: {format_accounting_progress(0, None)}"
-    else:
-        total = record.files
-        accounting_text = f"Files: {format_accounting_progress(total, record.status)}"
-
-    k = generate_token()
-    memory_state.update(chat_id, user_id, k=k)
-    from app.keyboards.inline import nlp_report_keyboard
-    if query.message:
-        await _clear_previous_screen_keyboard(query, memory_state)
-        msg = await safe_edit_message(query, 
-            f"📁 <b>Files: {html.escape(model_name)}</b>\n\n{accounting_text}",
-            reply_markup=nlp_report_keyboard(model_id, k),
-            parse_mode="HTML",
-        )
-        _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-
-
-# ============================================================================
 #                          ADD FILES CALLBACK
 # ============================================================================
 
@@ -2818,133 +2716,8 @@ async def _handle_shoot_comment_cb(query, parts, config, notion, memory_state):
 
 
 # ============================================================================
-#                    ACCOUNTING CONTENT CALLBACKS
-# ============================================================================
-
-async def _handle_accounting_content_toggle(query, parts, config, memory_state):
-    """Toggle an accounting content type. Callback: nlp:acct:{type}[:{k}]"""
-    if len(parts) < 3:
-        return
-    ct = parts[2]
-    chat_id, user_id = _state_ids_from_query(query)
-    if not is_editor(user_id, config):
-        await safe_edit_message(query, "❌ No access")
-        return
-    state = memory_state.get(chat_id, user_id)
-    if not state:
-        await _session_expired(query, memory_state)
-        return
-
-    selected = list(state.get("selected_content", []))
-    if ct in selected:
-        selected.remove(ct)
-    else:
-        selected.append(ct)
-
-    k = generate_token()
-    memory_state.update(chat_id, user_id, selected_content=selected, k=k)
-    model_name = state.get("model_name", "")
-
-    from app.keyboards.inline import nlp_accounting_content_keyboard
-    await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await safe_edit_message(query, 
-        f"🗂 <b>{html.escape(model_name)}</b> · Content\n\n"
-        "Choose content types:",
-        reply_markup=nlp_accounting_content_keyboard(selected, state.get("model_id", ""), k),
-        parse_mode="HTML",
-    )
-    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-
-
-async def _handle_accounting_content_save(query, parts, config, notion, memory_state):
-    """Save accounting content. Callback: nlp:accs:save[:{k}]"""
-    await safe_query_answer(query)
-    chat_id, user_id = _state_ids_from_query(query)
-    if not is_editor(user_id, config):
-        await safe_edit_message(query, "❌ No access")
-        return
-    state = memory_state.get(chat_id, user_id)
-    if not state:
-        await _session_expired(query, memory_state)
-        return
-
-    accounting_id = state.get("accounting_id")
-    selected = state.get("selected_content", [])
-    model_name = state.get("model_name", "")
-    model_id_for_kb = state.get("model_id", "")
-
-    if not accounting_id:
-        await safe_edit_message(query, "Accounting record not found.")
-        memory_state.clear(chat_id, user_id)
-        return
-
-    try:
-        await notion.update_accounting_content(accounting_id, selected)
-        yyyy_mm = datetime.now(tz=config.timezone).strftime("%Y-%m")
-        accounting_cache.clear_cache(model_id_for_kb, yyyy_mm)
-        LOGGER.info(
-            "Accounting content saved: user=%s accounting_id=%s content=%s",
-            user_id, accounting_id, selected,
-        )
-        content_str = ", ".join(selected) if selected else "—"
-        from app.keyboards.inline import nlp_action_complete_keyboard
-        await _clear_previous_screen_keyboard(query, memory_state)
-        await _safe_confirm(
-            query,
-            f"✅ Content saved\n\n"
-            f"<b>{html.escape(model_name)}</b>\n"
-            f"Content: {html.escape(content_str)}",
-            reply_markup=nlp_action_complete_keyboard(model_id_for_kb),
-            parse_mode="HTML",
-        )
-        memory_state.clear(chat_id, user_id)
-    except Exception as e:
-        LOGGER.exception("Failed to save accounting content: %s", e)
-        await safe_edit_message(query, "❌ Failed to save Content.")
-        memory_state.clear(chat_id, user_id)
-
-
-# ============================================================================
 #                              HELPERS
 # ============================================================================
-
-async def _show_report(query, model_id, model_name, config, notion, memory_state, k=""):
-    """Show inline report for model."""
-    from app.keyboards.inline import nlp_report_keyboard
-    from app.utils import escape_html
-    chat_id, user_id = _state_ids_from_query(query)
-
-    now = datetime.now(tz=config.timezone)
-    yyyy_mm = now.strftime("%Y-%m")
-
-    try:
-        record = await accounting_cache.get_cached_monthly_record(notion, config, model_id, yyyy_mm)
-    except Exception:
-        record = None
-
-    try:
-        open_orders = await orders_cache.get_cached_orders(notion, config, model_id)
-    except Exception:
-        open_orders = []
-
-    if record:
-        total = record.files
-        files_str = format_accounting_progress(total, record.status)
-    else:
-        files_str = format_accounting_progress(0, None)
-
-    orders_str = f"{len(open_orders)} open"
-
-    await _clear_previous_screen_keyboard(query, memory_state)
-    msg = await safe_edit_message(query, 
-        f"📊 <b>{escape_html(model_name)}</b> · {yyyy_mm}\n\n"
-        f"📁 Files: {files_str}\n"
-        f"📦 Orders: {orders_str}\n",
-        reply_markup=nlp_report_keyboard(model_id, k),
-        parse_mode="HTML",
-    )
-    _remember_screen_message(memory_state, chat_id, user_id, msg.message_id if msg else query.message.message_id)
-
 
 async def apply_received(config, notion, state: dict, added: int, redis=None) -> str:
     """Add `added` to the order's received count; closes it (today) once everything came in.

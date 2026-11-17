@@ -28,7 +28,6 @@ from app.keyboards.inline import (
     nlp_shoot_date_keyboard,
     nlp_close_order_date_keyboard,
     nlp_files_qty_keyboard,
-    nlp_report_keyboard,
     model_card_keyboard,
     nlp_confirm_model_keyboard,
     nlp_model_selection_keyboard,
@@ -233,7 +232,7 @@ class TestFlowStepValidation:
 
     def test_unregulated_actions_always_pass(self):
         """Actions without flow/step rules should always pass."""
-        for action in ("sm", "ro", "ra", "af", "co", "bk", "noop", "fm", "smn", "sctm"):
+        for action in ("sm", "af", "co", "bk", "noop", "fm", "smn", "sctm"):
             assert _validate_flow_step(None, action) is True
             assert _validate_flow_step({"flow": "any"}, action) is True
 
@@ -362,7 +361,6 @@ class TestKeyboardTokenEmbedding:
             nlp_shoot_date_keyboard("model-1", long_token),
             nlp_close_order_date_keyboard("model-1", long_token),
             nlp_files_qty_keyboard("model-1", long_token),
-            nlp_report_keyboard("model-1", long_token),
             model_card_keyboard(long_token),
         ]
         for kb in keyboards:

@@ -18,20 +18,6 @@ PLANNER_ACTIVE_STATUSES = [
     PLANNER_STATUS_RESCHEDULED,
 ]
 
-# Accounting content options
-ACCOUNTING_CONTENT_OPTIONS = [
-    "basic",
-    "of pack",
-    "twitter",
-    "reddit",
-    "fansly",
-    "snapchat",
-    "IG",
-    "event",
-    "ad request",
-    "no content",
-]
-
 # Accounting statuses
 ACCOUNTING_STATUS_NEW = "new"
 ACCOUNTING_STATUS_WORK = "work"
@@ -48,29 +34,12 @@ MODEL_STATUS_LOOTED = "looted"
 # Pagination
 PAGE_SIZE = 8
 
-# Files per month limit (for accounting percentage calculation)
-FILES_MONTH_LIMIT = 200
-
 # NLP content types for shoots (canonical values for Planner multi-select)
 NLP_SHOOT_CONTENT_TYPES = [
     "of pack", "basic",
     "twitter", "reddit", "fansly",
     "instagram", "snapchat", "sfs",
     "posting", "event",
-]
-
-# NLP content types for accounting (canonical values for Content multi-select)
-NLP_ACCOUNTING_CONTENT_TYPES = [
-    "basic",
-    "of pack",
-    "twitter",
-    "reddit",
-    "fansly",
-    "snapchat",
-    "IG",
-    "event",
-    "ad request",
-    "no content",
 ]
 
 # Analytics/scout defaults

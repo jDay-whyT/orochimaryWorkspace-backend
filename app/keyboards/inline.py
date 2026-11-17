@@ -4,50 +4,6 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.utils.formatting import format_date_short
 
 
-def nlp_accounting_content_keyboard(
-    selected: list[str],
-    model_id: str,
-    k: str = "",
-) -> InlineKeyboardMarkup:
-    """Multi-select content types for accounting Content property."""
-    s = f":{k}" if k else ""
-    builder = InlineKeyboardBuilder()
-
-    # Группа 1: Основные типы
-    row1 = []
-    for ct in ["of pack", "basic"]:
-        mark = "✅ " if ct in selected else "⬜ "
-        row1.append(InlineKeyboardButton(
-            text=f"{mark}{ct}",
-            callback_data=f"nlp:acct:{ct}{s}",
-        ))
-    builder.row(*row1)
-
-    # Группа 2: Платформы
-    row2 = []
-    for ct in ["twitter", "reddit", "fansly"]:
-        mark = "✅ " if ct in selected else "⬜ "
-        row2.append(InlineKeyboardButton(
-            text=f"{mark}{ct}",
-            callback_data=f"nlp:acct:{ct}{s}",
-        ))
-    builder.row(*row2)
-
-    # Группа 3: Специальные
-    row3 = []
-    for ct in ["ad request", "no content", "event"]:
-        mark = "✅ " if ct in selected else "⬜ "
-        row3.append(InlineKeyboardButton(
-            text=f"{mark}{ct}",
-            callback_data=f"nlp:acct:{ct}{s}",
-        ))
-    builder.row(*row3)
-
-    builder.row(InlineKeyboardButton(text="✓ Create", callback_data=f"nlp:accs:save{s}"))
-    builder.row(nlp_back_button(model_id))
-    return builder.as_markup()
-
-
 # ==================== NLP Router Keyboards ====================
 #
 # All NLP keyboards use SHORT callback_data (max ~55 bytes) to stay within
@@ -59,8 +15,8 @@ def nlp_accounting_content_keyboard(
 #   od  = order_date       oc  = order_confirm   sd  = shoot_date
 #   sdc = shoot_done_conf  ss  = shoot_select    co  = close_order
 #   cd  = close_date       ct  = comment_target  cmo = comment_order
-#   df  = disambig_files   do  = disambig_orders ro  = report_orders
-#   ra  = report_account   af  = add_files       act = model_action
+#   df  = disambig_files   do  = disambig_orders af  = add_files
+#   act = model_action
 #   om  = orders_menu      op  = orders_page     cp  = close_page
 #   fm  = files_menu       smn = shoot_menu      bk  = back (model_id)
 #   x   = cancel (c=cancel, m=menu) — no token needed
@@ -77,18 +33,6 @@ ORDER_TYPE_CB_MAP = {
     "verif_reddit": "verif reddit",
     "call": "call",
     "ad_request": "ad request",
-}
-
-# Display names for order types (user-facing)
-ORDER_TYPE_DISPLAY = {
-    "custom": "Custom",
-    "short": "Short",
-    "verif reddit": "Verif Reddit",
-    "verif_reddit": "Verif Reddit",
-    "Verif Reddit": "Verif Reddit",
-    "call": "Call",
-    "ad_request": "Ad Request",
-    "ad request": "Ad Request",
 }
 
 
@@ -331,18 +275,6 @@ def nlp_order_confirm_keyboard(model_id: str, k: str = "") -> InlineKeyboardMark
     s = f":{k}" if k else ""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✓ Create", callback_data=f"nlp:oc{s}")],
-        [nlp_back_button(model_id)],
-    ])
-
-
-def nlp_report_keyboard(model_id: str, k: str = "") -> InlineKeyboardMarkup:
-    """Report detail buttons. model_id in memory."""
-    s = f":{k}" if k else ""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="📦 Orders details", callback_data=f"nlp:ro{s}"),
-            InlineKeyboardButton(text="📁 Accounting details", callback_data=f"nlp:ra{s}"),
-        ],
         [nlp_back_button(model_id)],
     ])
 
