@@ -49,7 +49,7 @@ def make_shared_redis(url: str):
     from redis.asyncio import Redis as AioRedis
     from redis.backoff import ExponentialBackoff
     from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError
-    from redis.retry import Retry
+    from redis.asyncio.retry import Retry
 
     return AioRedis.from_url(
         url,

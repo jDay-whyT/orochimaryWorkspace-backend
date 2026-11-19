@@ -33,7 +33,7 @@ class RedisRecentModels:
         if self.redis_client is None:
             from redis.asyncio import Redis
             from redis.backoff import ExponentialBackoff
-            from redis.retry import Retry
+            from redis.asyncio.retry import Retry
 
             kwargs = dict(self.redis_kwargs)
             kwargs.setdefault("socket_keepalive", True)
