@@ -48,6 +48,8 @@ class Config:
     google_service_account_info: dict | None = None
     wml_username: str = ""
     wml_password: str = ""
+    kp_gateway_url: str = ""  # КП server (kp-helperAI) gateway for "kp:" buttons
+    kp_gateway_secret: str = ""
     # Accounting `assist` value (e.g. "robin") -> where that manager's reminders go:
     # (chat_id, None) for a DM, (group_chat_id, topic_thread_id) for a group topic
     manager_targets: dict[str, tuple[int, int | None]] = field(default_factory=dict)
@@ -258,6 +260,8 @@ def load_config(validate: bool = True) -> Config:
     google_service_account_info = _parse_google_service_account(os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", ""))
     wml_username = os.getenv("WML_USERNAME", "").strip()
     wml_password = os.getenv("WML_PASSWORD", "").strip()
+    kp_gateway_url = os.getenv("KP_GATEWAY_URL", "").strip()
+    kp_gateway_secret = os.getenv("KP_GATEWAY_SECRET", "").strip()
 
     config = Config(
         telegram_bot_token=telegram_bot_token,
@@ -297,6 +301,8 @@ def load_config(validate: bool = True) -> Config:
         digest_user_ids=_parse_user_ids(os.getenv("ACTIVITY_DIGEST_USER_IDS", "")),
         low_content_threshold=_int_env("LOW_CONTENT_THRESHOLD", 50),
         wml_password=wml_password,
+        kp_gateway_url=kp_gateway_url,
+        kp_gateway_secret=kp_gateway_secret,
     )
     
     if validate:

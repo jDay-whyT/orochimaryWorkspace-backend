@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher
 
 from app.config import Config
 from app.handlers import (
-    access, accounting_rename, lists, start, nlp_callbacks, notifications, reports,
+    access, accounting_rename, kp_callbacks, lists, start, nlp_callbacks, notifications, reports,
     salary_callbacks, tango, wml_callbacks, wml_export_cmd,
 )
 from app.services import NotionClient
@@ -31,6 +31,8 @@ def create_dispatcher(config: Config) -> tuple[Bot, Dispatcher, NotionClient, An
     dp.include_router(salary_callbacks.router)
     # NLP callback router (handles nlp: prefixed callbacks, including report detail)
     dp.include_router(nlp_callbacks.router)
+    # КП server buttons (kp: prefixed callbacks) -> signed forward to its gateway
+    dp.include_router(kp_callbacks.router)
     # WML "Add to Notion" button (wml_add: prefixed callbacks)
     dp.include_router(wml_callbacks.router)
     # /wml_test_orders + its send button (owner only)
