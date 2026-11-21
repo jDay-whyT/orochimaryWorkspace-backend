@@ -148,3 +148,47 @@ async def test_new_profile_message_is_escaped():
     await wml_sync._notify_new_profile(bot, SimpleNamespace(owner_telegram_id=1), None, profile, None)
     text = bot.send_message.await_args.kwargs["text"]
     assert "A&lt;b&gt;&amp;" in text and "O&lt;" in text and "S&amp;" in text
+
+
+@pytest.mark.asyncio
+async def test_transient_failure_alerts_only_on_third_run_in_a_row(monkeypatch):
+    """WML CRM down / Redis reset: silent for 2 hourly runs, one alert on the 3rd, reset after success."""
+    import requests
+    monkeypatch.setattr(wml_sync, "_fail_streak_fallback", 0)
+    inner = AsyncMock(side_effect=requests.ConnectTimeout("wml.pp.ua timed out"))
+    monkeypatch.setattr(wml_sync, "_run_wml_sync_inner", inner)
+    bot = SimpleNamespace(send_message=AsyncMock())
+    config = SimpleNamespace(owner_telegram_id=1)
+
+    for _ in range(2):
+        await wml_sync.run_wml_sync(bot, config, None, None)
+    bot.send_message.assert_not_awaited()
+    await wml_sync.run_wml_sync(bot, config, None, None)
+    assert bot.send_message.await_count == 1
+    await wml_sync.run_wml_sync(bot, config, None, None)  # 4th: no repeat spam
+    assert bot.send_message.await_count == 1
+
+    inner.side_effect = None
+    await wml_sync.run_wml_sync(bot, config, None, None)  # success resets
+    inner.side_effect = requests.ConnectTimeout("again")
+    await wml_sync.run_wml_sync(bot, config, None, None)
+    assert bot.send_message.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_non_network_failure_alerts_at_once(monkeypatch):
+    monkeypatch.setattr(wml_sync, "_fail_streak_fallback", 0)
+    monkeypatch.setattr(wml_sync, "_run_wml_sync_inner", AsyncMock(side_effect=ValueError("layout changed")))
+    bot = SimpleNamespace(send_message=AsyncMock())
+    await wml_sync.run_wml_sync(bot, SimpleNamespace(owner_telegram_id=1), None, None)
+    assert bot.send_message.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_fail_streak_uses_redis_counter(monkeypatch):
+    monkeypatch.setattr(wml_sync, "_run_wml_sync_inner", AsyncMock(side_effect=TimeoutError()))
+    redis = SimpleNamespace(incr=AsyncMock(return_value=3), delete=AsyncMock())
+    bot = SimpleNamespace(send_message=AsyncMock())
+    await wml_sync.run_wml_sync(bot, SimpleNamespace(owner_telegram_id=1), None, redis)
+    redis.incr.assert_awaited_once_with(wml_sync.WML_FAIL_STREAK_REDIS_KEY)
+    assert bot.send_message.await_count == 1

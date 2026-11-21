@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 import requests
+from redis import exceptions as redis_exceptions
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.config import Config
@@ -183,6 +184,11 @@ async def run_wml_sync(bot, config: Config, notion: NotionClient, redis=None) ->
         await _run_wml_sync_inner(bot, config, notion, redis)
     except Exception as e:
         LOGGER.exception("WML sync failed")
+        if isinstance(e, _TRANSIENT_ERRORS):
+            streak = await _bump_fail_streak(redis)
+            if streak != WML_FAIL_ALERT_STREAK:
+                LOGGER.warning("WML sync transient failure %d in a row, owner not notified", streak)
+                return
         try:
             await bot.send_message(
                 chat_id=config.owner_telegram_id,
@@ -190,6 +196,39 @@ async def run_wml_sync(bot, config: Config, notion: NotionClient, redis=None) ->
             )
         except Exception:
             LOGGER.exception("Failed to notify owner of WML sync failure")
+    else:
+        await _reset_fail_streak(redis)
+
+
+# Network blips (WML CRM down for an hour, Upstash connection reset) fix
+# themselves by the next hourly run, so the owner hears about them only when
+# they last WML_FAIL_ALERT_STREAK runs in a row. Other errors alert at once.
+_TRANSIENT_ERRORS = (requests.ConnectionError, requests.Timeout, ConnectionError, TimeoutError,
+                     redis_exceptions.ConnectionError, redis_exceptions.TimeoutError)
+WML_FAIL_ALERT_STREAK = 3
+WML_FAIL_STREAK_REDIS_KEY = "wml:fail_streak"
+_fail_streak_fallback = 0  # used when Redis itself is the thing that fails
+
+
+async def _bump_fail_streak(redis) -> int:
+    global _fail_streak_fallback
+    _fail_streak_fallback += 1
+    if redis is not None:
+        try:
+            return int(await redis.incr(WML_FAIL_STREAK_REDIS_KEY))
+        except Exception:
+            LOGGER.warning("Could not store WML fail streak in Redis, using in-memory count")
+    return _fail_streak_fallback
+
+
+async def _reset_fail_streak(redis) -> None:
+    global _fail_streak_fallback
+    _fail_streak_fallback = 0
+    if redis is not None:
+        try:
+            await redis.delete(WML_FAIL_STREAK_REDIS_KEY)
+        except Exception:
+            LOGGER.warning("Could not reset WML fail streak in Redis")
 
 
 async def _run_wml_sync_inner(bot, config: Config, notion: NotionClient, redis) -> None:
